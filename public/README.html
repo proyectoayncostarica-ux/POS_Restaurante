@@ -1,0 +1,77 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Gestión Restaurante - Información</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; padding: 2rem; background: #f9f9f9; color: #333; }
+        h1, h2, h3 { color: #2c3e50; }
+        code, pre { background: #eee; padding: 0.5em; border-radius: 4px; display: block; }
+        ul { margin-left: 1.5em; }
+        section { margin-bottom: 2rem; }
+    </style>
+</head>
+<body>
+    <h1>🍽️ Gestión Restaurante · Ver. 2.1</h1>
+    <p><strong>Sistema completo de gestión de restaurante.</strong> Controla zonas de atención, pedidos, cuentas, usuarios, reportes y más.</p>
+    <p><strong>Desarrollado por:</strong> Andrey Acuña</p>
+
+    <section>
+        <h2>⚙️ Tecnologías Utilizadas</h2>
+        <ul>
+            <li>Node.js + Express (backend)</li>
+            <li>SQLite3 (base de datos)</li>
+            <li>JavaScript Vanilla (frontend)</li>
+            <li>HTML/CSS</li>
+            <li>bcryptjs, express-session, multer, nodemon, etc.</li>
+        </ul>
+    </section>
+
+    <section>
+        <h2>📂 Estructura del Proyecto</h2>
+        <pre>
+restaurant-app/
+├── server/              → Lógica del backend
+│   ├── app.js           → Entrada del servidor
+├── public/              → Interfaz del sistema
+├── test_data.sql        → Datos de prueba
+├── package.json         → Dependencias
+        </pre>
+    </section>
+
+    <section>
+        <h2>🧠 Lógica del Sistema</h2>
+        <ul>
+            <li><strong>Control de sesión única</strong> y usuarios con permisos personalizados.</li>
+            <li><strong>Zonas:</strong> Mesas (salón) y Bancos (barra), visibles según rol.</li>
+            <li><strong>Pedidos:</strong> Agregar productos, editar, pagar por separado o completo.</li>
+            <li><strong>Pagos:</strong> Efectivo, tarjeta y crédito con validación de administrador.</li>
+            <li><strong>Configuraciones:</strong> idioma, moneda, tipo de cambio, impresora, fecha.</li>
+        </ul>
+    </section>
+
+    <section>
+        <h2>▶️ Instrucciones para Desarrolladores</h2>
+        <pre>
+npm install
+npm run dev      # Modo desarrollo
+npm start        # Producción
+        </pre>
+        <p><strong>Cargar datos de prueba:</strong></p>
+        <pre>sqlite3 database.db &lt; test_data.sql</pre>
+    </section>
+
+    <section>
+        <h2>🧩 Estado del Sistema</h2>
+        <ul>
+            <li>✅ Zonas y control de ocupación</li>
+            <li>✅ Pedidos y pagos</li>
+            <li>✅ Créditos y clave admin</li>
+            <li>✅ Permisos por usuario</li>
+            <li>🚧 Inventario (pendiente)</li>
+            <li>🚧 Facturación electrónica (futuro)</li>
+        </ul>
+    </section>
+</body>
+</html>

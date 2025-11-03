@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Gestión</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+    <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <base href="/POS/">
+</head>
+<body>
+    <!-- Pantalla de Login -->
+    <div id="login-screen" class="login-container">
+        <div class="login-box">
+            <div class="login-header">
+                <i class="fas fa-utensils"></i>
+                <h1>Sistema de Gestión</h1>
+                <p>Restaurante</p>
+            </div>
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="username">Usuario</label>
+                    <input type="text" id="username" name="username" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Contraseña</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-sign-in-alt"></i>
+                    Iniciar Sesión
+                </button>
+            </form>
+            <div id="login-error" class="error-message" style="display: none;"></div>
+        </div>
+    </div>
+
+    <!-- Aplicación Principal -->
+    <div id="main-app" class="app-container" style="display: none;">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-left">
+                <button id="menu-toggle" class="menu-toggle">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <h1 class="app-title">Sistema de Gestión</h1>
+                <p class="restaurant-name" id="restaurant-name"></p>
+            </div>
+            <div class="header-right">
+                <div class="user-info">
+                    <span id="current-user">Usuario</span>
+                    <span id="user-type" class="user-type">Tipo</span>
+                    <span id="current-datetime" class="current-datetime"></span>
+                </div>      
+                <button id="logout-btn" class="btn btn-secondary">
+                    <i class="fas fa-sign-out-alt"></i>
+                    Cerrar Sesión
+                </button>
+            </div>
+        </header>
+
+        <!-- Sidebar -->
+        <nav id="sidebar" class="sidebar">
+    <ul class="nav-menu">
+        <li class="nav-item">
+            <a href="#" data-section="dashboard" class="nav-link active">
+                <i class="fas fa-tachometer-alt"></i>
+                <span>Panel</span>
+            </a>
+        </li>
+        <li class="nav-item">
+            <a href="#" data-section="tables" class="nav-link">
+                <i class="fas fa-table"></i>
+                <span>Zonas</span>
+            </a>
+        </li>
+        <li class="nav-item">
+            <a href="#" data-section="menu" class="nav-link">
+                <i class="fas fa-utensils"></i>
+                <span>Menú</span>
+            </a>
+        </li>
+        <li class="nav-item">
+            <a href="#" data-section="orders" class="nav-link">
+                <i class="fas fa-receipt"></i>
+                <span>Cuentas</span>
+            </a>
+        </li>
+        <li class="nav-item">
+            <a href="#" data-section="accounts" class="nav-link">
+                <i class="fas fa-credit-card"></i>
+                <span>Créditos</span>
+            </a>
+        </li>
+        <li class="nav-item">
+            <a href="#" data-section="users" class="nav-link">
+                <i class="fas fa-users"></i>
+                <span>Usuarios</span>
+            </a>
+        </li>
+        <li class="nav-item">
+            <a href="#" data-section="settings" class="nav-link">
+                <i class="fas fa-cog"></i>
+                <span>Configuración</span>
+            </a>
+        </li>
+    </ul>
+
+    <!-- ⬇️ NUEVO BLOQUE AÑADIDO -->
+    <div class="sidebar-footer text-center text-muted small mt-4 mb-3">
+        Creado by Andrey Acuña · <a href="README.html" target="_blank" title="Ver documentación 📘" style="color: #007bff; text-decoration: underline; font-weight: bold;">ver. <span id="app-version">...</span></a>
+    </div>
+
+</nav>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Dashboard Section -->
+            <section id="dashboard-section" class="content-section active">
+                <div class="section-header">
+                    <h2 id="greeting-message"></h2>
+                    <p>Vista general del estado del restaurante</p>
+                </div>
+                <div class="btn-filtro-zonas">
+                    <button class="btn btn-zona" data-tipo="todos" onclick="Dashboard.filtrarPorZona('todos')">Todos</button>
+                    <button class="btn btn-zona" data-tipo="salon" onclick="Dashboard.filtrarPorZona('salon')">Salón</button>
+                    <button class="btn btn-zona" data-tipo="bar-mesa" onclick="Dashboard.filtrarPorZona('bar-mesa')">Bar</button>
+                    <button class="btn btn-zona" data-tipo="bar-banco" onclick="Dashboard.filtrarPorZona('bar-banco')">Barra</button>
+                </div>
+
+                <!-- Estados de Mesas -->
+                <div class="dashboard-tables">
+                    <h2 class="text-center">Estados de Zonas</h2>
+                    <div id="mesas-grid" class="mesas-grid">
+                        <!-- Las mesas se cargarán dinámicamente -->
+                    </div>
+                </div>
+
+                <!-- Primera fila de tarjetas: Cuentas y Créditos -->
+                <div class="dashboard-grid-row">
+                    <div class="dashboard-card" data-navigate="orders">
+                        <div class="card-icon">
+                            <i class="fas fa-receipt"></i>
+                        </div>
+                        <div class="card-content">
+                            <h3>Cuentas</h3>
+                            <div class="cuentas-status-grid">
+                                <div class="cuenta-status-item">
+                                    <span class="stat-value" id="cuentas-pendientes"></span>
+                                    <span class="stat-label">Cuentas Pendientes</span>
+                                </div>
+                                <div class="cuenta-status-item">
+                                    <span class="stat-value" id="cuentas-pagadas"></span>
+                                    <span class="stat-label">Cuentas Pagadas</span>
+                                </div>
+                                <div class="cuenta-status-item">
+                                    <span class="stat-value" id="creditos-pagados"></span>
+                                    <span class="stat-label">Créditos Pagados</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-card" data-navigate="accounts">
+                        <div class="card-icon">
+                            <i class="fas fa-file-invoice-dollar" style="color: #8B4513;"></i>
+                        </div>
+                        <div class="card-content">
+                            <h3>Créditos</h3>
+                            <div class="card-stats">
+                                <span class="stat-value-large" id="monto-total-creditos">₡0</span>
+                                <span class="stat-label">Disponibles</span>
+                                <div class="creditos-count">
+                                    <span class="stat-value-small" id="creditos-disponibles">0</span>
+                                    <span class="stat-label-small">Créditos</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Segunda fila de tarjetas: Ventas del Día y Mesas -->
+                <div class="dashboard-grid-row">
+                    <div class="dashboard-card clickable-card" id="ventas-del-dia-card">
+                        <div class="card-icon">
+                            <i class="fas fa-dollar-sign"></i>
+                        </div>
+                        <div class="card-content">
+                            <h3>Ventas del día</h3>
+                            <div class="card-stats">
+                                <div class="venta-detalle-item">
+                                    <span class="stat-value" id="ventas-contado"></span>
+                                    <span class="stat-label">Pago Contado</span>
+                                </div>
+                                <div class="venta-detalle-item">
+                                    <span class="stat-value" id="ventas-credito"></span>
+                                    <span class="stat-label">Pago Crédito</span>
+                                </div>
+                                <div class="venta-total-item">
+                                    <span class="stat-value-large" id="ventas-hoy"></span>
+                                    <span class="stat-label">Total</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-card" data-navigate="tables">
+  <div class="card-icon">
+    <i class="fas fa-table"></i>
+  </div>
+
+  <!--Validación Pago Crédito-->
+    <div class="card-content">
+    <h2 class="text-center">Zonas</h2>
+    <div class="zonas-status-grid">
+    <div id="modalAdminPass" class="modal" style="display:none;">
+    <div class="modal-content">
+        <h3>Autorización requerida</h3>
+        <p>Ingrese la contraseña del administrador para confirmar el pago a crédito.</p>
+        <input type="password" id="inputAdminPass" class="form-control" placeholder="Contraseña de administrador">
+        <div style="margin-top: 1rem; text-align: right;">
+        <button onclick="cerrarModalAdmin()" class="btn btn-secondary">Cancelar</button>
+        <button onclick="confirmarContrasenaAdmin()" class="btn btn-primary">Confirmar</button>
+        </div>
+    </div>
+    </div> 
+
+    <!-- MESAS -->
+    <div class="mesa-status-group">
+      <i class="fas fa-chair"></i> Mesas:
+      <div class="estado-inline">
+        <div class="estado-box">
+          <i class="fas fa-circle" style="color: green;"></i>
+          <span class="zona-label">Libres</span>
+          <span id="mesas-libres" class="zona-count">0</span>
+        </div>
+        <div class="estado-box">
+          <i class="fas fa-circle" style="color: red;"></i>
+          <span class="zona-label">Ocupadas</span>
+          <span id="mesas-ocupadas" class="zona-count">0</span>
+        </div>
+        <div class="estado-box">
+          <i class="fas fa-circle" style="color: orange;"></i>
+          <span class="zona-label">Reservadas</span>
+          <span id="mesas-reservadas" class="zona-count">0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- BANCOS -->
+    <div class="mesa-status-group">
+      <i class="fas fa-couch"></i> Bancos:
+      <div class="estado-inline">
+        <div class="estado-box">
+          <i class="fas fa-circle" style="color: green;"></i>
+          <span class="zona-label">Libres</span>
+          <span id="bancos-libres" class="zona-count">0</span>
+        </div>
+        <div class="estado-box">
+          <i class="fas fa-circle" style="color: red;"></i>
+          <span class="zona-label">Ocupados</span>
+          <span id="bancos-ocupados" class="zona-count">0</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+                </div>
+
+                <div class="dashboard-recent">
+                    <H2 class="text-center">Cuentas Pagadas del Día</H2>
+                    <h4 class="text-center">(Últimas 5)</h4>
+                    <div id="cuentas-pagadas-recientes" class="recent-accounts">
+                        <!-- Las cuentas se cargarán dinámicamente -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Otras secciones se cargarán dinámicamente -->
+            <section id="tables-section" class="content-section">
+                <!-- Contenido de mesas -->
+            </section>
+
+            <section id="menu-section" class="content-section">
+                <!-- Contenido de menú -->
+            </section>
+
+            <section id="orders-section" class="content-section">
+                <!-- Contenido de pedidos -->
+            </section>
+
+            <section id="accounts-section" class="content-section">
+                <!-- Contenido de cuentas -->
+            </section>
+
+            <section id="users-section" class="content-section">
+                <!-- Contenido de usuarios -->
+            </section>
+
+            <section id="settings-section" class="content-section">
+                <!-- Contenido de configuración -->
+            </section>
+        </main>
+    </div>
+
+    <!-- Modales -->
+    <div id="modal-overlay" class="modal-overlay" style="display: none;">
+        <div id="modal-content" class="modal-content">
+            <!-- Contenido del modal se carga dinámicamente -->
+        </div>
+    </div>
+
+    <!-- Notificaciones -->
+    <div id="notification-container" class="notification-container">
+        <!-- Las notificaciones se agregan dinámicamente -->
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/main.js"></script>
+    <script src="js/components/dashboard.js"></script>
+    <script src="js/components/tables.js"></script>
+    <script src="js/components/menu.js"></script>
+    <script src="js/components/orders.js"></script>
+    <script src="js/components/accounts.js"></script>
+    <script src="js/components/users.js"></script>
+    <script src="js/components/settings.js"></script>
+</body>
+</html>
+
