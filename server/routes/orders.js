@@ -227,112 +227,187 @@ if (typeof precio !== 'undefined') {
   }
 });
 
-// Agregar productos a un pedido existente
+// Agregar productos a un pedido existente (respetando presentaciones y precio unitario)
 router.post("/:id/products", async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { productos } = req.body;
+  try {
+    const { id } = req.params;
+    const { productos } = req.body;
 
-        if (!productos || productos.length === 0) {
-            return res.status(400).json({ error: "Productos son requeridos" });
-        }
+    if (!Array.isArray(productos) || productos.length === 0) {
+      return res.status(400).json({ error: "Productos son requeridos" });
+    }
 
-        // Verificar que el pedido existe y está pendiente
-        const pedido = await database.get("SELECT * FROM pedidos WHERE id = ? AND estado = ?", [id, "pendiente"]);
-        if (!pedido) {
-            return res.status(400).json({ error: "Pedido no encontrado o ya está procesado" });
-        }
+    // Verificar pedido pendiente
+    const pedido = await database.get(
+      "SELECT * FROM pedidos WHERE id = ? AND estado = ?",
+      [id, "pendiente"]
+    );
+    if (!pedido) {
+      return res
+        .status(400)
+        .json({ error: "Pedido no encontrado o ya está procesado" });
+    }
 
-        // Obtener zona (mesa) relacionada para personalizar historial
-        const zona = await database.get("SELECT numero, zona, tipo_asiento FROM mesas WHERE id = ?", [pedido.mesa_id]);
-        const nombreZona = zona?.zona?.toLowerCase() === 'bar'
-            ? (zona.tipo_asiento?.toLowerCase() === 'banco' ? 'banco' : 'mesa')
-            : 'mesa';
+    // Datos de mesa/zona para historial
+    const zona = await database.get(
+      "SELECT numero, zona, tipo_asiento FROM mesas WHERE id = ?",
+      [pedido.mesa_id]
+    );
+    const zonaTxt = (zona && zona.zona ? zona.zona : "").toLowerCase();
+    const asientoTxt = (zona && zona.tipo_asiento ? zona.tipo_asiento : "").toLowerCase();
+    const nombreZona =
+      zonaTxt === "bar" ? (asientoTxt === "banco" ? "banco" : "mesa") : "mesa";
 
-        let totalAdicional = 0;
-        const productosValidados = [];
+    let totalAdicional = 0;
+    const productosValidados = [];
 
-        for (const item of productos) {
-            const producto = await database.get("SELECT * FROM productos WHERE id = ?", [item.producto_id]);
-            if (!producto) {
-                return res.status(400).json({ error: `Producto con ID ${item.producto_id} no encontrado` });
+    for (const item of productos) {
+      const producto_id = Number(item.producto_id || 0);
+      const cantidad = Number(item.cantidad || 0);
+      if (!producto_id || !cantidad || cantidad <= 0) continue;
+
+      // Producto base
+      const producto = await database.get(
+        "SELECT id, precio, es_cocina FROM productos WHERE id = ?",
+        [producto_id]
+      );
+      if (!producto) {
+        return res
+          .status(400)
+          .json({ error: `Producto con ID ${producto_id} no encontrado` });
+      }
+
+      // Determinar presentacion y precio unitario
+      let presentacion_id = null;
+      if (item.presentacion_id != null) presentacion_id = Number(item.presentacion_id);
+      else if (item.presentacion_producto_id != null) presentacion_id = Number(item.presentacion_producto_id);
+
+      let precioUnitario = Number(
+        item.precio != null ? item.precio : item.precio_unitario
+      );
+      if (!Number.isFinite(precioUnitario) || precioUnitario <= 0) {
+        // Intento 1: buscar por presentaciones_producto.id = presentacion_id (si viene como tal)
+        if (presentacion_id != null) {
+          const pres = await database.get(
+            `SELECT pp.precio, p.es_cocina, pp.presentacion_id AS presentacion_base_id
+             FROM presentaciones_producto pp
+             JOIN productos p ON p.id = pp.producto_id
+             WHERE pp.id = ? AND pp.producto_id = ?`,
+            [presentacion_id, producto_id]
+          );
+          if (pres) {
+            precioUnitario = Number(pres.precio) || 0;
+            // Normalizar a id de presentacion base si aplica
+            if (pres.presentacion_base_id != null) {
+              presentacion_id = Number(pres.presentacion_base_id);
             }
-
-            const subtotal = producto.precio * item.cantidad;
-            totalAdicional += subtotal;
-
-            productosValidados.push({
-                producto_id: item.producto_id,
-                cantidad: item.cantidad,
-                precio_unitario: producto.precio,
-                precio_original: producto.precio,
-                es_cocina: producto.es_cocina,
-                presentacion_id: item.presentacion_id ?? null
-            });
-
+          }
         }
 
-        // Agregar productos al pedido
-// Agregar productos al pedido (consolidando si ya existen)
-for (const item of productosValidados) {
-    const existente = await database.get(
-        "SELECT id, cantidad FROM pedido_productos WHERE pedido_id = ? AND producto_id = ?",
-        [id, item.producto_id]
+        // Intento 2: buscar por presentacion_id (base) + producto
+        if ((!Number.isFinite(precioUnitario) || precioUnitario <= 0) && presentacion_id != null) {
+          const pres2 = await database.get(
+            `SELECT pp.precio, p.es_cocina
+             FROM presentaciones_producto pp
+             JOIN productos p ON p.id = pp.producto_id
+             WHERE pp.presentacion_id = ? AND pp.producto_id = ?`,
+            [presentacion_id, producto_id]
+          );
+          if (pres2) {
+            precioUnitario = Number(pres2.precio) || 0;
+          }
+        }
+
+        // Fallback al precio del producto
+        if (!Number.isFinite(precioUnitario) || precioUnitario <= 0) {
+          precioUnitario = Number(producto.precio) || 0;
+        }
+      }
+
+      const subtotal = precioUnitario * cantidad;
+      totalAdicional += subtotal;
+
+      productosValidados.push({
+        producto_id,
+        cantidad,
+        presentacion_id: presentacion_id != null ? presentacion_id : null,
+        precio_unitario: precioUnitario,
+        precio_original: precioUnitario,
+        es_cocina: !!producto.es_cocina
+      });
+    }
+
+    // Persistir (consolidando por producto + presentacion + precio_unitario)
+    for (const item of productosValidados) {
+      const existente = await database.get(
+        `SELECT id, cantidad FROM pedido_productos
+         WHERE pedido_id = ?
+           AND producto_id = ?
+           AND COALESCE(presentacion_id, 0) = COALESCE(?, 0)
+           AND precio_unitario = ?`,
+        [id, item.producto_id, item.presentacion_id, item.precio_unitario]
+      );
+
+      if (existente) {
+        await database.run(
+          "UPDATE pedido_productos SET cantidad = cantidad + ? WHERE id = ?",
+          [item.cantidad, existente.id]
+        );
+      } else {
+        await database.run(
+          `INSERT INTO pedido_productos
+            (pedido_id, producto_id, cantidad, precio_unitario, precio_original, presentacion_id)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [id, item.producto_id, item.cantidad, item.precio_unitario, item.precio_original, item.presentacion_id]
+        );
+      }
+    }
+
+    // Actualizar total del pedido
+    await database.run("UPDATE pedidos SET total = total + ? WHERE id = ?", [
+      totalAdicional,
+      id
+    ]);
+
+    // Comanda si hay productos de cocina
+    const productosCocina = productosValidados.filter((i) => i.es_cocina);
+    let comandaId = null;
+    if (productosCocina.length > 0) {
+      const comandaResult = await database.run(
+        "INSERT INTO comandas (mesa_id, productos_cocina, fecha_impresion, estado) VALUES (?, ?, ?, ?)",
+        [pedido.mesa_id, JSON.stringify(productosCocina), new Date().toISOString(), "pendiente"]
+      );
+      comandaId = comandaResult && comandaResult.id ? comandaResult.id : null;
+    }
+
+    // Historial
+    const userId = req.session && req.session.userId ? req.session.userId : null;
+    await database.run(
+      "INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)",
+      [
+        `agregar_productos_${nombreZona}`,
+        userId,
+        `Productos agregados al pedido ${id} (${nombreZona} ${zona ? zona.numero : ""})`,
+        new Date().toISOString()
+      ]
     );
 
-    if (existente) {
-        // Si el producto ya existe, actualizar la cantidad
-        await database.run(
-            "UPDATE pedido_productos SET cantidad = cantidad + ? WHERE id = ?",
-            [item.cantidad, existente.id]
-        );
-    } else {
-        // Si no existe, insertar nuevo
-        await database.run(
-            "INSERT INTO pedido_productos (pedido_id, producto_id, cantidad, precio_unitario, precio_original) VALUES (?, ?, ?, ?, ?)",
-            [id, item.producto_id, item.cantidad, item.precio_unitario, item.precio_original]
-        );
-    }
-}
-
-
-        // Actualizar total del pedido
-        await database.run(
-            "UPDATE pedidos SET total = total + ? WHERE id = ?",
-            [totalAdicional, id]
-        );
-
-        // Verificar si hay productos de cocina para generar comanda adicional
-        const productosCocina = productosValidados.filter(item => item.es_cocina);
-        let comandaId = null;
-
-        if (productosCocina.length > 0) {
-            const comandaResult = await database.run(
-                "INSERT INTO comandas (mesa_id, productos_cocina, fecha_impresion, estado) VALUES (?, ?, ?, ?)",
-                [pedido.mesa_id, JSON.stringify(productosCocina), new Date().toISOString(), "pendiente"]
-            );
-            comandaId = comandaResult.id;
-        }
-
-        // Registrar en historial con nombreZona
-        await database.run(
-            "INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)",
-            [`agregar_productos_${nombreZona}`, req.session.userId, `Productos agregados al pedido ${id} (${nombreZona} ${zona.numero})`, new Date().toISOString()]
-        );
-
-        res.json({
-            success: true,
-            data: {
-                total_adicional: totalAdicional,
-                comanda_id: comandaId,
-                requiere_comanda: productosCocina.length > 0
-            }
-        });
-    } catch (error) {
-        console.error("Error agregando productos al pedido:", error);
-        res.status(500).json({ error: "Error interno del servidor" });
-    }
+    return res.json({
+      success: true,
+      data: {
+        total_adicional: totalAdicional,
+        comanda_id: comandaId,
+        requiere_comanda: productosCocina.length > 0
+      }
+    });
+  } catch (error) {
+    console.error("Error agregando productos al pedido:", error);
+    return res
+      .status(500)
+      .json({ error: "Error interno del servidor" });
+  }
 });
+
 
 // Editar producto en pedido (reglas de negocio)
 router.put("/:pedido_id/products/:producto_id", async (req, res) => {

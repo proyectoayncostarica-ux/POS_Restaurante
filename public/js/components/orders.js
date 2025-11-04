@@ -25,7 +25,7 @@ const Orders = {
       return isNaN(n) ? 0 : n;
     },
 
-      // Leer total actual del modal de pago
+    // Leer total actual del modal de pago
     _readTotalFromPaymentModal() {
       // #pago-total es un <strong> con texto formateado
       const el = document.querySelector('#pago-total');
@@ -35,177 +35,177 @@ const Orders = {
       return isNaN(n) ? 0 : n;
     },
 
-  // === Sub-modal: Pago en efectivo (UI con badges y tipografía grande) ===
-showCashModal(orderId, aplicarServicio) {
-  const total = this._readTotalFromPaymentModal();
-  // 🔒 Persistir total para validaciones aunque se reemplace el DOM del modal
-  this._cashTotal = Number(total || 0);
+    // === Sub-modal: Pago en efectivo (UI con badges y tipografía grande) ===
+    showCashModal(orderId, aplicarServicio) {
+      const total = this._readTotalFromPaymentModal();
+      // 🔒 Persistir total para validaciones aunque se reemplace el DOM del modal
+      this._cashTotal = Number(total || 0);
 
-  Utils.showModal('Pago en efectivo', `
-    <div class="payment-cash">
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <span class="fw-semibold">Total a pagar</span>
-        <span id="cash-total-badge" class="badge bg-success px-3 py-2 fs-4 fw-bold" aria-live="polite">${Utils.formatCurrency(total)}</span>
-      </div>
+      Utils.showModal('Pago en efectivo', `
+        <div class="payment-cash">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="fw-semibold">Total a pagar</span>
+            <span id="cash-total-badge" class="badge bg-success px-3 py-2 fs-4 fw-bold" aria-live="polite">${Utils.formatCurrency(total)}</span>
+          </div>
 
-      <div class="form-group mb-2">
-        <label for="cash-recibido" class="fw-semibold">Efectivo recibido</label>
-        <input id="cash-recibido" type="text" class="form-control form-control-lg fw-bold" inputmode="decimal" placeholder="0,00" autocomplete="off">
-        <small id="cash-error" class="text-danger fw-semibold" style="display:none"></small>
-      </div>
+          <div class="form-group mb-2">
+            <label for="cash-recibido" class="fw-semibold">Efectivo recibido</label>
+            <input id="cash-recibido" type="text" class="form-control form-control-lg fw-bold" inputmode="decimal" placeholder="0,00" autocomplete="off">
+            <small id="cash-error" class="text-danger fw-semibold" style="display:none"></small>
+          </div>
 
-      <!-- Acciones rápidas -->
-      <div class="d-flex flex-wrap gap-2 mb-2">
-        <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-cash-exacto">Monto exacto</button>
-        <button type="button" class="btn btn-sm btn-outline-secondary cash-add" data-add="500">+₡500</button>
-        <button type="button" class="btn btn-sm btn-outline-secondary cash-add" data-add="1000">+₡1.000</button>
-        <button type="button" class="btn btn-sm btn-outline-secondary cash-add" data-add="2000">+₡2.000</button>
-        <button type="button" class="btn btn-sm btn-outline-secondary cash-add" data-add="5000">+₡5.000</button>
-        <button type="button" class="btn btn-sm btn-outline-secondary cash-add" data-add="10000">+₡10.000</button>
-      </div>
+          <!-- Acciones rápidas -->
+          <div class="d-flex flex-wrap gap-2 mb-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-cash-exacto">Monto exacto</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary cash-add" data-add="500">+₡500</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary cash-add" data-add="1000">+₡1.000</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary cash-add" data-add="2000">+₡2.000</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary cash-add" data-add="5000">+₡5.000</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary cash-add" data-add="10000">+₡10.000</button>
+          </div>
 
-      <!-- Redondeos -->
-      <div class="d-flex flex-wrap gap-2 mb-2">
-        <button type="button" class="btn btn-sm btn-outline-primary cash-round" data-step="100">Redondear a ₡100</button>
-        <button type="button" class="btn btn-sm btn-outline-primary cash-round" data-step="500">Redondear a ₡500</button>
-        <button type="button" class="btn btn-sm btn-outline-primary cash-round" data-step="1000">Redondear a ₡1.000</button>
-      </div>
+          <!-- Redondeos -->
+          <div class="d-flex flex-wrap gap-2 mb-2">
+            <button type="button" class="btn btn-sm btn-outline-primary cash-round" data-step="100">Redondear a ₡100</button>
+            <button type="button" class="btn btn-sm btn-outline-primary cash-round" data-step="500">Redondear a ₡500</button>
+            <button type="button" class="btn btn-sm btn-outline-primary cash-round" data-step="1000">Redondear a ₡1.000</button>
+          </div>
 
-      <hr class="my-2">
+          <hr class="my-2">
 
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <span class="fw-semibold">Faltante</span>
-        <span id="cash-faltante-badge" class="badge bg-danger px-3 py-2 fs-3 fw-bold" style="display:none" aria-live="polite">₡0,00</span>
-      </div>
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="fw-semibold">Faltante</span>
+            <span id="cash-faltante-badge" class="badge bg-danger px-3 py-2 fs-3 fw-bold" style="display:none" aria-live="polite">₡0,00</span>
+          </div>
 
-      <div class="d-flex justify-content-between align-items-center">
-        <span class="fw-semibold">Cambio</span>
-        <span id="cash-cambio-badge" class="badge bg-primary px-3 py-2 fs-4 fw-bold" aria-live="polite">₡0,00</span>
-      </div>
-    </div>
-  `, [
-    { text: 'Cancelar', class: 'btn-light' },
-    { text: 'Confirmar cobro', id: 'btn-confirm-cash', class: 'btn-success disabled', onclick: `Orders.confirmCash(${orderId}, ${aplicarServicio ? 'true' : 'false'})` }
-  ]);
+          <div class="d-flex justify-content-between align-items-center">
+            <span class="fw-semibold">Cambio</span>
+            <span id="cash-cambio-badge" class="badge bg-primary px-3 py-2 fs-4 fw-bold" aria-live="polite">₡0,00</span>
+          </div>
+        </div>
+      `, [
+        { text: 'Cancelar', class: 'btn-light' },
+        { text: 'Confirmar cobro', id: 'btn-confirm-cash', class: 'btn-success disabled', onclick: `Orders.confirmCash(${orderId}, ${aplicarServicio ? 'true' : 'false'})` }
+      ]);
 
-  const $inp   = document.getElementById('cash-recibido');
-  const $err   = document.getElementById('cash-error');
-  const $btn   = document.querySelector('#btn-confirm-cash');
+      const $inp   = document.getElementById('cash-recibido');
+      const $err   = document.getElementById('cash-error');
+      const $btn   = document.querySelector('#btn-confirm-cash');
 
-  const $faltanteBadge = document.getElementById('cash-faltante-badge');
-  const $cambioBadge   = document.getElementById('cash-cambio-badge');
+      const $faltanteBadge = document.getElementById('cash-faltante-badge');
+      const $cambioBadge   = document.getElementById('cash-cambio-badge');
 
-  // Usar el total persistido
-  const totalNum = Number(this._cashTotal || 0);
+      // Usar el total persistido
+      const totalNum = Number(this._cashTotal || 0);
 
-  const setBtnEnabled = (ok) => {
-    if (!$btn) return;
-    if (ok) { $btn.classList.remove('disabled'); $btn.removeAttribute('disabled'); }
-    else    { $btn.classList.add('disabled');    $btn.setAttribute('disabled', 'disabled'); }
-  };
+      const setBtnEnabled = (ok) => {
+        if (!$btn) return;
+        if (ok) { $btn.classList.remove('disabled'); $btn.removeAttribute('disabled'); }
+        else    { $btn.classList.add('disabled');    $btn.setAttribute('disabled', 'disabled'); }
+      };
 
-  const recalc = () => {
-    const recibido = this._parseMoney($inp.value);
-    if (recibido <= 0) {
-      $err.textContent = 'Ingrese un monto válido.';
-      $err.style.display = 'block';
-      $cambioBadge.textContent = Utils.formatCurrency(0);
-      $faltanteBadge.style.display = 'none';
-      setBtnEnabled(false);
-      return false;
-    }
-    if (recibido < totalNum) {
-      const faltante = totalNum - recibido;
-      $err.textContent = `Monto insuficiente. Faltan ${Utils.formatCurrency(faltante)}.`;
-      $err.style.display = 'block';
-      $faltanteBadge.textContent = Utils.formatCurrency(faltante);
-      $faltanteBadge.style.display = 'inline-block';
-      $cambioBadge.textContent = Utils.formatCurrency(0);
-      setBtnEnabled(false);
-      return false;
-    }
-    $err.style.display = 'none';
-    $faltanteBadge.style.display = 'none';
-    const cambio = Math.max(recibido - totalNum, 0);
-    $cambioBadge.textContent = Utils.formatCurrency(cambio);
-    setBtnEnabled(true);
-    return true;
-  };
+      const recalc = () => {
+        const recibido = this._parseMoney($inp.value);
+        if (recibido <= 0) {
+          $err.textContent = 'Ingrese un monto válido.';
+          $err.style.display = 'block';
+          $cambioBadge.textContent = Utils.formatCurrency(0);
+          $faltanteBadge.style.display = 'none';
+          setBtnEnabled(false);
+          return false;
+        }
+        if (recibido < totalNum) {
+          const faltante = totalNum - recibido;
+          $err.textContent = `Monto insuficiente. Faltan ${Utils.formatCurrency(faltante)}.`;
+          $err.style.display = 'block';
+          $faltanteBadge.textContent = Utils.formatCurrency(faltante);
+          $faltanteBadge.style.display = 'inline-block';
+          $cambioBadge.textContent = Utils.formatCurrency(0);
+          setBtnEnabled(false);
+          return false;
+        }
+        $err.style.display = 'none';
+        $faltanteBadge.style.display = 'none';
+        const cambio = Math.max(recibido - totalNum, 0);
+        $cambioBadge.textContent = Utils.formatCurrency(cambio);
+        setBtnEnabled(true);
+        return true;
+      };
 
-  $inp.addEventListener('input', recalc);
-  $inp.addEventListener('focus', () => { $inp.select(); });
-  $inp.addEventListener('blur', () => {
-    const n = this._parseMoney($inp.value);
-    $inp.value = n.toFixed(2).replace('.', ',');
-    recalc();
-  });
-  $inp.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      if (recalc()) this.confirmCash(orderId, aplicarServicio);
-      e.preventDefault();
-    }
-  });
+      $inp.addEventListener('input', recalc);
+      $inp.addEventListener('focus', () => { $inp.select(); });
+      $inp.addEventListener('blur', () => {
+        const n = this._parseMoney($inp.value);
+        $inp.value = n.toFixed(2).replace('.', ',');
+        recalc();
+      });
+      $inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          if (recalc()) this.confirmCash(orderId, aplicarServicio);
+          e.preventDefault();
+        }
+      });
 
-  document.getElementById('btn-cash-exacto')?.addEventListener('click', () => {
-    $inp.value = Number(totalNum).toFixed(2).replace('.', ',');
-    recalc();
-  });
+      document.getElementById('btn-cash-exacto')?.addEventListener('click', () => {
+        $inp.value = Number(totalNum).toFixed(2).replace('.', ',');
+        recalc();
+      });
 
-  document.querySelectorAll('.cash-add').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const add = Number(btn.getAttribute('data-add') || '0');
-      const cur = this._parseMoney($inp.value);
-      const val = Math.max(cur + add, 0);
-      $inp.value = val.toFixed(2).replace('.', ',');
-      recalc();
-    });
-  });
+      document.querySelectorAll('.cash-add').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const add = Number(btn.getAttribute('data-add') || '0');
+          const cur = this._parseMoney($inp.value);
+          const val = Math.max(cur + add, 0);
+          $inp.value = val.toFixed(2).replace('.', ',');
+          recalc();
+        });
+      });
 
-  document.querySelectorAll('.cash-round').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const step = Number(btn.getAttribute('data-step') || '1');
-      const cur = Math.max(this._parseMoney($inp.value || '0'), totalNum);
-      const rounded = Math.ceil(cur / step) * step;
-      $inp.value = rounded.toFixed(2).replace('.', ',');
-      recalc();
-    });
-  });
+      document.querySelectorAll('.cash-round').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const step = Number(btn.getAttribute('data-step') || '1');
+          const cur = Math.max(this._parseMoney($inp.value || '0'), totalNum);
+          const rounded = Math.ceil(cur / step) * step;
+          $inp.value = rounded.toFixed(2).replace('.', ',');
+          recalc();
+        });
+      });
 
-  setTimeout(() => $inp?.focus(), 50);
-},
+      setTimeout(() => $inp?.focus(), 50);
+    },
 
-// Confirmar pago en efectivo (validación robusta con total persistido)
-  confirmCash(orderId, aplicarServicio) {
-    const $btn = document.querySelector('#btn-confirm-cash');
-    if ($btn && ($btn.disabled || $btn.classList.contains('disabled'))) {
-      Utils.showNotification('Monto en efectivo insuficiente', 'warning');
-      return;
-    }
+    // Confirmar pago en efectivo (validación robusta con total persistido)
+    confirmCash(orderId, aplicarServicio) {
+      const $btn = document.querySelector('#btn-confirm-cash');
+      if ($btn && ($btn.disabled || $btn.classList.contains('disabled'))) {
+        Utils.showNotification('Monto en efectivo insuficiente', 'warning');
+        return;
+      }
 
-    // 1) Total desde memoria; 2) fallback: badge del submodal; 3) último recurso: modal de pago (puede no existir)
-    let total = Number(this._cashTotal || 0);
-    if (!total) {
-      const badgeTxt = document.getElementById('cash-total-badge')?.textContent || '';
-      total = this._parseMoney(badgeTxt);
-    }
-    if (!total) {
-      total = this._readTotalFromPaymentModal();
-    }
+      // 1) Total desde memoria; 2) fallback: badge del submodal; 3) último recurso: modal de pago (puede no existir)
+      let total = Number(this._cashTotal || 0);
+      if (!total) {
+        const badgeTxt = document.getElementById('cash-total-badge')?.textContent || '';
+        total = this._parseMoney(badgeTxt);
+      }
+      if (!total) {
+        total = this._readTotalFromPaymentModal();
+      }
 
-    const recibido = this._parseMoney(document.getElementById('cash-recibido')?.value || '0');
+      const recibido = this._parseMoney(document.getElementById('cash-recibido')?.value || '0');
 
-    // Epsilon por decimales
-    if (!(recibido > 0) || (recibido + 1e-6) < total) {
-      Utils.showNotification('Monto en efectivo insuficiente', 'warning');
-      return;
-    }
+      // Epsilon por decimales
+      if (!(recibido > 0) || (recibido + 1e-6) < total) {
+        Utils.showNotification('Monto en efectivo insuficiente', 'warning');
+        return;
+      }
 
-    const cambio = Math.max(recibido - total, 0);
+      const cambio = Math.max(recibido - total, 0);
 
-    Utils.hideModal();
-    this._lastCashInfo = { recibido, cambio, total };
-    this.finalizePayment(orderId, 'efectivo', aplicarServicio, null, this._lastCashInfo);
-  },
+      Utils.hideModal();
+      this._lastCashInfo = { recibido, cambio, total };
+      this.finalizePayment(orderId, 'efectivo', aplicarServicio, null, this._lastCashInfo);
+    },
 
     // Cargar datos de pedidos
     async load() {
@@ -632,34 +632,6 @@ showCashModal(orderId, aplicarServicio) {
     });
     },
 
-    // Agregar fila de producto
-    addProductRow() {
-        const container = document.getElementById('order-products');
-        const newRow = document.createElement('div');
-        newRow.className = 'product-selector';
-        newRow.innerHTML = `
-            <select class="product-select" onchange="Orders.updateProductPrice(this)">
-                <option value="">Seleccione un producto</option>
-                ${this.products.map(product => `
-                    <option value="${product.id}" data-price="${product.precio}" data-cocina="${product.es_cocina}">
-                        ${product.nombre} - ${Utils.formatCurrency(product.precio)}
-                    </option>
-                `).join('')}
-            </select>
-            <input type="number" class="product-quantity" min="1" value="1" placeholder="Cant." onchange="Orders.calculateTotal()">
-            <span class="product-price">$0.00</span>
-            <button type="button" class="btn btn-danger btn-sm" onclick="Orders.removeProductRow(this)">
-                <i class="fas fa-trash"></i>
-            </button>
-        `;
-        container.appendChild(newRow);
-    },
-
-    // Remover fila de producto
-    removeProductRow(button) {
-        button.parentElement.remove();
-        this.calculateTotal();
-    },
 
     // Actualizar precio del producto
     updateProductPrice(select) {
@@ -1036,56 +1008,55 @@ productos.forEach((item, i) => {
         this.finalizePayment(orderId, metodo_pago, aplicar_servicio, pass);
     },
 
-    // Mostrar modal para agregar productos 
-async showAddProductsModal(orderId) {
-  try {
-    // 1) Contexto del pedido
-    const resp = await Utils.request(`/orders/${orderId}`);
-    const raw = resp?.data?.data ?? resp?.data ?? resp;
-    const order = {
-      id: raw.id ?? raw.pedido?.id ?? raw.order?.id ?? orderId,
-      mesa_numero: raw.mesa_numero ?? raw.mesa?.numero ?? '',
-      zona: raw.zona ?? raw.mesa?.zona ?? '',
-      tipo_asiento: raw.tipo_asiento ?? raw.mesa?.tipo_asiento ?? ''
-    };
-    if (!order.id) throw new Error('Pedido no encontrado');
+    // Mostrar modal para agregar productos (con preservación del bucket)
+      async showAddProductsModal(orderId, opts = {}) {
+    const { preserve = false } = opts;
+    try {
+      const resp = await Utils.request(`/orders/${orderId}`);
+      const raw = resp?.data?.data ?? resp?.data ?? resp;
+      const order = {
+        id: raw.id ?? raw.pedido?.id ?? raw.order?.id ?? orderId,
+        mesa_numero: raw.mesa_numero ?? raw.mesa?.numero ?? '',
+        zona: raw.zona ?? raw.mesa?.zona ?? '',
+        tipo_asiento: raw.tipo_asiento ?? raw.mesa?.tipo_asiento ?? ''
+      };
+      if (!order.id) throw new Error('Pedido no encontrado');
 
-    this.activeOrderCtx = order;
-    this.modalContext = 'agregar';
-    this.selectedProductsAdd = {};
+      const sameOrder = Orders.activeOrderCtx && Orders.activeOrderCtx.id === order.id;
+      if (!preserve && !sameOrder) {
+        Orders.selectedProductsAdd = {};
+      }
 
-    // 2) Render del modal (reutiliza UI de pestañas)
-    Utils.showModal(
-      `Agregar productos — ${ (order.zona || '').toLowerCase() === 'bar'
-        ? ((order.tipo_asiento || '').toLowerCase() === 'banco' ? 'Banco' : 'Mesa')
-        : 'Mesa'
-      } ${order.mesa_numero || ''}`,
-      `
-        <div id="pedido-tabs" class="tabs"></div>
-        <div id="pedido-subcategorias" class="subcategorias"></div>
-        <div id="pedido-productos" class="productos-grid" style="min-height:200px;"></div>
-        <div class="order-total mt-3 mb-1">
-          <strong>Total Adicional: <span id="order-total">₡0,00</span></strong>
-        </div>
-      `,
-      [
-        { text: 'Cerrar', class: 'btn-light', onclick: () => Orders._cleanupAddModalOverrides() }
-      ],
-      'modal-lg'
-    );
+      Orders.activeOrderCtx = order;
+      Orders.modalContext = 'agregar';
 
-    // 3) Construir pestañas y preparar footer
-    await Menu.load();
-    this.loadTabsUI();            // crea pestañas + favoritos usando agregarProductoTemporalRouter
-    this._updateAddOrderTotal();  // pinta Total Adicional
-    this._refreshAddFooter(order);
+      Utils.showModal(
+        `Agregar productos — ${
+          (order.zona || '').toLowerCase() === 'bar'
+            ? ((order.tipo_asiento || '').toLowerCase() === 'banco' ? 'Banco' : 'Mesa')
+            : 'Mesa'
+        } ${order.mesa_numero || ''}`,
+        `
+          <div id="pedido-tabs" class="tabs"></div>
+          <div id="pedido-subcategorias" class="subcategorias"></div>
+          <div id="pedido-productos" class="productos-grid" style="min-height:200px;"></div>
+          <div class="order-total mt-3 mb-1">
+            <strong>Total Adicional: <span id="order-total">₡0,00</span></strong>
+          </div>
+        `,
+        [{ text: 'Cerrar', class: 'btn-light', onclick: () => Orders._cleanupAddModalOverrides() }],
+        'modal-lg'
+      );
 
-  } catch (e) {
-    console.error('Error en showAddProductsModal:', e);
-    Utils.showNotification(e?.message || 'Error cargando pedido', 'error');
-  }
-},
-
+      await Menu.load();
+      Orders.loadTabsUI();
+      Orders._updateAddOrderTotal();
+      Orders._refreshAddFooter(order);
+    } catch (e) {
+      console.error('Error en showAddProductsModal:', e);
+      Utils.showNotification(e?.message || 'Error cargando pedido', 'error');
+    }
+      },
 
     // Agregar fila de producto a la lista
     addProductRowToList() {
@@ -1666,13 +1637,14 @@ async showAddProductsModal(orderId) {
   this.updateOrderTotal();
   this.refreshCreateOrderModalUI();
     },
+
   // Router de contexto para click en card de producto
-  agregarProductoTemporalRouter(productoId) {
-    if (this.modalContext === 'agregar') {
-      return this.agregarProductoTemporalAdd(productoId);
-    }
-    return this.agregarProductoTemporal(productoId);
-  },
+    agregarProductoTemporalRouter(productoId) {
+      if (this.modalContext === 'agregar') {
+        return this.agregarProductoTemporalAdd(productoId);
+      }
+      return this.agregarProductoTemporal(productoId);
+    },
 
 
     //Actualiza el total del pedido
@@ -2269,39 +2241,42 @@ async showAddProductsModal(orderId) {
     },
 
     // Datos temporales para agregar productos a pedido existente
-  _updateAddOrderTotal() {
-    const bucket = this.selectedProductsAdd || {};
-    let total = 0;
-    for (const [key, item] of Object.entries(bucket)) {
-      if (typeof item === 'object') {
-        total += (item.precio || 0) * (item.cantidad || 0);
-      } else {
-        const pid = parseInt(key);
-        const p = (Menu.products || []).find(prod => prod.id === pid);
-        if (p) total += (p.precio || 0) * (item || 0);
+      _updateAddOrderTotal() {
+      const bucket = Orders.selectedProductsAdd || {};
+      let total = 0;
+      for (const [key, item] of Object.entries(bucket)) {
+        if (typeof item === 'object') {
+          const precio = Number(item.precio ?? item.precio_unitario ?? item.price ?? 0) || 0;
+          const cantidad = Number(item.cantidad ?? 0) || 0;
+          total += precio * cantidad;
+        } else {
+          const pid = parseInt(key);
+          const p = (Menu.products || []).find(prod => prod.id === pid);
+          if (p) total += (Number(p.precio) || 0) * (Number(item || 0) || 0);
+        }
       }
-    }
-    const totalEl = document.getElementById('order-total');
-    if (totalEl) totalEl.textContent = Utils.formatCurrency(total);
-  },
+      const totalEl = document.getElementById('order-total');
+      if (totalEl) totalEl.textContent = Utils.formatCurrency(total);
+      const totalEl2 = document.getElementById('add-order-summary-total');
+      if (totalEl2) totalEl2.textContent = Utils.formatCurrency(total);
+    },
 
     // Refresca el footer del modal de agregar a pedido
-  _refreshAddFooter(orderCtx) {
+    _refreshAddFooter(orderCtx) {
     const footer = document.querySelector('.modal-footer');
     if (!footer) return;
-    const ctx = orderCtx || this.activeOrderCtx || {};
+    const ctx = orderCtx || Orders.activeOrderCtx || {};
     const tipoZona = (ctx.zona || '').toLowerCase() === 'bar'
       ? ((ctx.tipo_asiento || '').toLowerCase() === 'banco' ? 'Banco' : 'Mesa')
       : 'Mesa';
 
-    const bucket = this.selectedProductsAdd || {};
+    const bucket = Orders.selectedProductsAdd || {};
     const cantidad = Object.values(bucket).reduce((acc, val) => {
       const c = (typeof val === 'object') ? parseInt(val.cantidad || 0) : parseInt(val || 0);
       return acc + (isNaN(c) ? 0 : c);
     }, 0);
 
     footer.innerHTML = '';
-
     const row = document.createElement('div');
     row.className = 'd-flex w-100 align-items-center justify-content-between flex-wrap gap-2';
 
@@ -2313,19 +2288,19 @@ async showAddProductsModal(orderId) {
     btnAdd.innerHTML = (cantidad > 0)
       ? `Agregar a ${tipoZona} ${ctx.mesa_numero || ''} (${cantidad})`
       : `Agregar a ${tipoZona} ${ctx.mesa_numero || ''}`;
-    btnAdd.onclick = () => this._confirmAddToOrder(ctx.id);
+    btnAdd.onclick = () => Orders.showAddSummaryModal(ctx.id);
     left.appendChild(btnAdd);
 
     const btnView = document.createElement('button');
     btnView.className = 'btn btn-warning text-white';
     btnView.innerHTML = '<i class="fas fa-eye"></i> Ver Pedido';
-    btnView.onclick = () => this.viewOrder(ctx.id);
+    btnView.onclick = () => Orders.viewOrder(ctx.id);
     left.appendChild(btnView);
 
     const btnCancel = document.createElement('button');
     btnCancel.className = 'btn btn-light';
     btnCancel.innerText = 'Cancelar';
-    btnCancel.onclick = () => this._cleanupAddModalOverrides(this.__addModalOrigRefs || {});
+    btnCancel.onclick = () => Orders._cleanupAddModalOverrides(Orders.__addModalOrigRefs || {});
     row.appendChild(left);
     row.appendChild(btnCancel);
 
@@ -2333,71 +2308,77 @@ async showAddProductsModal(orderId) {
   },
 
   // Confirma y envía los productos seleccionados para agregar al pedido
-  async _confirmAddToOrder(orderId) {
-    const bucket = this.selectedProductsAdd || {};
-    const merge = new Map();
+    async _confirmAddToOrder(orderId) {
+  const bucket = Orders.selectedProductsAdd || {};
+  const merge = new Map();
 
-    for (const [key, item] of Object.entries(bucket)) {
-      if (typeof item === 'object') {
-        const pid = parseInt(item.producto_id || key.split('_')[0]);
-        const presId = (item.presentacion_id != null) ? parseInt(item.presentacion_id) : null;
-        const cant = parseInt(item.cantidad || 0);
-        const precio = Number(item.precio || 0);
-        if (!pid || !cant) continue;
-        const mkey = `${pid}_${presId !== null ? presId : 'null'}_${precio || 0}`;
-        const prev = merge.get(mkey) || { producto_id: pid, cantidad: 0 };
-        prev.cantidad += cant;
-        if (presId != null) prev.presentacion_id = presId;
-        if (precio) prev.precio = precio;
-        merge.set(mkey, prev);
-      } else {
-        const pid = parseInt(key);
-        const cant = parseInt(item);
-        if (!pid || !cant) continue;
-        const mkey = `${pid}_null_0`;
-        const prev = merge.get(mkey) || { producto_id: pid, cantidad: 0 };
-        prev.cantidad += cant;
-        merge.set(mkey, prev);
+  for (const [key, item] of Object.entries(bucket)) {
+    if (typeof item === 'object') {
+      const pid = Number(item.producto_id || String(key).split('_')[0]) || 0;
+      const presId = (item.presentacion_id ?? item.presentacion_producto_id);
+      const pres = (presId !== null && presId !== undefined) ? Number(presId) : null;
+      const cant = Number(item.cantidad || 0) || 0;
+      const precio = Number(item.precio ?? item.precio_unitario ?? 0) || 0;
+      if (!pid || !cant) continue;
+      // Clave compuesta: producto + presentacion + precio
+      const mkey = `${pid}_${pres ?? 'null'}_${precio}`;
+      const prev = merge.get(mkey) || { producto_id: pid, cantidad: 0 };
+      prev.cantidad += cant;
+      if (pres !== null) {
+        prev.presentacion_id = pres;
+        prev.presentacion_producto_id = pres;
       }
-    }
-
-    const productos = Array.from(merge.values());
-    if (!productos.length) {
-      Utils.showNotification('Por favor agregue al menos un producto', 'warning');
-      return;
-    }
-
-    try {
-      const response = await Utils.request(`/orders/${orderId}/products`, {
-        method: 'POST',
-        body: JSON.stringify({ productos })
-      });
-      Utils.hideModal();
-      this._cleanupAddModalOverrides(this.__addModalOrigRefs || {}, { keepContext: true });
-
-      if (response?.data?.requiere_comanda) {
-        const confirmed = await Utils.confirm('¿Desea imprimir la comanda para cocina?', 'Comanda de Cocina');
-        if (confirmed && this.printComanda) this.printComanda(response.data.comanda_id);
+      if (precio) {
+        prev.precio = precio;
+        prev.precio_unitario = precio;
       }
-      Utils.showNotification('Productos agregados exitosamente', 'success');
-      this.selectedProductsAdd = {};
-      if (typeof Dashboard?.refreshData === 'function') {
-        Dashboard.refreshData(response?.data?.mesa_id ?? null);
-      }
-      this.load && this.load();
-    } catch (err) {
-      Utils.showNotification(err.message || 'Error agregando productos', 'error');
+      merge.set(mkey, prev);
+    } else {
+      const pid = Number(key) || 0;
+      const cant = Number(item) || 0;
+      if (!pid || !cant) continue;
+      const mkey = `${pid}_null_0`;
+      const prev = merge.get(mkey) || { producto_id: pid, cantidad: 0 };
+      prev.cantidad += cant;
+      merge.set(mkey, prev);
     }
-  },
+  }
+
+  const productos = Array.from(merge.values());
+  if (!productos.length) {
+    Utils.showNotification('Por favor agregue al menos un producto', 'warning');
+    return;
+  }
+
+  try {
+    const response = await Utils.request(`/orders/${orderId}/products`, {
+      method: 'POST',
+      body: JSON.stringify({ productos })
+    });
+
+    Utils.hideModal();
+    Orders._cleanupAddModalOverrides(Orders.__addModalOrigRefs || {}, { keepContext: true });
+    Utils.showNotification('Productos agregados exitosamente', 'success');
+
+    Orders.selectedProductsAdd = {};
+    if (typeof Dashboard?.refreshData === 'function') {
+      Dashboard.refreshData(response?.data?.mesa_id ?? null);
+    }
+    Orders.load && Orders.load();
+  } catch (err) {
+    console.error('❌ Error POST /orders/:id/products', err);
+    Utils.showNotification(err?.message || 'Error agregando productos', 'error');
+  }
+    },
 
   // Limpia overrides y estado temporal del modal de agregar a pedido
-  _cleanupAddModalOverrides() {
-    try {
-      this.selectedProductsAdd = {};
-      this.modalContext = 'nuevo';
-      Utils.hideModal();
-    } catch(e) {}
-  },
+    _cleanupAddModalOverrides() {
+      try {
+        this.selectedProductsAdd = {};
+        this.modalContext = 'nuevo';
+        Utils.hideModal();
+      } catch(e) {}
+    },
 
     // Imprimir comanda
     printComanda(comandaId) {
@@ -2545,51 +2526,191 @@ async showAddProductsModal(orderId) {
   },
 
   cancelarSeleccionPresentacionesAdd(productoId) {
-    this.borrarPresentacionesSeleccionadasAdd(productoId);
+    if (Orders.presentacionesSeleccionadasAdd?.[productoId]) {
+      delete Orders.presentacionesSeleccionadasAdd[productoId];
+    }
     Utils.hideModal();
     setTimeout(() => {
       try {
-        if (this.modalContext === 'agregar' && this.activeOrderId()) {
-          this.showAddProductsModal(this.activeOrderId());
+        if (Orders.modalContext === 'agregar' && Orders.activeOrderId && Orders.activeOrderId()) {
+          Orders.showAddProductsModal(Orders.activeOrderId(), { preserve: true });
         }
       } catch (e) { console.error(e); }
-    }, 150);
+    }, 100);
   },
 
+  showAddSummaryModal(orderId) {
+  const bucket = Orders.selectedProductsAdd || {};
+  if (!Object.keys(bucket).length) {
+    Utils.showNotification('No hay productos seleccionados', 'warning');
+    return;
+  }
+
+  // Construir filas
+  let total = 0;
+  const rows = Object.entries(bucket).map(([key, item]) => {
+    let nombre = '';
+    let cantidad = 0;
+    let precio = 0;
+
+    if (typeof item === 'object') {
+      nombre = item.nombre || '';
+      cantidad = Number(item.cantidad || 0) || 0;
+      precio = Number(item.precio ?? item.precio_unitario ?? 0) || 0;
+    } else {
+      const pid = parseInt(key);
+      const p = (Menu.products || []).find(prod => prod.id === pid);
+      nombre = p?.nombre || `Producto ${pid}`;
+      cantidad = Number(item || 0) || 0;
+      precio = Number(p?.precio || 0) || 0;
+    }
+
+    const subtotal = precio * cantidad;
+    total += subtotal;
+
+    return `
+      <tr id="row-add-${key}">
+        <td>${nombre || '-'}</td>
+        <td class="text-end"><strong class="cantidad">${cantidad}</strong></td>
+        <td class="text-end">${Utils.formatCurrency(precio)}</td>
+        <td class="text-end subtotal">${Utils.formatCurrency(subtotal)}</td>
+        <td class="text-center">
+          <div class="btn-group btn-group-sm" role="group">
+            <button type="button" class="btn btn-outline-secondary" onclick="Orders.addRestarProductoAdd('${key}')">
+              <i class="fas fa-minus"></i>
+            </button>
+            <button type="button" class="btn btn-outline-secondary" onclick="Orders.addSumarProductoAdd('${key}')">
+              <i class="fas fa-plus"></i>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  const contenido = `
+    <div class="table-responsive">
+      <table class="table table-bordered table-sm">
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th class="text-end">Cantidad</th>
+            <th class="text-end">Precio Unit.</th>
+            <th class="text-end">Subtotal</th>
+            <th class="text-center">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+        </tbody>
+      </table>
+    </div>
+    <div class="mt-3 text-end">
+      <h5>Total adicional: <span id="add-order-summary-total">${Utils.formatCurrency(total)}</span></h5>
+    </div>
+  `;
+
+  Utils.showModal(`Resumen — Agregar a Pedido #${orderId}`, contenido, [
+    {
+      text: 'Seguir Agregando',
+      class: 'btn-light',
+      align: 'left',
+      onclick: () => {
+        Utils.hideModal();
+        setTimeout(() => Orders.showAddProductsModal(orderId, { preserve: true }), 50);
+      }
+    },
+    {
+      text: 'Cancelar',
+      class: 'btn-danger',
+      align: 'left',
+      onclick: async () => {
+        const ok = await Utils.confirm('¿Desea limpiar los productos seleccionados?', 'Cancelar agregado');
+        if (!ok) return;
+        Orders.selectedProductsAdd = {};
+        Orders._updateAddOrderTotal();
+        Utils.hideModal();
+      }
+    },
+    {
+      text: 'Agregar a Pedido',
+      class: 'btn-success',
+      align: 'right',
+      onclick: () => Orders._confirmAddToOrder(orderId)
+    }
+  ]);
+  },
+
+  _addSumarProductoAdd(key) {
+  if (!Orders.selectedProductsAdd || Orders.selectedProductsAdd[key] == null) return;
+  if (typeof Orders.selectedProductsAdd[key] === 'object') {
+    Orders.selectedProductsAdd[key].cantidad = Number(Orders.selectedProductsAdd[key].cantidad || 0) + 1;
+  } else {
+    Orders.selectedProductsAdd[key] = Number(Orders.selectedProductsAdd[key] || 0) + 1;
+  }
+  Orders._updateAddOrderTotal();
+  Orders.showAddSummaryModal(Orders.activeOrderId && Orders.activeOrderId());
+  },
+
+  _addRestarProductoAdd(key) {
+    if (!Orders.selectedProductsAdd || Orders.selectedProductsAdd[key] == null) return;
+    if (typeof Orders.selectedProductsAdd[key] === 'object') {
+      const n = Number(Orders.selectedProductsAdd[key].cantidad || 0) - 1;
+      if (n > 0) Orders.selectedProductsAdd[key].cantidad = n; else delete Orders.selectedProductsAdd[key];
+    } else {
+      const n = Number(Orders.selectedProductsAdd[key] || 0) - 1;
+      if (n > 0) Orders.selectedProductsAdd[key] = n; else delete Orders.selectedProductsAdd[key];
+    }
+    Orders._updateAddOrderTotal();
+    Orders.showAddSummaryModal(Orders.activeOrderId && Orders.activeOrderId());
+  },
+
+
+
   confirmarPresentacionesAdd(productoId) {
-    const seleccion = this.presentacionesSeleccionadasAdd?.[productoId];
+    const seleccion = Orders.presentacionesSeleccionadasAdd?.[productoId];
     if (!seleccion || Object.keys(seleccion.presentaciones).length === 0) {
       Utils.showNotification('No hay presentaciones seleccionadas.', 'warning');
       return;
     }
     const producto = (Menu.products || []).find(p => p.id === productoId);
     const nombreProducto = producto?.nombre || 'Producto';
-    if (!this.selectedProductsAdd) this.selectedProductsAdd = {};
+    if (!Orders.selectedProductsAdd) Orders.selectedProductsAdd = {};
+
     for (const [presentacionProductoId, data] of Object.entries(seleccion.presentaciones)) {
       const key = `${productoId}_${presentacionProductoId}`;
-      if (!this.selectedProductsAdd[key]) {
-        this.selectedProductsAdd[key] = {
-          producto_id: productoId,
-          presentacion_id: parseInt(presentacionProductoId),
+      const precioNum = Number(data.precio) || 0;
+      if (!Orders.selectedProductsAdd[key]) {
+        Orders.selectedProductsAdd[key] = {
+          producto_id: Number(productoId),
+          presentacion_id: Number(presentacionProductoId),
+          presentacion_producto_id: Number(presentacionProductoId), // alias
           nombre: `${nombreProducto} - ${data.nombrePresentacion} (${data.cantidadTexto})`,
-          cantidad: data.cantidad,
-          precio: parseFloat(data.precio)
+          cantidad: Number(data.cantidad) || 0,
+          precio: precioNum,
+          precio_unitario: precioNum // alias
         };
       } else {
-        this.selectedProductsAdd[key].cantidad += data.cantidad;
+        Orders.selectedProductsAdd[key].cantidad += Number(data.cantidad) || 0;
+        if (!Orders.selectedProductsAdd[key].precio && precioNum) {
+          Orders.selectedProductsAdd[key].precio = precioNum;
+          Orders.selectedProductsAdd[key].precio_unitario = precioNum;
+        }
       }
     }
-    delete this.presentacionesSeleccionadasAdd[productoId];
-    this._updateAddOrderTotal();
-    this._refreshAddFooter(this.activeOrderCtx);
+
+    delete Orders.presentacionesSeleccionadasAdd?.[productoId];
+    Orders._updateAddOrderTotal();
+    Orders._refreshAddFooter(Orders.activeOrderCtx);
+
     Utils.hideModal();
     setTimeout(() => {
       try {
-        if (this.modalContext === 'agregar' && this.activeOrderId()) {
-          this.showAddProductsModal(this.activeOrderId());
+        if (Orders.modalContext === 'agregar' && Orders.activeOrderId && Orders.activeOrderId()) {
+          Orders.showAddProductsModal(Orders.activeOrderId(), { preserve: true });
         }
       } catch(e){ console.error(e); }
-    }, 150);
+    }, 80);
   },
 
   agregarProductoTemporalAdd(productoId) {
@@ -2610,3 +2731,493 @@ async showAddProductsModal(orderId) {
 
 
   
+
+
+/* ==========================================================================
+ * OVERRIDES SEGUROS PARA "AGREGAR PRODUCTOS A PEDIDO EXISTENTE"
+ * - Emulan la lógica estable de "Crear Pedido"
+ * - No rompen funciones existentes: se asignan al final sobre Orders.*
+ * - Incluyen: resumen antes de enviar, sumatoria robusta y payload correcto
+ * ========================================================================== */
+
+(function(){
+  if (typeof window === 'undefined') return;
+  if (typeof Orders !== 'object') return;
+
+  // Helper: ID de pedido activo
+  if (typeof Orders.activeOrderId !== 'function') {
+    Orders.activeOrderId = function() {
+      return (this.activeOrderCtx && this.activeOrderCtx.id) ? this.activeOrderCtx.id : null;
+    };
+  }
+
+  // === Helper total (equivalente al de Crear Pedido, pero para selectedProductsAdd)
+  Orders.getTotalSeleccionadoAdd = function() {
+    let total = 0;
+    const bucket = this.selectedProductsAdd || {};
+    for (const [key, item] of Object.entries(bucket)) {
+      if (typeof item === 'object') {
+        const precio   = Number(item.precio ?? item.precio_unitario ?? 0) || 0;
+        const cantidad = Number(item.cantidad ?? 0) || 0;
+        total += precio * cantidad;
+      } else {
+        const productoId = parseInt(key);
+        const p = (Menu.products || []).find(pr => pr.id === productoId);
+        if (p) total += (Number(p.precio) || 0) * (Number(item || 0) || 0);
+      }
+    }
+    return total;
+  };
+
+  // === Mostrar modal para agregar productos (preserva bucket al volver del submodal)
+  Orders.showAddProductsModal = async function(orderId, opts = {}) {
+    const { preserve = false } = opts;
+    try {
+      const resp = await Utils.request(`/orders/${orderId}`);
+      const raw = resp?.data?.data ?? resp?.data ?? resp;
+      const order = {
+        id: raw.id ?? raw.pedido?.id ?? raw.order?.id ?? orderId,
+        mesa_numero: raw.mesa_numero ?? raw.mesa?.numero ?? '',
+        zona: raw.zona ?? raw.mesa?.zona ?? '',
+        tipo_asiento: raw.tipo_asiento ?? raw.mesa?.tipo_asiento ?? ''
+      };
+      if (!order.id) throw new Error('Pedido no encontrado');
+
+      const sameOrder = this.activeOrderCtx && this.activeOrderCtx.id === order.id;
+      if (!preserve && !sameOrder) {
+        this.selectedProductsAdd = {};
+      }
+
+      this.activeOrderCtx = order;
+      this.modalContext = 'agregar';
+
+      Utils.showModal(
+        `Agregar productos — ${ (order.zona || '').toLowerCase() === 'bar'
+          ? ((order.tipo_asiento || '').toLowerCase() === 'banco' ? 'Banco' : 'Mesa')
+          : 'Mesa'
+        } ${order.mesa_numero || ''}`,
+        `
+          <div id="pedido-tabs" class="tabs"></div>
+          <div id="pedido-subcategorias" class="subcategorias"></div>
+          <div id="pedido-productos" class="productos-grid" style="min-height:200px;"></div>
+          <div class="order-total mt-3 mb-1">
+            <strong>Total Adicional: <span id="order-total">₡0,00</span></strong>
+          </div>
+        `,
+        [
+          { text: 'Cerrar', class: 'btn-light', onclick: () => Orders._cleanupAddModalOverrides && Orders._cleanupAddModalOverrides() }
+        ],
+        'modal-lg'
+      );
+
+      await Menu.load();
+      this.loadTabsUI && this.loadTabsUI();
+      this._updateAddOrderTotal();
+      this._refreshAddFooter(order);
+    } catch (e) {
+      console.error('Error en showAddProductsModal:', e);
+      Utils.showNotification(e?.message || 'Error cargando pedido', 'error');
+    }
+  };
+
+  // === Submodal de presentaciones (modo "Agregar a pedido")
+  Orders.showPresentacionesSelectorAdd = function(producto) {
+    const productoId = producto.id;
+    if (!this.presentacionesSeleccionadasAdd) this.presentacionesSeleccionadasAdd = {};
+    this.presentacionesSeleccionadasAdd[productoId] = { nombreProducto: producto.nombre, presentaciones: {} };
+
+    Utils.request(`/menu/products/${productoId}/presentaciones`).then(response => {
+      const { presentaciones } = response.data;
+      const asignadas = (presentaciones || []).filter(p => p.asignada);
+      if (asignadas.length === 0) {
+        Utils.showNotification("Este producto no tiene presentaciones asignadas.", "info");
+        return;
+      }
+      const cardsHTML = asignadas.map(p => {
+        const nombreSafe = encodeURIComponent(p.nombre);
+        const cantidadSafe = encodeURIComponent(p.cantidad);
+        return `
+          <div class="producto-card" onclick="Orders.agregarPresentacionAdd(
+            ${productoId},
+            ${p.id},
+            decodeURIComponent('${nombreSafe}'),
+            ${p.precio},
+            decodeURIComponent('${cantidadSafe}')
+          )">
+            <div class="producto-nombre">${p.nombre}</div>
+            <div class="producto-precio">₡${parseFloat(p.precio).toFixed(2)}</div>
+          </div>
+        `;
+      }).join('');
+
+      Utils.showModal(
+        `Seleccionar presentaciones para: ${producto.nombre}`,
+        `
+          <div id="selector-presentaciones-grid" class="productos-grid mb-3">${cardsHTML}</div>
+          <div id="resumen-presentaciones-add">${Orders.renderResumenPresentacionesAdd ? Orders.renderResumenPresentacionesAdd(productoId) : ''}</div>
+        `,
+        [
+          { text: 'Agregar', class: 'btn-success', onclick: `Orders.confirmarPresentacionesAdd(${productoId})` },
+          { text: 'Borrar', class: 'btn-secondary', align: 'left', onclick: `Orders.borrarPresentacionesSeleccionadasAdd && Orders.borrarPresentacionesSeleccionadasAdd(${productoId})` },
+          { text: 'Cancelar', class: 'btn-light', align: 'right', onclick: `Orders.cancelarSeleccionPresentacionesAdd(${productoId})` }
+        ],
+        'modal-lg'
+      );
+    }).catch(err => {
+      console.error("Error cargando presentaciones:", err);
+      Utils.showNotification("Error cargando presentaciones del producto", "error");
+    });
+  };
+
+  Orders.agregarPresentacionAdd = function(productoId, presentacionProductoId, nombrePresentacion, precio, cantidadTexto) {
+    if (!this.presentacionesSeleccionadasAdd) this.presentacionesSeleccionadasAdd = {};
+    if (!this.presentacionesSeleccionadasAdd[productoId]) {
+      const producto = (Menu.products || []).find(p => p.id === productoId);
+      this.presentacionesSeleccionadasAdd[productoId] = { nombreProducto: producto?.nombre || 'Producto', presentaciones: {} };
+    }
+    const seleccion = this.presentacionesSeleccionadasAdd[productoId];
+    if (seleccion.presentaciones[presentacionProductoId]) {
+      seleccion.presentaciones[presentacionProductoId].cantidad += 1;
+    } else {
+      seleccion.presentaciones[presentacionProductoId] = {
+        nombrePresentacion,
+        precio: Number(precio) || 0,
+        cantidadTexto,
+        cantidad: 1,
+        presentacion_id: presentacionProductoId
+      };
+    }
+    this.renderResumenPresentacionesAdd && this.renderResumenPresentacionesAdd(productoId, true);
+  };
+
+  Orders.cancelarSeleccionPresentacionesAdd = function(productoId) {
+    if (this.presentacionesSeleccionadasAdd?.[productoId]) {
+      delete this.presentacionesSeleccionadasAdd[productoId];
+    }
+    Utils.hideModal();
+    setTimeout(() => {
+      try {
+        if (this.modalContext === 'agregar' && this.activeOrderId()) {
+          this.showAddProductsModal(this.activeOrderId(), { preserve: true });
+        }
+      } catch (e) { console.error(e); }
+    }, 100);
+  };
+
+  Orders.confirmarPresentacionesAdd = function(productoId) {
+    const seleccion = this.presentacionesSeleccionadasAdd?.[productoId];
+    if (!seleccion || Object.keys(seleccion.presentaciones).length === 0) {
+      Utils.showNotification('No hay presentaciones seleccionadas.', 'warning');
+      return;
+    }
+    const producto = (Menu.products || []).find(p => p.id === productoId);
+    const nombreProducto = producto?.nombre || 'Producto';
+    if (!this.selectedProductsAdd) this.selectedProductsAdd = {};
+
+    for (const [presentacionProductoId, data] of Object.entries(seleccion.presentaciones)) {
+      const key = `${productoId}_${presentacionProductoId}`;
+      const precioNum = Number(data.precio) || 0;
+      if (!this.selectedProductsAdd[key]) {
+        this.selectedProductsAdd[key] = {
+          producto_id: Number(productoId),
+          presentacion_id: Number(presentacionProductoId),
+          presentacion_producto_id: Number(presentacionProductoId),
+          nombre: `${nombreProducto} - ${data.nombrePresentacion} (${data.cantidadTexto})`,
+          cantidad: Number(data.cantidad) || 0,
+          precio: precioNum,
+          precio_unitario: precioNum
+        };
+      } else {
+        this.selectedProductsAdd[key].cantidad += Number(data.cantidad) || 0;
+        if (!this.selectedProductsAdd[key].precio && precioNum) {
+          this.selectedProductsAdd[key].precio = precioNum;
+          this.selectedProductsAdd[key].precio_unitario = precioNum;
+        }
+      }
+    }
+
+    delete this.presentacionesSeleccionadasAdd[productoId];
+    this._updateAddOrderTotal();
+    this._refreshAddFooter(this.activeOrderCtx);
+    Utils.hideModal();
+    setTimeout(() => {
+      try {
+        if (this.modalContext === 'agregar' && this.activeOrderId()) {
+          this.showAddProductsModal(this.activeOrderId(), { preserve: true });
+        }
+      } catch(e){ console.error(e); }
+    }, 80);
+  };
+
+  // === Agregar producto desde card (modo agregar a pedido)
+  Orders.agregarProductoTemporalAdd = function(productoId) {
+    if (!this.selectedProductsAdd) this.selectedProductsAdd = {};
+    const producto = (Menu.products || []).find(p => p.id === productoId);
+    if (!producto) return;
+    if (producto.tiene_presentaciones) {
+      this.showPresentacionesSelectorAdd(producto);
+      return;
+    }
+    const key = String(productoId);
+    this.selectedProductsAdd[key] = (this.selectedProductsAdd[key] || 0) + 1;
+    this._updateAddOrderTotal();
+    this._refreshAddFooter(this.activeOrderCtx);
+  };
+
+  // === Total robusto (actualiza #order-total y #add-order-summary-total)
+  Orders._updateAddOrderTotal = function() {
+    const total = this.getTotalSeleccionadoAdd();
+    const el1 = document.getElementById('order-total');
+    if (el1) el1.textContent = Utils.formatCurrency(total);
+    const el2 = document.getElementById('add-order-summary-total');
+    if (el2) el2.textContent = Utils.formatCurrency(total);
+  };
+
+  // === Footer: abre resumen; si no existe resumen, confirma directo
+  Orders._refreshAddFooter = function(orderCtx) {
+    const footer = document.querySelector('.modal-footer');
+    if (!footer) return;
+    const ctx = orderCtx || this.activeOrderCtx || {};
+    const tipoZona = (ctx.zona || '').toLowerCase() === 'bar'
+      ? ((ctx.tipo_asiento || '').toLowerCase() === 'banco' ? 'Banco' : 'Mesa')
+      : 'Mesa';
+
+    const bucket = this.selectedProductsAdd || {};
+    const cantidad = Object.values(bucket).reduce((acc, val) => {
+      const c = (typeof val === 'object') ? parseInt(val.cantidad || 0) : parseInt(val || 0);
+      return acc + (isNaN(c) ? 0 : c);
+    }, 0);
+
+    footer.innerHTML = '';
+    const row = document.createElement('div');
+    row.className = 'd-flex w-100 align-items-center justify-content-between flex-wrap gap-2';
+
+    const left = document.createElement('div');
+    left.className = 'd-flex align-items-center gap-2 flex-wrap';
+
+    const btnAdd = document.createElement('button');
+    btnAdd.className = 'btn btn-success';
+    btnAdd.innerHTML = (cantidad > 0)
+      ? `Agregar a ${tipoZona} ${ctx.mesa_numero || ''} (${cantidad})`
+      : `Agregar a ${tipoZona} ${ctx.mesa_numero || ''}`;
+
+    const safeOrderId = ctx.id || (this.activeOrderCtx && this.activeOrderCtx.id);
+    btnAdd.onclick = () => {
+      try {
+        if (typeof this.showAddSummaryModal === 'function') {
+          this.showAddSummaryModal(safeOrderId);
+        } else {
+          this._confirmAddToOrder(safeOrderId);
+        }
+      } catch (e) {
+        console.error('[Add Footer] click error:', e);
+        try { this._confirmAddToOrder(safeOrderId); } catch(_) {}
+      }
+    };
+    left.appendChild(btnAdd);
+
+    const btnView = document.createElement('button');
+    btnView.className = 'btn btn-warning text-white';
+    btnView.innerHTML = '<i class="fas fa-eye"></i> Ver Pedido';
+    btnView.onclick = () => this.viewOrder(safeOrderId);
+    left.appendChild(btnView);
+
+    const btnCancel = document.createElement('button');
+    btnCancel.className = 'btn btn-light';
+    btnCancel.innerText = 'Cancelar';
+    btnCancel.onclick = () => this._cleanupAddModalOverrides && this._cleanupAddModalOverrides(this.__addModalOrigRefs || {});
+    row.appendChild(left);
+    row.appendChild(btnCancel);
+    footer.appendChild(row);
+  };
+
+  // === Resumen antes de confirmar (idéntico UX a Crear Pedido)
+  Orders.showAddSummaryModal = function(orderId) {
+    const bucket = this.selectedProductsAdd || {};
+    if (!Object.keys(bucket).length) {
+      Utils.showNotification('No hay productos seleccionados', 'warning');
+      return;
+    }
+
+    let total = 0;
+    const rows = Object.entries(bucket).map(([key, item]) => {
+      let nombre = '';
+      let cantidad = 0;
+      let precio = 0;
+
+      if (typeof item === 'object') {
+        nombre = item.nombre || '';
+        cantidad = Number(item.cantidad || 0) || 0;
+        precio = Number(item.precio ?? item.precio_unitario ?? 0) || 0;
+      } else {
+        const pid = parseInt(key);
+        const p = (Menu.products || []).find(prod => prod.id === pid);
+        nombre = p?.nombre || `Producto ${pid}`;
+        cantidad = Number(item || 0) || 0;
+        precio = Number(p?.precio || 0) || 0;
+      }
+
+      const subtotal = precio * cantidad;
+      total += subtotal;
+
+      return `
+        <tr id="row-add-${key}">
+          <td>${nombre || '-'}</td>
+          <td class="text-end"><strong class="cantidad">${cantidad}</strong></td>
+          <td class="text-end">${Utils.formatCurrency(precio)}</td>
+          <td class="text-end subtotal">${Utils.formatCurrency(subtotal)}</td>
+          <td class="text-center">
+            <div class="btn-group btn-group-sm" role="group">
+              <button type="button" class="btn btn-outline-secondary" onclick="Orders.addRestarProductoAdd('${key}')">
+                <i class="fas fa-minus"></i>
+              </button>
+              <button type="button" class="btn btn-outline-secondary" onclick="Orders.addSumarProductoAdd('${key}')">
+                <i class="fas fa-plus"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    const contenido = `
+      <div class="table-responsive">
+        <table class="table table-bordered table-sm">
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th class="text-end">Cantidad</th>
+              <th class="text-end">Precio Unit.</th>
+              <th class="text-end">Subtotal</th>
+              <th class="text-center">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <div class="mt-3 text-end">
+        <h5>Total adicional: <span id="add-order-summary-total">${Utils.formatCurrency(total)}</span></h5>
+      </div>
+    `;
+
+    Utils.showModal(`Resumen — Agregar a Pedido #${orderId}`, contenido, [
+      {
+        text: 'Seguir Agregando',
+        class: 'btn-light',
+        align: 'left',
+        onclick: () => {
+          Utils.hideModal();
+          setTimeout(() => Orders.showAddProductsModal(orderId, { preserve: true }), 50);
+        }
+      },
+      {
+        text: 'Cancelar',
+        class: 'btn-danger',
+        align: 'left',
+        onclick: async () => {
+          const ok = await Utils.confirm('¿Desea limpiar los productos seleccionados?', 'Cancelar agregado');
+          if (!ok) return;
+          Orders.selectedProductsAdd = {};
+          Orders._updateAddOrderTotal();
+          Utils.hideModal();
+        }
+      },
+      {
+        text: 'Agregar a Pedido',
+        class: 'btn-success',
+        align: 'right',
+        onclick: () => Orders._confirmAddToOrder(orderId)
+      }
+    ]);
+  };
+
+  // === Handlers +/- para el resumen
+  Orders.addSumarProductoAdd = function(key) {
+    if (!this.selectedProductsAdd || this.selectedProductsAdd[key] == null) return;
+    if (typeof this.selectedProductsAdd[key] === 'object') {
+      this.selectedProductsAdd[key].cantidad = Number(this.selectedProductsAdd[key].cantidad || 0) + 1;
+    } else {
+      this.selectedProductsAdd[key] = Number(this.selectedProductsAdd[key] || 0) + 1;
+    }
+    this._updateAddOrderTotal();
+    const oid = this.activeOrderId && this.activeOrderId();
+    if (oid) this.showAddSummaryModal(oid);
+  };
+  Orders.addRestarProductoAdd = function(key) {
+    if (!this.selectedProductsAdd || this.selectedProductsAdd[key] == null) return;
+    if (typeof this.selectedProductsAdd[key] === 'object') {
+      const n = Number(this.selectedProductsAdd[key].cantidad || 0) - 1;
+      if (n > 0) this.selectedProductsAdd[key].cantidad = n; else delete this.selectedProductsAdd[key];
+    } else {
+      const n = Number(this.selectedProductsAdd[key] || 0) - 1;
+      if (n > 0) this.selectedProductsAdd[key] = n; else delete this.selectedProductsAdd[key];
+    }
+    this._updateAddOrderTotal();
+    const oid = this.activeOrderId && this.activeOrderId();
+    if (oid) this.showAddSummaryModal(oid);
+  };
+
+  // === Confirmación: agrupa por producto + presentacion + precio (evita mezclar 350/750)
+  Orders._confirmAddToOrder = async function(orderId) {
+    const bucket = this.selectedProductsAdd || {};
+    const merge = new Map();
+
+    for (const [key, item] of Object.entries(bucket)) {
+      if (typeof item === 'object') {
+        const pid    = Number(item.producto_id || String(key).split('_')[0]) || 0;
+        const presId = (item.presentacion_id ?? item.presentacion_producto_id);
+        const pres   = (presId !== null && presId !== undefined) ? Number(presId) : null;
+        const cant   = Number(item.cantidad || 0) || 0;
+        const precio = Number(item.precio ?? item.precio_unitario ?? 0) || 0;
+        if (!pid || !cant) continue;
+        const mkey = `${pid}_${pres ?? 'null'}_${precio}`;
+        const prev = merge.get(mkey) || { producto_id: pid, cantidad: 0 };
+        prev.cantidad += cant;
+        if (pres !== null) {
+          prev.presentacion_id = pres;
+          prev.presentacion_producto_id = pres;
+        }
+        if (precio) {
+          prev.precio = precio;
+          prev.precio_unitario = precio;
+        }
+        merge.set(mkey, prev);
+      } else {
+        const pid = Number(key) || 0;
+        const cant = Number(item) || 0;
+        if (!pid || !cant) continue;
+        const mkey = `${pid}_null_0`;
+        const prev = merge.get(mkey) || { producto_id: pid, cantidad: 0 };
+        prev.cantidad += cant;
+        merge.set(mkey, prev);
+      }
+    }
+
+    const productos = Array.from(merge.values());
+    if (!productos.length) {
+      Utils.showNotification('Por favor agregue al menos un producto', 'warning');
+      return;
+    }
+
+    try {
+      const response = await Utils.request(`/orders/${orderId}/products`, {
+        method: 'POST',
+        body: JSON.stringify({ productos })
+      });
+
+      Utils.hideModal();
+      this._cleanupAddModalOverrides && this._cleanupAddModalOverrides(this.__addModalOrigRefs || {}, { keepContext: true });
+      Utils.showNotification('Productos agregados exitosamente', 'success');
+
+      this.selectedProductsAdd = {};
+      if (typeof Dashboard?.refreshData === 'function') {
+        Dashboard.refreshData(response?.data?.mesa_id ?? null);
+      }
+      this.load && this.load();
+    } catch (err) {
+      console.error('❌ Error POST /orders/:id/products', err);
+      Utils.showNotification(err?.message || 'Error agregando productos', 'error');
+    }
+  };
+
+})(); // fin overrides
