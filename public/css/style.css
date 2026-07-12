@@ -43,7 +43,7 @@ body {
     align-items: center;
     min-height: 100vh;
     overflow: hidden;
-    padding: 1.5rem;
+    padding: 1.5rem 1.5rem 7rem;
     background:
         radial-gradient(circle at 18% 18%, rgba(255, 255, 255, 0.16), transparent 28%),
         radial-gradient(circle at 82% 12%, rgba(52, 152, 219, 0.22), transparent 32%),
@@ -196,6 +196,36 @@ body {
     align-items: center;
     justify-content: center;
     gap: 0.55rem;
+}
+
+.login-institutional {
+    position: absolute;
+    z-index: 1;
+    left: 50%;
+    bottom: clamp(1rem, 3vh, 2rem);
+    display: flex;
+    width: min(92%, 620px);
+    flex-direction: column;
+    align-items: center;
+    gap: 0.2rem;
+    color: rgba(226, 232, 240, 0.72);
+    text-align: center;
+    font-size: 0.75rem;
+    line-height: 1.35;
+    letter-spacing: 0.02em;
+    transform: translateX(-50%);
+}
+
+.login-institutional strong {
+    color: rgba(248, 250, 252, 0.94);
+    font-size: 0.86rem;
+    font-weight: 700;
+    letter-spacing: 0.025em;
+}
+
+.login-institutional-version {
+    color: rgba(191, 219, 254, 0.82);
+    font-weight: 600;
 }
 
 .login-container.login-card-exit .login-box {
@@ -857,9 +887,26 @@ body {
 }
 
 @media (max-width: 480px) {
+    .login-container {
+        align-items: flex-start;
+        padding: 1rem 1rem 7.25rem;
+        overflow-y: auto;
+    }
+
     .login-box {
-        margin: 1rem;
+        margin: auto 0;
         padding: 1.5rem;
+    }
+
+    .login-institutional {
+        position: fixed;
+        bottom: 1rem;
+        width: calc(100% - 2rem);
+        font-size: 0.7rem;
+    }
+
+    .login-institutional strong {
+        font-size: 0.79rem;
     }
 
     .dashboard-card {
@@ -1726,4 +1773,3 @@ body {
   font-size: 12px;
   padding: 4px 6px;
 }
-

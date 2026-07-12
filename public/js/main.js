@@ -269,6 +269,8 @@ const Auth = {
         const loginScreen = document.getElementById('login-screen');
         const mainApp = document.getElementById('main-app');
 
+        resetLoginForm();
+
         if (mainApp) {
             mainApp.classList.remove('app-entering');
             mainApp.style.display = 'none';
@@ -345,6 +347,30 @@ const Auth = {
 
 function wait(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function resetLoginForm() {
+    const form = document.getElementById('login-form');
+    const errorDiv = document.getElementById('login-error');
+    const button = form?.querySelector('button[type="submit"]');
+
+    if (form) form.reset();
+
+    if (errorDiv) {
+        errorDiv.textContent = '';
+        errorDiv.style.display = 'none';
+    }
+
+    if (button) {
+        button.disabled = false;
+        button.classList.remove('is-loading');
+        button.innerHTML = `
+            <span class="btn-content">
+                <i class="fas fa-sign-in-alt"></i>
+                Iniciar sesión
+            </span>
+        `;
+    }
 }
 
 // Navegación
@@ -567,10 +593,14 @@ function applyBranding(data = {}) {
     const loginRestaurantName = document.getElementById('login-restaurant-name');
     const restaurantName = document.getElementById('restaurant-name');
     const versionSpan = document.getElementById('app-version');
+    const loginFooterVersion = document.getElementById('login-footer-version');
 
     if (loginRestaurantName) loginRestaurantName.textContent = businessName;
     if (restaurantName) restaurantName.textContent = businessName;
     if (versionSpan && version) versionSpan.textContent = version;
+    if (loginFooterVersion && version) {
+        loginFooterVersion.textContent = `v${String(version).replace(/^v/i, '')}`;
+    }
 }
 
 // Función para cargar y mostrar el nombre del negocio y versión con sesión activa
