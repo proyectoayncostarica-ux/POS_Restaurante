@@ -64,6 +64,17 @@ Cada fix debe indicar:
 
 ### v2.1.4 · Estabilización de subnavegación interna por módulo
 
+### v2.1.4 fix1 · Ajuste visual de barra inferior móvil de subnavegación
+
+- **Objetivo del fix:** transformar la subnavegación móvil de un dock flotante oscuro a una barra inferior clara tipo app nativa, más cercana a la referencia visual solicitada.
+- **Problema detectado:** la primera implementación quedaba centrada, oscura y superpuesta sobre las tarjetas del módulo, por lo que se percibía como un overlay flotante y no como navegación inferior fija.
+- **Cambios aplicados:** `mobile-subnav` ahora ocupa todo el ancho, queda pegada al borde inferior, usa fondo claro/translúcido, sombra superior suave, borde superior, soporte de `safe-area-inset-bottom` y estado activo tipo tarjeta/píldora.
+- **Cómo se evita tapar contenido:** en móvil, cuando existe subnavegación visible, `.main-content` recibe padding y `scroll-padding-bottom` ampliados para que el contenido final pueda desplazarse por encima de la barra.
+- **Archivos modificados:** `public/css/style.css` y `README.md`.
+- **Prueba recomendada:** revisar en viewport móvil Dashboard, Zonas, Menú, Cuentas y Configuración confirmando que la barra se ve clara, fija al fondo, con icono/texto centrados y sin apariencia de dock oscuro.
+- **Resultado esperado:** navegación inferior móvil más ligera, profesional y nativa, coherente con la identidad visual de MundiPOS y sin cambios en la lógica de filtros/subpáginas.
+- **Pendientes o riesgos:** validar en dispositivos físicos con distintas barras de navegador/SO para ajustar la altura exacta si algún equipo requiere más espacio inferior.
+
 - **Objetivo:** modernizar la navegación interna de los módulos para diferenciar claramente la navegación principal entre módulos de la subnavegación contextual dentro de cada módulo.
 - **Diferencia de navegación:** el sidebar/hamburguesa mantiene la navegación principal entre Dashboard, Zonas, Menú, Cuentas, Créditos, Usuarios y Configuración; la nueva subnavegación controla solo vistas internas del módulo activo.
 - **Comportamiento en móvil/tablet:** se agregó una barra inferior fija `mobile-subnav`, visible solo cuando el módulo activo tiene subpáginas internas, con iconos, texto, estado activo claro y padding inferior en el contenido para evitar solapes.
