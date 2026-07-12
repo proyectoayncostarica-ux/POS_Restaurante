@@ -1,0 +1,46 @@
+# Dependencias
+node_modules/
+.pnp/
+.pnp.js
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Variables de entorno
+.env
+.env.*
+!.env.example
+
+# Datos locales / respaldos
+# Comenta estas líneas si decides versionar una base demo sin datos reales.
+data/*.db
+data/*.sqlite
+data/backups/
+
+# Archivos subidos por usuarios
+public/uploads/productos/*
+!public/uploads/productos/.gitkeep
+
+# Sistema / editor
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build / cache
+coverage/
+dist/
+build/
+.cache/
+.tmp/
+
+cookies.txt
+*.db-shm
+*.db-wal
+*.db-journal
+data/restaurant_backup_manual.db

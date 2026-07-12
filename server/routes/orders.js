@@ -124,31 +124,39 @@ router.post("/", async (req, res) => {
       if (!producto_id || !cantidad || cantidad <= 0) continue;
 
       let precioUnitario = 0;
-let es_cocina = 0;
+      let es_cocina = 0;
 
-if (typeof precio !== 'undefined') {
-  // ✅ Usa el precio que ya viene del frontend
-  precioUnitario = parseFloat(precio);
-} else if (typeof presentacion_id !== 'undefined' && presentacion_id !== null) {
-  const result = await database.get(
-    `SELECT pp.precio, p.es_cocina, pp.producto_id
-     FROM presentaciones_producto pp
-     JOIN productos p ON p.id = pp.producto_id
-     WHERE pp.id = ? AND pp.producto_id = ?`,
-    [presentacion_id, producto_id]
-  );
-  if (!result) continue;
-  precioUnitario = result.precio;
-  es_cocina = result.es_cocina;
-} else {
-  const producto = await database.get(
-    `SELECT precio, es_cocina FROM productos WHERE id = ?`,
-    [producto_id]
-  );
-  if (!producto) continue;
-  precioUnitario = producto.precio;
-  es_cocina = producto.es_cocina;
-}
+      if (typeof presentacion_id !== 'undefined' && presentacion_id !== null) {
+        const result = await database.get(
+          `SELECT pp.precio, p.es_cocina, pp.producto_id, pp.presentacion_id
+           FROM presentaciones_producto pp
+           JOIN productos p ON p.id = pp.producto_id
+           WHERE pp.producto_id = ?
+             AND pp.activo = 1
+             AND (pp.id = ? OR pp.presentacion_id = ?)`,
+          [producto_id, presentacion_id, presentacion_id]
+        );
+        if (!result) continue;
+        precioUnitario = result.precio;
+        es_cocina = result.es_cocina;
+        item.presentacion_id = result.presentacion_id;
+      } else if (typeof precio !== 'undefined' && Number.isFinite(Number(precio))) {
+        const producto = await database.get(
+          `SELECT es_cocina FROM productos WHERE id = ?`,
+          [producto_id]
+        );
+        if (!producto) continue;
+        precioUnitario = parseFloat(precio);
+        es_cocina = producto.es_cocina;
+      } else {
+        const producto = await database.get(
+          `SELECT precio, es_cocina FROM productos WHERE id = ?`,
+          [producto_id]
+        );
+        if (!producto) continue;
+        precioUnitario = producto.precio;
+        es_cocina = producto.es_cocina;
+      }
 
 
       total += precioUnitario * cantidad;
@@ -158,7 +166,7 @@ if (typeof precio !== 'undefined') {
         cantidad,
         precio_unitario: precioUnitario,
         precio_original: precioUnitario,
-        presentacion_id: (typeof presentacion_id !== 'undefined') ? presentacion_id : null,
+        presentacion_id: (typeof item.presentacion_id !== 'undefined') ? item.presentacion_id : null,
         es_cocina
       });
     }
@@ -258,16 +266,39 @@ router.post("/:id/products", async (req, res) => {
                 return res.status(400).json({ error: `Producto con ID ${item.producto_id} no encontrado` });
             }
 
-            const subtotal = producto.precio * item.cantidad;
+            let precioUnitario = Number.isFinite(Number(item.precio)) ? Number(item.precio) : producto.precio;
+            let presentacionId = item.presentacion_id ?? null;
+
+            if (presentacionId !== null && typeof presentacionId !== 'undefined') {
+                const presentacion = await database.get(`
+                    SELECT pp.precio, pp.presentacion_id
+                    FROM presentaciones_producto pp
+                    WHERE pp.producto_id = ?
+                      AND pp.activo = 1
+                      AND (pp.id = ? OR pp.presentacion_id = ?)
+                `, [item.producto_id, presentacionId, presentacionId]);
+
+                if (!presentacion) {
+                    return res.status(400).json({ error: `Presentación no válida para el producto ${producto.nombre}` });
+                }
+
+                precioUnitario = presentacion.precio;
+                presentacionId = presentacion.presentacion_id;
+            }
+
+            const cantidad = parseInt(item.cantidad, 10);
+            if (!cantidad || cantidad <= 0) continue;
+
+            const subtotal = precioUnitario * cantidad;
             totalAdicional += subtotal;
 
             productosValidados.push({
                 producto_id: item.producto_id,
-                cantidad: item.cantidad,
-                precio_unitario: producto.precio,
-                precio_original: producto.precio,
+                cantidad,
+                precio_unitario: precioUnitario,
+                precio_original: precioUnitario,
                 es_cocina: producto.es_cocina,
-                presentacion_id: item.presentacion_id ?? null
+                presentacion_id: presentacionId
             });
 
         }
@@ -276,8 +307,8 @@ router.post("/:id/products", async (req, res) => {
 // Agregar productos al pedido (consolidando si ya existen)
 for (const item of productosValidados) {
     const existente = await database.get(
-        "SELECT id, cantidad FROM pedido_productos WHERE pedido_id = ? AND producto_id = ?",
-        [id, item.producto_id]
+        "SELECT id, cantidad FROM pedido_productos WHERE pedido_id = ? AND producto_id = ? AND COALESCE(presentacion_id, 0) = COALESCE(?, 0)",
+        [id, item.producto_id, item.presentacion_id]
     );
 
     if (existente) {
@@ -289,8 +320,8 @@ for (const item of productosValidados) {
     } else {
         // Si no existe, insertar nuevo
         await database.run(
-            "INSERT INTO pedido_productos (pedido_id, producto_id, cantidad, precio_unitario, precio_original) VALUES (?, ?, ?, ?, ?)",
-            [id, item.producto_id, item.cantidad, item.precio_unitario, item.precio_original]
+            "INSERT INTO pedido_productos (pedido_id, producto_id, cantidad, precio_unitario, precio_original, presentacion_id) VALUES (?, ?, ?, ?, ?, ?)",
+            [id, item.producto_id, item.cantidad, item.precio_unitario, item.precio_original, item.presentacion_id]
         );
     }
 }
@@ -482,7 +513,7 @@ router.post("/:id/pay", async (req, res) => {
             await database.run("UPDATE pedidos SET estado = ? WHERE id = ?", ["credito", id]);
 
             // 2. Liberar la mesa
-            await database.run("UPDATE mesas SET estado = ?, cliente_nombre = NULL, fecha_apertura = NULL WHERE id = ?", ["libre", pedido.mesa_id]);
+            await database.run("UPDATE mesas SET estado = ?, cliente_nombre = NULL, fecha_apertura = NULL, cantidad_personas = NULL, hora_estimada = NULL WHERE id = ?", ["libre", pedido.mesa_id]);
 
             // 3. Registrar en historial
             await database.run(
@@ -499,7 +530,7 @@ router.post("/:id/pay", async (req, res) => {
                 pedido.cliente_nombre || '',
                 total,
                 new Date().toISOString(),
-                req.session.userNombre || 'usuario_desconocido',
+                req.session.userName || req.session.userNombre || 'usuario_desconocido',
                 admin.nombre,
                 `${nombreZona} ${pedido.mesa_numero}`
             ]);
@@ -528,7 +559,7 @@ router.post("/:id/pay", async (req, res) => {
         if (!productos_divididos || productos_divididos.length === 0) {
             await database.run("UPDATE pedidos SET estado = ? WHERE id = ?", ["pagado", id]);
             await database.run(
-                "UPDATE mesas SET estado = ?, cliente_nombre = NULL, fecha_apertura = NULL WHERE id = ?",
+                "UPDATE mesas SET estado = ?, cliente_nombre = NULL, fecha_apertura = NULL, cantidad_personas = NULL, hora_estimada = NULL WHERE id = ?",
                 ["libre", pedido.mesa_id]
             );
         }

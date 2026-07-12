@@ -341,19 +341,21 @@ router.get('/reports/sales', requireAdmin, async (req, res) => {
     try {
         const { start_date, end_date, group_by = 'day' } = req.query;
 
-        let dateFilter = '';
-        let params = [];
+        const conditions = ["estado = 'pagado'"];
+        const params = [];
 
         if (start_date && end_date) {
-            dateFilter = 'WHERE DATE(fecha) BETWEEN ? AND ?';
-            params = [start_date, end_date];
+            conditions.push('DATE(fecha) BETWEEN ? AND ?');
+            params.push(start_date, end_date);
         } else if (start_date) {
-            dateFilter = 'WHERE DATE(fecha) >= ?';
-            params = [start_date];
+            conditions.push('DATE(fecha) >= ?');
+            params.push(start_date);
         } else if (end_date) {
-            dateFilter = 'WHERE DATE(fecha) <= ?';
-            params = [end_date];
+            conditions.push('DATE(fecha) <= ?');
+            params.push(end_date);
         }
+
+        const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
         let groupByClause = '';
         switch (group_by) {
@@ -379,7 +381,7 @@ router.get('/reports/sales', requireAdmin, async (req, res) => {
                    SUM(total) as total_ventas,
                    AVG(total) as promedio_pedido
             FROM pedidos
-            ${dateFilter} AND estado = 'pagado'
+            ${whereClause}
             GROUP BY ${groupByClause}
             ORDER BY periodo
         `, params);
@@ -483,7 +485,7 @@ router.post('/reset-database', requireAdmin, async (req, res) => {
         `);
 
         // Restablecer el estado de las mesas a 'libre'
-        await database.run('UPDATE mesas SET estado = ?, cliente_nombre = NULL, fecha_apertura = NULL', ['libre']);
+        await database.run('UPDATE mesas SET estado = ?, cliente_nombre = NULL, fecha_apertura = NULL, cantidad_personas = NULL, hora_estimada = NULL', ['libre']);
 
         // Registrar la acción de restablecimiento en el historial
         await database.run(

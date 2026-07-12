@@ -10,19 +10,28 @@ const Utils = {
     // Realizar peticiones HTTP
     async request(url, options = {}) {
         try {
-            const response = await fetch(API_BASE + url, {
+            const fetchOptions = {
                 credentials: 'include',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...options.headers
-                },
                 ...options
-            });
+            };
 
-            const data = await response.json();
+            const headers = { ...(options.headers || {}) };
+            const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+
+            if (!isFormData && !headers['Content-Type']) {
+                headers['Content-Type'] = 'application/json';
+            }
+
+            fetchOptions.headers = headers;
+
+            const response = await fetch(API_BASE + url, fetchOptions);
+            const contentType = response.headers.get('content-type') || '';
+            const data = contentType.includes('application/json')
+                ? await response.json()
+                : { success: response.ok, message: await response.text() };
 
             if (!response.ok) {
-                throw new Error(data.error || 'Error en la petición');
+                throw new Error(data.error || data.message || 'Error en la petición');
             }
 
             return data;

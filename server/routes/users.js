@@ -28,6 +28,81 @@ router.get('/', requireAdmin, async (req, res) => {
     }
 });
 
+// Obtener estadísticas de usuarios
+router.get('/stats/summary', requireAdmin, async (req, res) => {
+    try {
+        const totalUsuarios = await database.get('SELECT COUNT(*) as count FROM usuarios WHERE activo = 1');
+        const usuariosBasicos = await database.get('SELECT COUNT(*) as count FROM usuarios WHERE tipo = ? AND activo = 1', ['basico']);
+        const administradores = await database.get('SELECT COUNT(*) as count FROM usuarios WHERE tipo = ? AND activo = 1', ['administrador']);
+        
+        const ultimosUsuarios = await database.all(`
+            SELECT nombre, tipo, fecha_creacion
+            FROM usuarios
+            WHERE activo = 1
+            ORDER BY fecha_creacion DESC
+            LIMIT 5
+        `);
+
+        res.json({ 
+            success: true, 
+            data: {
+                total_usuarios: totalUsuarios.count,
+                usuarios_basicos: usuariosBasicos.count,
+                administradores: administradores.count,
+                ultimos_usuarios: ultimosUsuarios
+            }
+        });
+    } catch (error) {
+        console.error('Error obteniendo estadísticas de usuarios:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+
+// Cambiar contraseña del usuario actual
+router.put('/change-password', async (req, res) => {
+    try {
+        const { current_password, new_password } = req.body;
+
+        if (!current_password || !new_password) {
+            return res.status(400).json({ error: 'Contraseña actual y nueva contraseña son requeridas' });
+        }
+
+        if (new_password.length < 6) {
+            return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 6 caracteres' });
+        }
+
+        // Obtener usuario actual
+        const usuario = await database.get('SELECT * FROM usuarios WHERE id = ?', [req.session.userId]);
+        if (!usuario) {
+            return res.status(404).json({ error: 'Usuario no encontrado' });
+        }
+
+        // Verificar contraseña actual
+        const isValidPassword = await bcrypt.compare(current_password, usuario.password);
+        if (!isValidPassword) {
+            return res.status(401).json({ error: 'Contraseña actual incorrecta' });
+        }
+
+        // Encriptar nueva contraseña
+        const hashedPassword = await bcrypt.hash(new_password, 10);
+
+        await database.run('UPDATE usuarios SET password = ? WHERE id = ?', [hashedPassword, req.session.userId]);
+
+        // Registrar en historial
+        await database.run(
+            'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+            ['cambiar_password', req.session.userId, `${usuario.nombre} cambió su contraseña`, new Date().toISOString()]
+        );
+
+        res.json({ success: true, message: 'Contraseña cambiada exitosamente' });
+    } catch (error) {
+        console.error('Error cambiando contraseña:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+
 // Obtener un usuario específico (solo administradores)
 router.get('/:id', requireAdmin, async (req, res) => {
     try {
@@ -206,78 +281,6 @@ router.delete('/:id', requireAdmin, async (req, res) => {
     }
 });
 
-// Cambiar contraseña del usuario actual
-router.put('/change-password', async (req, res) => {
-    try {
-        const { current_password, new_password } = req.body;
-
-        if (!current_password || !new_password) {
-            return res.status(400).json({ error: 'Contraseña actual y nueva contraseña son requeridas' });
-        }
-
-        if (new_password.length < 6) {
-            return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 6 caracteres' });
-        }
-
-        // Obtener usuario actual
-        const usuario = await database.get('SELECT * FROM usuarios WHERE id = ?', [req.session.userId]);
-        if (!usuario) {
-            return res.status(404).json({ error: 'Usuario no encontrado' });
-        }
-
-        // Verificar contraseña actual
-        const isValidPassword = await bcrypt.compare(current_password, usuario.password);
-        if (!isValidPassword) {
-            return res.status(401).json({ error: 'Contraseña actual incorrecta' });
-        }
-
-        // Encriptar nueva contraseña
-        const hashedPassword = await bcrypt.hash(new_password, 10);
-
-        await database.run('UPDATE usuarios SET password = ? WHERE id = ?', [hashedPassword, req.session.userId]);
-
-        // Registrar en historial
-        await database.run(
-            'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
-            ['cambiar_password', req.session.userId, `${usuario.nombre} cambió su contraseña`, new Date().toISOString()]
-        );
-
-        res.json({ success: true, message: 'Contraseña cambiada exitosamente' });
-    } catch (error) {
-        console.error('Error cambiando contraseña:', error);
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
-});
-
-// Obtener estadísticas de usuarios
-router.get('/stats/summary', requireAdmin, async (req, res) => {
-    try {
-        const totalUsuarios = await database.get('SELECT COUNT(*) as count FROM usuarios WHERE activo = 1');
-        const usuariosBasicos = await database.get('SELECT COUNT(*) as count FROM usuarios WHERE tipo = ? AND activo = 1', ['basico']);
-        const administradores = await database.get('SELECT COUNT(*) as count FROM usuarios WHERE tipo = ? AND activo = 1', ['administrador']);
-        
-        const ultimosUsuarios = await database.all(`
-            SELECT nombre, tipo, fecha_creacion
-            FROM usuarios
-            WHERE activo = 1
-            ORDER BY fecha_creacion DESC
-            LIMIT 5
-        `);
-
-        res.json({ 
-            success: true, 
-            data: {
-                total_usuarios: totalUsuarios.count,
-                usuarios_basicos: usuariosBasicos.count,
-                administradores: administradores.count,
-                ultimos_usuarios: ultimosUsuarios
-            }
-        });
-    } catch (error) {
-        console.error('Error obteniendo estadísticas de usuarios:', error);
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
-});
 
 module.exports = router;
 

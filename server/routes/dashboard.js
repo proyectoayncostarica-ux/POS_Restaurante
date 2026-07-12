@@ -68,7 +68,7 @@ router.get('/', async (req, res) => {
                 COALESCE(p.total, 0) AS monto_consumido
             FROM mesas m
             LEFT JOIN pedidos p ON m.id = p.mesa_id AND p.estado = 'pendiente'
-`); // mismo query que tienes
+`);
 
         const ultimasCuentasPagadas = await database.all(`
             SELECT 
@@ -84,7 +84,6 @@ router.get('/', async (req, res) => {
             ORDER BY p.fecha DESC
             LIMIT 5
         `, [today]);
- // mismo query
 
         res.json({
             success: true,
@@ -107,7 +106,7 @@ router.get('/', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('❌ Error obteniendo datos del dashboard:', error); // <-- AQUI APARECERÁ LA CAUSA
+        console.error('Error obteniendo datos del dashboard:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -121,7 +120,7 @@ router.get('/ventas-detalle', async (req, res) => {
         // Ventas de pedidos pagados
         const ventasDetalle = await database.all(`
     SELECT p.id, p.total, p.fecha as fecha_venta, 
-           m.numero as mesa_numero, m.tipo as tipo_asiento,
+           m.numero as mesa_numero, m.tipo_asiento as tipo_asiento,
            COALESCE(p.cliente_nombre, 'Cliente anónimo') as cliente_nombre,
            u.nombre as usuario_nombre
     FROM pedidos p

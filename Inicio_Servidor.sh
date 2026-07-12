@@ -1,27 +1,29 @@
 #!/usr/bin/env bash
-# === Iniciar servidor POS (desarrollo) ===
+# Iniciar servidor POS en modo desarrollo
 set -Eeuo pipefail
 
-cd "/home/andrey/restaurant-app"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
-# Log temporal (equivalente a redirigir stderr)
 LOGFILE="${TMPDIR:-/tmp}/pos-error.log"
 rm -f "$LOGFILE"
 
-# Cargar NVM (si usas nvm) y fijar LTS por defecto
 if [ -s "$HOME/.nvm/nvm.sh" ]; then
   export NVM_DIR="$HOME/.nvm"
+  # shellcheck disable=SC1090
   . "$NVM_DIR/nvm.sh"
-  nvm use --lts >/dev/null
+  nvm use --lts >/dev/null 2>&1 || true
+fi
+
+if [ ! -d node_modules ]; then
+  echo "[POS] Instalando dependencias..."
+  npm install
 fi
 
 echo "[POS] Iniciando npm run dev..."
-# Solo stderr al log (2>), stdout a la consola
 if ! npm run dev 2> "$LOGFILE"; then
-  EC=$?
-  echo "[POS] Error al iniciar. Código: $EC"
+  ec=$?
+  echo "[POS] Error al iniciar. Código: $ec"
   echo "[POS] Revisa: $LOGFILE"
-  exit 1
+  exit "$ec"
 fi
-
-exit 0

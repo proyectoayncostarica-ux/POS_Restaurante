@@ -221,6 +221,55 @@ router.post("/:id/pay-full", async (req, res) => {
 });
 
 
+
+// Reimprimir factura / preparar datos para reimpresión
+router.post("/:id/reprint", async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const pedido = await database.get(`
+            SELECT p.id, p.total, p.fecha, p.estado,
+                   m.numero as mesa_numero, m.tipo_asiento,
+                   COALESCE(p.cliente_nombre, m.cliente_nombre, 'Cliente anónimo') as cliente_nombre,
+                   u.nombre as usuario_nombre
+            FROM pedidos p
+            JOIN mesas m ON p.mesa_id = m.id
+            JOIN usuarios u ON p.usuario_id = u.id
+            WHERE p.id = ?
+        `, [id]);
+
+        if (!pedido) {
+            return res.status(404).json({ error: "Pedido no encontrado" });
+        }
+
+        const items = await database.all(`
+            SELECT pp.cantidad, pp.precio_unitario as precio,
+                   (pp.cantidad * pp.precio_unitario) as subtotal,
+                   pr.nombre as producto_nombre,
+                   COALESCE(pres.nombre, '') as presentacion_nombre,
+                   COALESCE(pres.cantidad, '') as presentacion_cantidad
+            FROM pedido_productos pp
+            JOIN productos pr ON pp.producto_id = pr.id
+            LEFT JOIN presentaciones pres ON pp.presentacion_id = pres.id
+            WHERE pp.pedido_id = ?
+        `, [id]);
+
+        await database.run(
+            "INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)",
+            ["reimprimir_factura", req.session.userId, `Factura reimpresa/preparada para pedido #${id}`, new Date().toISOString()]
+        );
+
+        res.json({
+            success: true,
+            message: "Factura preparada para reimpresión",
+            data: { ...pedido, items }
+        });
+    } catch (error) {
+        console.error("Error reimprimiendo factura:", error);
+        res.status(500).json({ error: "Error interno del servidor" });
+    }
+});
+
 // Eliminar cuenta de crédito (solo administradores)
 router.delete("/:id", async (req, res) => {
     try {
