@@ -2,6 +2,7 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
+const { APP_VERSION } = require('../config/appInfo');
 
 const DEFAULT_DB_PATH = path.join(__dirname, '../../data/restaurant.db');
 const DB_PATH = process.env.DB_PATH
@@ -182,7 +183,7 @@ class Database {
             `CREATE TABLE IF NOT EXISTS configuracion (
                 clave TEXT PRIMARY KEY,
                 valor TEXT,
-                version_app TEXT DEFAULT '2.1.0'
+                version_app TEXT DEFAULT '${APP_VERSION}'
             )`,
 
             `CREATE TABLE IF NOT EXISTS historial_transacciones (
@@ -279,7 +280,7 @@ class Database {
         await this.ensureColumn('cuentas_credito', 'usuario_origen', 'TEXT');
         await this.ensureColumn('cuentas_credito', 'autorizado_por', 'TEXT');
         await this.ensureColumn('cuentas_credito', 'mesa', 'TEXT');
-        await this.ensureColumn('configuracion', 'version_app', "TEXT DEFAULT '2.1.0'");
+        await this.ensureColumn('configuracion', 'version_app', `TEXT DEFAULT '${APP_VERSION}'`);
 
         await this.rebuildLegacyForeignKeys();
         await this.cleanupOrphanRows();
@@ -461,19 +462,19 @@ class Database {
             direccion: 'Calle Principal 123',
             telefono: '+1234567890',
             moneda: '₡',
-            version_app: '2.1.0'
+            version_app: APP_VERSION
         };
 
         for (const [clave, valor] of Object.entries(defaultConfig)) {
             await this.run(
                 'INSERT OR IGNORE INTO configuracion (clave, valor, version_app) VALUES (?, ?, ?)',
-                [clave, valor, '2.1.0']
+                [clave, valor, APP_VERSION]
             );
         }
 
         await this.run(
             "UPDATE configuracion SET valor = ?, version_app = ? WHERE clave = 'version_app'",
-            ['2.1.0', '2.1.0']
+            [APP_VERSION, APP_VERSION]
         );
     }
 

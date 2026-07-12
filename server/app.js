@@ -8,6 +8,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const session = require('express-session');
 const database = require('./db/database');
+const { APP_NAME, APP_VERSION } = require('./config/appInfo');
 
 // Importar rutas
 const authRoutes = require('./routes/auth');
@@ -77,6 +78,38 @@ app.use(session({
 // Servir archivos estáticos
 app.use('/POS', express.static(path.join(__dirname, '../public')));
 app.use('/uploads', express.static(path.join(__dirname, '../public/uploads')));
+
+// Endpoint público de identidad visual de la app.
+// Expone únicamente datos no sensibles para poder mostrar el nombre del negocio antes del login.
+app.get('/api/public/branding', async (req, res) => {
+    try {
+        const rows = await database.all(
+            "SELECT clave, valor FROM configuracion WHERE clave IN ('nombre_restaurante', 'version_app', 'logo')"
+        );
+
+        const data = rows.reduce((acc, row) => {
+            acc[row.clave] = row.valor;
+            return acc;
+        }, {
+            nombre_restaurante: 'Tu negocio',
+            version_app: APP_VERSION,
+            logo: ''
+        });
+
+        res.json({
+            success: true,
+            data: {
+                app_name: APP_NAME,
+                nombre_restaurante: data.nombre_restaurante || 'Tu negocio',
+                version_app: data.version_app || APP_VERSION,
+                logo: data.logo || ''
+            }
+        });
+    } catch (error) {
+        console.error('Error obteniendo branding público:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
 
 // Middleware de autenticación
 const requireAuth = (req, res, next) => {

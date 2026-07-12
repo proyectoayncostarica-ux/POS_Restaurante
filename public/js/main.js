@@ -1,6 +1,7 @@
 // Variables globales
 let currentUser = null;
 let currentSection = 'dashboard';
+const APP_NAME = 'MundiPOS';
 
 // API Base URL
 const API_BASE = '/api';
@@ -204,10 +205,10 @@ const Auth = {
                 currentUser = response.user;
                 this.showApp();
                 return true;
-            } else {
-                this.showLogin();
-                return false;
             }
+
+            this.showLogin();
+            return false;
         } catch (error) {
             console.error('Error verificando sesión:', error);
             this.showLogin();
@@ -215,83 +216,136 @@ const Auth = {
         }
     },
 
-// Iniciar sesión
-async login(username, password) {
-    try {
-        const response = await Utils.request('/auth/login', {
-            method: 'POST',
-            body: JSON.stringify({ nombre: username, password })
-        });
+    // Iniciar sesión
+    async login(username, password) {
+        try {
+            const response = await Utils.request('/auth/login', {
+                method: 'POST',
+                body: JSON.stringify({ nombre: username, password })
+            });
 
-        if (response.success) {
-            currentUser = response.user;
-            this.showApp();
-            loadRestaurantName();
-            Utils.showNotification('Sesión iniciada correctamente', 'success');
+            if (response.success) {
+                currentUser = response.user;
+                await this.transitionToApp();
+                await loadRestaurantName();
+                Utils.showNotification('Sesión iniciada correctamente', 'success');
 
-            // ✅ Cargar datos del dashboard y activar autorefresco
-            Dashboard.refreshData();         // Carga inicial
-            Dashboard.startAutoRefresh();    // Activar auto-actualización solo con sesión activa
+                // Cargar datos del dashboard y activar autorefresco
+                Dashboard.refreshData();
+                Dashboard.startAutoRefresh();
 
-            return true;
+                return true;
+            }
+
+            return false;
+        } catch (error) {
+            Utils.showNotification(error.message, 'error');
+            return false;
         }
-    } catch (error) {
-        Utils.showNotification(error.message, 'error');
-        return false;
-    }
-},
-
+    },
 
     // Cerrar sesión
-async logout() {
-    try {
-        await Utils.request('/auth/logout', { method: 'POST' });
-        currentUser = null;
+    async logout() {
+        try {
+            await Utils.request('/auth/logout', { method: 'POST' });
+            currentUser = null;
 
-        Dashboard.stopAutoRefresh(); // ✅ Detener auto-refresh del dashboard
-        this.showLogin();
+            Dashboard.stopAutoRefresh();
+            this.showLogin();
 
-        Utils.showNotification('Sesión cerrada correctamente', 'info');
-    } catch (error) {
-        console.error('Error cerrando sesión:', error);
+            Utils.showNotification('Sesión cerrada correctamente', 'info');
+        } catch (error) {
+            console.error('Error cerrando sesión:', error);
 
-        // Forzar logout local
-        currentUser = null;
-
-        Dashboard.stopAutoRefresh(); // ✅ También detener en caso de error
-        this.showLogin();
-    }
-}
-,
+            // Forzar logout local
+            currentUser = null;
+            Dashboard.stopAutoRefresh();
+            this.showLogin();
+        }
+    },
 
     // Mostrar pantalla de login
     showLogin() {
-        document.getElementById('login-screen').style.display = 'flex';
-        document.getElementById('main-app').style.display = 'none';
+        const loginScreen = document.getElementById('login-screen');
+        const mainApp = document.getElementById('main-app');
+
+        if (mainApp) {
+            mainApp.classList.remove('app-entering');
+            mainApp.style.display = 'none';
+        }
+
+        if (loginScreen) {
+            loginScreen.classList.remove('login-card-exit', 'login-bg-exit');
+            loginScreen.style.display = 'flex';
+        }
     },
 
     // Mostrar aplicación principal
     showApp() {
-        document.getElementById('login-screen').style.display = 'none';
-        document.getElementById('main-app').style.display = 'grid';
-        
-        // Actualizar información del usuario
+        const loginScreen = document.getElementById('login-screen');
+        const mainApp = document.getElementById('main-app');
+
+        if (loginScreen) {
+            loginScreen.style.display = 'none';
+            loginScreen.classList.remove('login-card-exit', 'login-bg-exit');
+        }
+
+        if (mainApp) {
+            mainApp.style.display = 'grid';
+            mainApp.classList.remove('app-entering');
+        }
+
+        this.updateUserInfo();
+        Navigation.showSection('dashboard');
+        loadRestaurantName();
+        updateGreeting();
+    },
+
+    async transitionToApp() {
+        const loginScreen = document.getElementById('login-screen');
+        const mainApp = document.getElementById('main-app');
+
+        if (!loginScreen || !mainApp) {
+            this.showApp();
+            return;
+        }
+
+        loginScreen.classList.add('login-card-exit');
+        await wait(430);
+        loginScreen.classList.add('login-bg-exit');
+        await wait(420);
+
+        loginScreen.style.display = 'none';
+        loginScreen.classList.remove('login-card-exit', 'login-bg-exit');
+
+        mainApp.style.display = 'grid';
+        mainApp.classList.add('app-entering');
+        this.updateUserInfo();
+        Navigation.showSection('dashboard');
+        updateGreeting();
+
+        await wait(650);
+        mainApp.classList.remove('app-entering');
+    },
+
+    updateUserInfo() {
+        if (!currentUser) return;
+
         const currentUserElement = document.getElementById('current-user');
         const userTypeElement = document.getElementById('user-type');
         const usuarioActualElement = document.getElementById('usuario-actual');
         const tipoUsuarioElement = document.getElementById('tipo-usuario');
-        
+
         if (currentUserElement) currentUserElement.textContent = currentUser.nombre;
         if (userTypeElement) userTypeElement.textContent = currentUser.tipo;
         if (usuarioActualElement) usuarioActualElement.textContent = currentUser.nombre;
         if (tipoUsuarioElement) tipoUsuarioElement.textContent = currentUser.tipo;
-
-        // Cargar dashboard por defecto
-        Navigation.showSection("dashboard");
-        loadRestaurantName();
-        updateGreeting();
     }
 };
+
+function wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 // Navegación
 const Navigation = {
@@ -370,7 +424,9 @@ const Navigation = {
 };
 
 // Event Listeners
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function() {
+    await loadPublicBranding();
+
     // Verificar sesión al cargar
     Auth.checkSession();
     updateDateTime();
@@ -394,18 +450,20 @@ document.addEventListener('DOMContentLoaded', function() {
         
         const button = e.target.querySelector('button[type="submit"]');
         const originalText = button.innerHTML;
-        button.innerHTML = '<span class="loading"></span> Iniciando...';
+        button.classList.add('is-loading');
+        button.innerHTML = '<span class="btn-content"><span class="loading"></span> Preparando panel...</span>';
         button.disabled = true;
 
         const success = await Auth.login(username, password);
-        
-        button.innerHTML = originalText;
-        button.disabled = false;
 
         if (!success) {
+            button.innerHTML = originalText;
+            button.disabled = false;
+            button.classList.remove('is-loading');
             errorDiv.textContent = 'Usuario o contraseña incorrectos';
             errorDiv.style.display = 'block';
         }
+
     });
 
     // Logout button
@@ -482,24 +540,44 @@ function updateDateTime() {
 setInterval(updateDateTime, 1000);
 
 
-// Función para cargar y mostrar el nombre del restaurante y versión
+// Función para cargar y mostrar el nombre del negocio y versión en la app
+async function loadPublicBranding() {
+    try {
+        const response = await fetch(`${API_BASE}/public/branding`, {
+            credentials: 'include'
+        });
+
+        if (!response.ok) return;
+
+        const result = await response.json();
+        const data = result.data || {};
+        applyBranding(data);
+    } catch (error) {
+        console.warn('No se pudo cargar el branding público:', error);
+        applyBranding({});
+    }
+}
+
+function applyBranding(data = {}) {
+    const businessName = data.nombre_restaurante || 'Tu negocio';
+    const version = data.version_app || '';
+
+    document.title = APP_NAME;
+
+    const loginRestaurantName = document.getElementById('login-restaurant-name');
+    const restaurantName = document.getElementById('restaurant-name');
+    const versionSpan = document.getElementById('app-version');
+
+    if (loginRestaurantName) loginRestaurantName.textContent = businessName;
+    if (restaurantName) restaurantName.textContent = businessName;
+    if (versionSpan && version) versionSpan.textContent = version;
+}
+
+// Función para cargar y mostrar el nombre del negocio y versión con sesión activa
 async function loadRestaurantName() {
     try {
         const response = await Utils.request("/settings");
-        const data = response.data;
-
-        if (data.nombre_restaurante) {
-            document.getElementById("restaurant-name").textContent = data.nombre_restaurante;
-        }
-
-        // ✅ Mostrar versión en el sidebar
-        if (data.version_app) {
-            const versionSpan = document.getElementById("app-version");
-            if (versionSpan) {
-                versionSpan.textContent = data.version_app;
-            }
-        }
-
+        applyBranding(response.data || {});
     } catch (error) {
         console.error("Error cargando la configuración:", error);
     }

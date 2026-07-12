@@ -1,7 +1,7 @@
 {
-  "name": "restaurant-app",
-  "version": "2.1.0",
-  "description": "Sistema completo de gestión de restaurante",
+  "name": "mundipos",
+  "version": "2.0.0",
+  "description": "MundiPOS - sistema POS local para restaurante/bar",
   "main": "server/app.js",
   "scripts": {
     "start": "node server/app.js",
