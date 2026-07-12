@@ -1,6 +1,9 @@
 // Variables globales
 let currentUser = null;
 let currentSection = 'dashboard';
+let headerClockTimer = null;
+let lastDesktopDateTime = '';
+let lastMobileDateTime = '';
 const APP_NAME = 'MundiPOS';
 
 // API Base URL
@@ -269,6 +272,7 @@ const Auth = {
         const loginScreen = document.getElementById('login-screen');
         const mainApp = document.getElementById('main-app');
 
+        stopHeaderClock();
         resetLoginForm();
 
         if (mainApp) {
@@ -300,6 +304,7 @@ const Auth = {
         this.updateUserInfo();
         Navigation.showSection('dashboard');
         loadRestaurantName();
+        startHeaderClock();
         updateGreeting();
     },
 
@@ -324,6 +329,7 @@ const Auth = {
         mainApp.classList.add('app-entering');
         this.updateUserInfo();
         Navigation.showSection('dashboard');
+        startHeaderClock();
         updateGreeting();
 
         await wait(650);
@@ -454,8 +460,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     await loadPublicBranding();
 
     // Verificar sesión al cargar
-    Auth.checkSession();
-    updateDateTime();
+    await Auth.checkSession();
     updateGreeting();
 
     // Login form
@@ -554,16 +559,49 @@ window.Navigation = Navigation;
 
 
 
-// Función para actualizar la fecha y hora
-function updateDateTime() {
-    const now = new Date();
-    const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: true };
-    const dateTimeString = now.toLocaleString('es-CR', options);
-    document.getElementById('current-datetime').textContent = dateTimeString;
+function formatHeaderDateTime(now, compact = false) {
+    const options = compact
+        ? { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }
+        : { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true };
+
+    return now.toLocaleString('es-CR', options).replace(',', ' ·');
 }
 
-// Actualizar cada segundo
-setInterval(updateDateTime, 1000);
+// Función para actualizar la fecha y hora del header activo
+function updateDateTime() {
+    const now = new Date();
+    const desktopDateTime = formatHeaderDateTime(now);
+    const mobileDateTime = formatHeaderDateTime(now, true);
+    const desktopNode = document.getElementById('current-datetime');
+    const mobileNode = document.getElementById('mobile-current-datetime');
+
+    if (desktopNode && desktopDateTime !== lastDesktopDateTime) {
+        desktopNode.textContent = desktopDateTime;
+        lastDesktopDateTime = desktopDateTime;
+    }
+
+    if (mobileNode && mobileDateTime !== lastMobileDateTime) {
+        mobileNode.textContent = mobileDateTime;
+        lastMobileDateTime = mobileDateTime;
+    }
+}
+
+function startHeaderClock() {
+    updateDateTime();
+
+    if (headerClockTimer) return;
+
+    headerClockTimer = setInterval(updateDateTime, 1000);
+}
+
+function stopHeaderClock() {
+    if (!headerClockTimer) return;
+
+    clearInterval(headerClockTimer);
+    headerClockTimer = null;
+    lastDesktopDateTime = '';
+    lastMobileDateTime = '';
+}
 
 
 // Función para cargar y mostrar el nombre del negocio y versión en la app

@@ -52,11 +52,19 @@
         <!-- Header -->
         <header class="app-header">
             <div class="header-left">
-                <button id="menu-toggle" class="menu-toggle">
+                <button id="menu-toggle" class="menu-toggle" aria-label="Abrir menu">
                     <i class="fas fa-bars"></i>
                 </button>
-                <h1 class="app-title">MundiPOS</h1>
-                <p class="restaurant-name" id="restaurant-name"></p>
+                <div class="app-brand">
+                    <span class="app-logo" aria-label="Logo MundiPOS">
+                        <span>MP</span>
+                    </span>
+                    <div class="app-brand-text">
+                        <h1 class="app-title">MundiPOS</h1>
+                        <p class="restaurant-name" id="restaurant-name"></p>
+                        <span id="mobile-current-datetime" class="mobile-current-datetime"></span>
+                    </div>
+                </div>
             </div>
             <div class="header-right">
                 <div class="user-info">
@@ -64,9 +72,9 @@
                     <span id="user-type" class="user-type">Tipo</span>
                     <span id="current-datetime" class="current-datetime"></span>
                 </div>      
-                <button id="logout-btn" class="btn btn-secondary">
+                <button id="logout-btn" class="btn btn-secondary logout-btn" aria-label="Cerrar sesion" title="Cerrar sesion">
                     <i class="fas fa-sign-out-alt"></i>
-                    Cerrar Sesión
+                    <span class="logout-label">Cerrar Sesión</span>
                 </button>
             </div>
         </header>
