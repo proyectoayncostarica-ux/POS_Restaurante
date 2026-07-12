@@ -6,6 +6,36 @@ let lastDesktopDateTime = '';
 let lastMobileDateTime = '';
 let navigationTransitionId = 0;
 const APP_NAME = 'MundiPOS';
+const INTERNAL_SUBNAV = {
+    dashboard: [
+        { id: 'todos', label: 'Todos', icon: 'fa-border-all' },
+        { id: 'salon', label: 'Salón', icon: 'fa-chair' },
+        { id: 'bar-mesa', label: 'Bar', icon: 'fa-martini-glass-citrus' },
+        { id: 'bar-banco', label: 'Barra', icon: 'fa-grip-lines' }
+    ],
+    tables: [
+        { id: 'todos', label: 'Todos', icon: 'fa-border-all' },
+        { id: 'salon', label: 'Salón', icon: 'fa-chair' },
+        { id: 'bar-mesa', label: 'Bar', icon: 'fa-martini-glass-citrus' },
+        { id: 'bar-banco', label: 'Barra', icon: 'fa-grip-lines' }
+    ],
+    menu: [
+        { id: 'products', label: 'Productos', icon: 'fa-utensils' },
+        { id: 'categories', label: 'Categorías', icon: 'fa-tags' },
+        { id: 'presentations', label: 'Presentaciones', icon: 'fa-box-open' }
+    ],
+    orders: [
+        { id: 'pending', label: 'Pendientes', icon: 'fa-clock' },
+        { id: 'paid', label: 'Pagados', icon: 'fa-check-circle' },
+        { id: 'all', label: 'Todos', icon: 'fa-list' }
+    ],
+    settings: [
+        { id: 'general', label: 'General', icon: 'fa-gear' },
+        { id: 'history', label: 'Historial', icon: 'fa-clock-rotate-left' },
+        { id: 'backup', label: 'Respaldos', icon: 'fa-database' },
+        { id: 'reports', label: 'Reportes', icon: 'fa-chart-line' }
+    ]
+};
 
 // API Base URL
 const API_BASE = '/api';
@@ -274,6 +304,8 @@ const Auth = {
         const mainApp = document.getElementById('main-app');
 
         stopHeaderClock();
+        document.body.classList.remove('has-mobile-subnav');
+        document.getElementById('mobile-subnav')?.classList.remove('is-visible');
         resetLoginForm();
 
         if (mainApp) {
@@ -402,6 +434,7 @@ const Navigation = {
 
             if (isSameSection) {
                 await this.loadSectionContent(sectionName);
+                this.renderInternalSubnav(sectionName);
                 this.closeSidebar();
                 return;
             }
@@ -423,6 +456,7 @@ const Navigation = {
 
             currentSection = sectionName;
             await this.loadSectionContent(sectionName);
+            this.renderInternalSubnav(sectionName);
 
             if (transitionId !== navigationTransitionId) return;
 
@@ -499,6 +533,111 @@ const Navigation = {
     },
 
     // Toggle sidebar en móvil
+    getInternalItems(sectionName) {
+        return INTERNAL_SUBNAV[sectionName] || [];
+    },
+
+    getInternalActive(sectionName) {
+        switch (sectionName) {
+            case 'dashboard':
+                return Dashboard.filtroTipo || 'todos';
+            case 'tables':
+                return Tables.filtroTipo || 'todos';
+            case 'menu':
+                return Menu.currentView || 'products';
+            case 'orders':
+                return Orders.currentView || 'pending';
+            case 'settings':
+                return Settings.currentView || 'general';
+            default:
+                return '';
+        }
+    },
+
+    renderInternalSubnav(sectionName = currentSection) {
+        const bar = document.getElementById('mobile-subnav');
+        const items = this.getInternalItems(sectionName);
+
+        if (!bar || !items.length) {
+            document.body.classList.remove('has-mobile-subnav');
+            if (bar) {
+                bar.classList.remove('is-visible');
+                bar.innerHTML = '';
+            }
+            return;
+        }
+
+        const activeId = this.getInternalActive(sectionName);
+        bar.innerHTML = items.map(item => `
+            <button type="button"
+                    class="mobile-subnav-item ${item.id === activeId ? 'active' : ''}"
+                    data-subnav-item="${item.id}"
+                    onclick="Navigation.selectInternal('${sectionName}', '${item.id}')"
+                    aria-label="${item.label}"
+                    title="${item.label}">
+                <i class="fas ${item.icon}"></i>
+                <span>${item.label}</span>
+            </button>
+        `).join('');
+
+        bar.classList.add('is-visible');
+        document.body.classList.add('has-mobile-subnav');
+        this.syncInternalSubnav(sectionName);
+    },
+
+    syncInternalSubnav(sectionName = currentSection) {
+        const activeId = this.getInternalActive(sectionName);
+
+        document.querySelectorAll('[data-subnav-item]').forEach(item => {
+            item.classList.toggle('active', item.getAttribute('data-subnav-item') === activeId);
+        });
+    },
+
+    async selectInternal(sectionName, itemId) {
+        if (currentSection !== sectionName) {
+            await this.showSection(sectionName);
+        }
+
+        await this.runInternalTransition(async () => {
+            switch (sectionName) {
+                case 'dashboard':
+                    Dashboard.filtrarPorZona(itemId);
+                    break;
+                case 'tables':
+                    Tables.filtrarPorZona(itemId);
+                    break;
+                case 'menu':
+                    Menu.switchView(itemId);
+                    break;
+                case 'orders':
+                    await Orders.switchView(itemId);
+                    break;
+                case 'settings':
+                    Settings.switchView(itemId);
+                    break;
+            }
+        });
+
+        this.renderInternalSubnav(sectionName);
+        this.syncInternalSubnav(sectionName);
+    },
+
+    async runInternalTransition(action) {
+        const section = document.getElementById(`${currentSection}-section`);
+        const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+        if (section && !prefersReducedMotion) {
+            section.classList.add('internal-switching');
+            await wait(90);
+        }
+
+        await action();
+
+        if (section && !prefersReducedMotion) {
+            requestAnimationFrame(() => section.classList.remove('internal-switching'));
+        }
+    },
+
     toggleSidebar() {
         const sidebar = document.getElementById('sidebar');
         if (sidebar.classList.contains('open')) {

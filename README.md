@@ -62,6 +62,20 @@ Cada fix debe indicar:
 
 ## Registro de cambios canónico
 
+### v2.1.4 · Estabilización de subnavegación interna por módulo
+
+- **Objetivo:** modernizar la navegación interna de los módulos para diferenciar claramente la navegación principal entre módulos de la subnavegación contextual dentro de cada módulo.
+- **Diferencia de navegación:** el sidebar/hamburguesa mantiene la navegación principal entre Dashboard, Zonas, Menú, Cuentas, Créditos, Usuarios y Configuración; la nueva subnavegación controla solo vistas internas del módulo activo.
+- **Comportamiento en móvil/tablet:** se agregó una barra inferior fija `mobile-subnav`, visible solo cuando el módulo activo tiene subpáginas internas, con iconos, texto, estado activo claro y padding inferior en el contenido para evitar solapes.
+- **Comportamiento en PC/web:** los controles internos se convierten en tabs premium dentro del contenido, sin barra inferior fija, usando la paleta azul profundo/dorado, bordes redondeados, sombras suaves, hover/focus y estado activo claro.
+- **Módulos afectados:** Dashboard, Zonas, Menú, Cuentas/Pedidos y Configuración. Créditos y Usuarios no muestran barra inferior porque no tienen subpáginas internas reales.
+- **Archivos modificados:** `public/index.html`, `public/css/style.css`, `public/js/main.js`, `public/js/components/dashboard.js`, `public/js/components/tables.js`, `public/js/components/menu.js`, `public/js/components/orders.js`, `public/js/components/settings.js` y `README.md`.
+- **Cambios realizados:** se centralizó la definición de subpáginas en `INTERNAL_SUBNAV`, se agregó `Navigation.selectInternal()`, `renderInternalSubnav()` y sincronización de estados activos, reutilizando las funciones actuales de filtros y `switchView()`.
+- **Transiciones implementadas:** se agregó transición corta con clase `internal-switching` para cambios internos y se respeta `prefers-reduced-motion`; la navegación global previa se mantiene sin cambios funcionales.
+- **Pruebas realizadas/recomendadas:** validar sintaxis de `main.js` y componentes afectados, revisar `git diff`/`git status` y probar manualmente PC/móvil para confirmar barra inferior, tabs, cambios de subpágina y ausencia de barra en Créditos/Usuarios.
+- **Resultado esperado:** navegación interna más cercana a una app profesional, cómoda en móvil y consistente en PC, sin cambiar rutas backend, autenticación, permisos ni lógica operativa.
+- **Riesgos o pendientes:** queda pendiente validación visual en navegador/dispositivos físicos para ajustar tamaños de texto, espacios inferiores y comportamiento con formularios largos.
+
 ### v2.1.3 · Estabilización visual del sidebar y transiciones globales
 
 - **Objetivo:** modernizar el sidebar, el menú hamburguesa móvil y las transiciones entre módulos para que la app autenticada se sienta más fluida y coherente con el login/header actual.

@@ -21,6 +21,12 @@ const Tables = {
 
     // Filtros y etiquetas
     const filtros = ['todos', 'salon', 'bar-mesa', 'bar-banco'];
+    const iconos = {
+        'todos': 'fa-border-all',
+        'salon': 'fa-chair',
+        'bar-mesa': 'fa-martini-glass-citrus',
+        'bar-banco': 'fa-grip-lines'
+    };
     const nombres = {
         'todos': 'Todos',
         'salon': 'Salón',
@@ -29,12 +35,13 @@ const Tables = {
     };
 
     const botonesFiltro = `
-        <div class="btn-filtro-zonas">
+        <div class="btn-filtro-zonas internal-tabs" aria-label="Filtros de zonas">
             ${filtros.map(tipo => `
                 <button class="btn btn-zona ${this.filtroTipo === tipo ? 'active' : ''}"
                         data-tipo="${tipo}"
-                        onclick="Tables.filtrarPorZona('${tipo}')">
-                    ${nombres[tipo]}
+                        data-subnav-item="${tipo}"
+                        onclick="Navigation.selectInternal('tables', '${tipo}')">
+                    <i class="fas ${iconos[tipo]}"></i> ${nombres[tipo]}
                 </button>
             `).join('')}
         </div>
@@ -82,6 +89,7 @@ const Tables = {
     if (activo) activo.classList.add('active');
 
     this.render();
+    Navigation.syncInternalSubnav('tables');
 },
 
     // Renderizar grid de mesas

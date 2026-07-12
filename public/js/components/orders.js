@@ -37,15 +37,15 @@ const Orders = {
 
             <div class="mb-3">
     <!-- Línea 1: filtros -->
-    <div class="d-flex gap-2 mb-2 flex-wrap">
-        <button class="btn ${this.currentView === 'pending' ? 'btn-primary' : 'btn-light'}" onclick="Orders.switchView('pending')">
+    <div class="d-flex gap-2 mb-2 flex-wrap internal-tabs" aria-label="Filtros de pedidos">
+        <button class="btn ${this.currentView === 'pending' ? 'btn-primary active' : 'btn-light'}" data-subnav-item="pending" onclick="Navigation.selectInternal('orders', 'pending')">
             <i class="fas fa-clock"></i> Pendientes
         </button>
-        <button class="btn ${this.currentView === 'paid' ? 'btn-primary' : 'btn-light'}" onclick="Orders.switchView('paid')">
-            <i class="fas fa-check"></i> Pagados
+        <button class="btn ${this.currentView === 'paid' ? 'btn-primary active' : 'btn-light'}" data-subnav-item="paid" onclick="Navigation.selectInternal('orders', 'paid')">
+            <i class="fas fa-check-circle"></i> Pagados
         </button>
-        <button class="btn ${this.currentView === 'all' ? 'btn-primary' : 'btn-light'}" onclick="Orders.switchView('all')">
-         Todos
+        <button class="btn ${this.currentView === 'all' ? 'btn-primary active' : 'btn-light'}" data-subnav-item="all" onclick="Navigation.selectInternal('orders', 'all')">
+         <i class="fas fa-list"></i> Todos
         </button>
     </div>
 
@@ -77,6 +77,7 @@ const Orders = {
             const response = await Utils.request(url);
             this.orders = response.data;
             this.render();
+            Navigation.syncInternalSubnav('orders');
         } catch (error) {
             console.error('Error cargando pedidos:', error);
             Utils.showNotification('Error cargando pedidos', 'error');

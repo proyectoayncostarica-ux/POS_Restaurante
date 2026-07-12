@@ -19,6 +19,7 @@ const Dashboard = {
     // Renderizar dashboard
     render() {
         if (!this.data) return;
+        this.filtroTipo = this.filtroTipo || 'todos';
 
         document.getElementById("greeting-message").textContent = getGreetingMessage();
 
@@ -73,6 +74,7 @@ filtrarPorZona(zonaSeleccionada) {
 
     // Renderizar
     this.renderMesasGrid();
+    Navigation.syncInternalSubnav('dashboard');
 },
 
     // Renderizar grid de mesas (no cliqueable)

@@ -37,15 +37,15 @@ const Menu = {
 
     <div class="mb-3">
         <!-- Línea 1: botones de vista -->
-        <div class="d-flex gap-2 mb-2 flex-wrap">
-            <button class="btn ${this.currentView === 'products' ? 'btn-primary' : 'btn-light'}" onclick="Menu.switchView('products')">
+        <div class="d-flex gap-2 mb-2 flex-wrap internal-tabs" aria-label="Vistas del menú">
+            <button class="btn ${this.currentView === 'products' ? 'btn-primary active' : 'btn-light'}" data-subnav-item="products" onclick="Navigation.selectInternal('menu', 'products')">
                 <i class="fas fa-utensils"></i> Productos
             </button>
-            <button class="btn ${this.currentView === 'categories' ? 'btn-primary' : 'btn-light'}" onclick="Menu.switchView('categories')">
+            <button class="btn ${this.currentView === 'categories' ? 'btn-primary active' : 'btn-light'}" data-subnav-item="categories" onclick="Navigation.selectInternal('menu', 'categories')">
                 <i class="fas fa-tags"></i> Categorías
             </button>
-            <button class="btn ${this.currentView === 'presentations' ? 'btn-primary' : 'btn-light'}" onclick="Menu.switchView('presentations')">
-                <i class="fas fa-glass-whiskey"></i> Presentaciones
+            <button class="btn ${this.currentView === 'presentations' ? 'btn-primary active' : 'btn-light'}" data-subnav-item="presentations" onclick="Navigation.selectInternal('menu', 'presentations')">
+                <i class="fas fa-box-open"></i> Presentaciones
             </button>
         </div>
 
@@ -83,6 +83,7 @@ const Menu = {
     switchView(view) {
             this.currentView = view;
             this.render();
+            Navigation.syncInternalSubnav('menu');
     },
 
     // Renderizar vista de productos

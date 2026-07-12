@@ -137,11 +137,11 @@
                     <h2 id="greeting-message"></h2>
                     <p>Vista general del estado del restaurante</p>
                 </div>
-                <div class="btn-filtro-zonas">
-                    <button class="btn btn-zona" data-tipo="todos" onclick="Dashboard.filtrarPorZona('todos')">Todos</button>
-                    <button class="btn btn-zona" data-tipo="salon" onclick="Dashboard.filtrarPorZona('salon')">Salón</button>
-                    <button class="btn btn-zona" data-tipo="bar-mesa" onclick="Dashboard.filtrarPorZona('bar-mesa')">Bar</button>
-                    <button class="btn btn-zona" data-tipo="bar-banco" onclick="Dashboard.filtrarPorZona('bar-banco')">Barra</button>
+                <div class="btn-filtro-zonas internal-tabs" aria-label="Filtros del dashboard">
+                    <button class="btn btn-zona active" data-tipo="todos" data-subnav-item="todos" onclick="Navigation.selectInternal('dashboard', 'todos')"><i class="fas fa-border-all"></i> Todos</button>
+                    <button class="btn btn-zona" data-tipo="salon" data-subnav-item="salon" onclick="Navigation.selectInternal('dashboard', 'salon')"><i class="fas fa-chair"></i> Salón</button>
+                    <button class="btn btn-zona" data-tipo="bar-mesa" data-subnav-item="bar-mesa" onclick="Navigation.selectInternal('dashboard', 'bar-mesa')"><i class="fas fa-martini-glass-citrus"></i> Bar</button>
+                    <button class="btn btn-zona" data-tipo="bar-banco" data-subnav-item="bar-banco" onclick="Navigation.selectInternal('dashboard', 'bar-banco')"><i class="fas fa-grip-lines"></i> Barra</button>
                 </div>
 
                 <!-- Estados de Mesas -->
@@ -318,6 +318,7 @@
                 <!-- Contenido de configuración -->
             </section>
         </main>
+        <nav id="mobile-subnav" class="mobile-subnav" aria-label="Subnavegación interna"></nav>
     </div>
 
     <!-- Modales -->

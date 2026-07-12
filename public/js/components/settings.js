@@ -50,12 +50,12 @@ render() {
 
         <div class="mb-3">
             <!-- Línea 1: vistas principales + actualizar -->
-            <div class="d-flex gap-2 flex-wrap mb-2">
-                <button class="btn ${this.currentView === 'general' ? 'btn-primary' : 'btn-light'}" onclick="Settings.switchView('general')">
+            <div class="d-flex gap-2 flex-wrap mb-2 internal-tabs" aria-label="Vistas de configuración">
+                <button class="btn ${this.currentView === 'general' ? 'btn-primary active' : 'btn-light'}" data-subnav-item="general" onclick="Navigation.selectInternal('settings', 'general')">
                     <i class="fas fa-cog"></i> General
                 </button>
-                <button class="btn ${this.currentView === 'history' ? 'btn-primary' : 'btn-light'}" onclick="Settings.switchView('history')">
-                    <i class="fas fa-history"></i> Historial
+                <button class="btn ${this.currentView === 'history' ? 'btn-primary active' : 'btn-light'}" data-subnav-item="history" onclick="Navigation.selectInternal('settings', 'history')">
+                    <i class="fas fa-clock-rotate-left"></i> Historial
                 </button>
                 <button class="btn btn-sm btn-secondary" onclick="Settings.load()" title="Actualizar configuración">
                     <i class="fas fa-sync text-white"></i>
@@ -63,12 +63,12 @@ render() {
             </div>
 
             <!-- Línea 2: respaldos y reportes -->
-            <div class="d-flex gap-2 flex-wrap mb-2">
-                <button class="btn ${this.currentView === 'backup' ? 'btn-primary' : 'btn-light'}" onclick="Settings.switchView('backup')">
+            <div class="d-flex gap-2 flex-wrap mb-2 internal-tabs" aria-label="Vistas de configuración">
+                <button class="btn ${this.currentView === 'backup' ? 'btn-primary active' : 'btn-light'}" data-subnav-item="backup" onclick="Navigation.selectInternal('settings', 'backup')">
                     <i class="fas fa-database"></i> Respaldos
                 </button>
-                <button class="btn ${this.currentView === 'reports' ? 'btn-primary' : 'btn-light'}" onclick="Settings.switchView('reports')">
-                    <i class="fas fa-chart-bar"></i> Reportes
+                <button class="btn ${this.currentView === 'reports' ? 'btn-primary active' : 'btn-light'}" data-subnav-item="reports" onclick="Navigation.selectInternal('settings', 'reports')">
+                    <i class="fas fa-chart-line"></i> Reportes
                 </button>
             </div>
         </div>
@@ -83,6 +83,7 @@ render() {
     switchView(view) {
         this.currentView = view;
         this.render();
+        Navigation.syncInternalSubnav('settings');
         
         // Cargar datos específicos de la vista
         if (view === 'backup') {
