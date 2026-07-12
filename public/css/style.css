@@ -18,16 +18,6 @@
     --border-radius: 8px;
     --transition: all 0.3s ease;
 }
-.sidebar-footer {
-    font-size: 0.75rem;
-    color: #adb5bd; /* Gris claro */
-    text-align: center;
-    padding-top: 1rem;
-    padding-bottom: 1rem;
-    border-top: 1px solid #dee2e6;
-    margin-top: auto;
-}
-
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     line-height: 1.6;
@@ -576,41 +566,117 @@ body {
 /* Sidebar */
 .sidebar {
     grid-area: sidebar;
-    background-color: var(--primary-color);
+    position: relative;
+    background:
+        linear-gradient(180deg, #111827 0%, #172033 48%, #21384f 100%);
     color: white;
     overflow-y: auto;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 14px 0 32px rgba(15, 23, 42, 0.12);
+}
+
+.sidebar::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    height: 140px;
+    background:
+        radial-gradient(circle at 22% 18%, rgba(243, 156, 18, 0.16), transparent 34%),
+        radial-gradient(circle at 84% 8%, rgba(52, 152, 219, 0.2), transparent 42%);
+    pointer-events: none;
+}
+
+.sidebar-overlay {
+    display: none;
 }
 
 .nav-menu {
+    position: relative;
+    z-index: 1;
     list-style: none;
-    padding: 1rem 0;
+    padding: 1.15rem 0.85rem;
 }
 
 .nav-item {
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.42rem;
 }
 
 .nav-link {
+    position: relative;
+    overflow: hidden;
     display: flex;
     align-items: center;
-    gap: 1rem;
-    padding: 1rem 1.5rem;
-    color: white;
+    gap: 0.85rem;
+    min-height: 48px;
+    padding: 0.82rem 0.95rem;
+    color: rgba(236, 240, 241, 0.86);
+    border: 1px solid transparent;
+    border-radius: 14px;
     text-decoration: none;
-    transition: var(--transition);
+    transition:
+        background-color 180ms ease,
+        border-color 180ms ease,
+        color 180ms ease,
+        box-shadow 180ms ease,
+        transform 180ms ease;
 }
 
 .nav-link:hover {
-    background-color: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    background-color: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.1);
+    transform: translateX(3px);
 }
 
 .nav-link.active {
-    background-color: var(--secondary-color);
+    color: #fff;
+    background:
+        linear-gradient(135deg, rgba(52, 152, 219, 0.28), rgba(243, 156, 18, 0.2));
+    border-color: rgba(255, 255, 255, 0.16);
+    box-shadow:
+        0 12px 28px rgba(0, 0, 0, 0.18),
+        inset 3px 0 0 rgba(243, 156, 18, 0.95);
 }
 
 .nav-link i {
-    width: 20px;
+    width: 22px;
     text-align: center;
+    color: rgba(243, 156, 18, 0.88);
+    transition: transform 180ms ease, color 180ms ease;
+}
+
+.nav-link:hover i,
+.nav-link.active i {
+    color: #f8c15f;
+    transform: scale(1.08);
+}
+
+.nav-link::after {
+    content: '';
+    position: absolute;
+    inset: 50% auto auto 50%;
+    width: 10px;
+    height: 10px;
+    background: rgba(255, 255, 255, 0.22);
+    border-radius: 999px;
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1);
+    pointer-events: none;
+}
+
+.nav-link.nav-link-pressed::after {
+    animation: navRipple 360ms ease-out;
+}
+
+@keyframes navRipple {
+    0% {
+        opacity: 0.55;
+        transform: translate(-50%, -50%) scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(24);
+    }
 }
 
 /* Main Content */
@@ -623,10 +689,42 @@ body {
 
 .content-section {
     display: none;
+    opacity: 0;
+    transform: translateY(8px);
 }
 
 .content-section.active {
     display: block;
+    opacity: 1;
+    transform: translateY(0);
+    animation: sectionFadeIn 220ms ease both;
+}
+
+.content-section.section-leaving {
+    display: block;
+    animation: sectionFadeOut 160ms ease both;
+}
+
+@keyframes sectionFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes sectionFadeOut {
+    from {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(6px);
+    }
 }
 
 .section-header {
@@ -962,15 +1060,60 @@ body {
     .sidebar {
         position: fixed;
         top: 64px;
-        left: -250px;
-        width: 250px;
+        left: 0;
+        width: min(82vw, 292px);
         height: calc(100vh - 64px);
-        transition: var(--transition);
+        opacity: 0;
+        transform: translateX(-104%);
+        visibility: hidden;
+        transition:
+            transform 260ms cubic-bezier(0.2, 0.85, 0.2, 1),
+            opacity 220ms ease,
+            visibility 0s linear 260ms;
         z-index: 1500;
+        box-shadow: 24px 0 48px rgba(2, 8, 23, 0.32);
     }
 
     .sidebar.open {
+        opacity: 1;
+        transform: translateX(0);
+        visibility: visible;
+        transition:
+            transform 260ms cubic-bezier(0.2, 0.85, 0.2, 1),
+            opacity 220ms ease;
+    }
+
+    .sidebar-overlay {
+        position: fixed;
+        top: 64px;
+        right: 0;
+        bottom: 0;
         left: 0;
+        z-index: 1400;
+        display: block;
+        background: rgba(2, 8, 23, 0.42);
+        backdrop-filter: blur(2px);
+        opacity: 0;
+        visibility: hidden;
+        transition:
+            opacity 220ms ease,
+            visibility 0s linear 220ms;
+    }
+
+    .sidebar-overlay.open {
+        opacity: 1;
+        visibility: visible;
+        transition: opacity 220ms ease;
+    }
+
+    .nav-menu {
+        padding: 1rem 0.8rem 1.4rem;
+    }
+
+    .nav-link {
+        min-height: 52px;
+        padding: 0.9rem 1rem;
+        border-radius: 16px;
     }
 
     .menu-toggle {
@@ -1107,6 +1250,21 @@ body {
 
     .stat-value {
         font-size: 1.2rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .nav-link,
+    .sidebar,
+    .sidebar-overlay,
+    .content-section.active,
+    .content-section.section-leaving {
+        animation-duration: 1ms !important;
+        transition-duration: 1ms !important;
+    }
+
+    .nav-link:hover {
+        transform: none;
     }
 }
 

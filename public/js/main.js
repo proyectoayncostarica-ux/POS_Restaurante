@@ -4,6 +4,7 @@ let currentSection = 'dashboard';
 let headerClockTimer = null;
 let lastDesktopDateTime = '';
 let lastMobileDateTime = '';
+let navigationTransitionId = 0;
 const APP_NAME = 'MundiPOS';
 
 // API Base URL
@@ -382,7 +383,56 @@ function resetLoginForm() {
 // Navegación
 const Navigation = {
     // Mostrar sección
-    showSection(sectionName) {
+    async showSection(sectionName) {
+        {
+            const transitionId = ++navigationTransitionId;
+            const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            const currentActiveSection = document.querySelector('.content-section.active');
+            const nextSection = document.getElementById(`${sectionName}-section`);
+            const isSameSection = currentSection === sectionName && currentActiveSection === nextSection;
+
+            document.querySelectorAll('.nav-link').forEach(link => {
+                link.classList.remove('active');
+            });
+
+            const link = document.querySelector(`[data-section="${sectionName}"]`);
+            if (link) {
+                link.classList.add('active');
+            }
+
+            if (isSameSection) {
+                await this.loadSectionContent(sectionName);
+                this.closeSidebar();
+                return;
+            }
+
+            if (currentActiveSection && !prefersReducedMotion) {
+                currentActiveSection.classList.add('section-leaving');
+                await wait(160);
+            }
+
+            if (transitionId !== navigationTransitionId) return;
+
+            document.querySelectorAll('.content-section').forEach(section => {
+                section.classList.remove('active', 'section-leaving');
+            });
+
+            if (nextSection) {
+                nextSection.classList.add('active');
+            }
+
+            currentSection = sectionName;
+            await this.loadSectionContent(sectionName);
+
+            if (transitionId !== navigationTransitionId) return;
+
+            if (window.innerWidth <= 768) {
+                this.closeSidebar();
+            }
+
+            return;
+        }
+
         // Ocultar todas las secciones
         document.querySelectorAll('.content-section').forEach(section => {
             section.classList.remove('active');
@@ -451,7 +501,27 @@ const Navigation = {
     // Toggle sidebar en móvil
     toggleSidebar() {
         const sidebar = document.getElementById('sidebar');
-        sidebar.classList.toggle('open');
+        if (sidebar.classList.contains('open')) {
+            this.closeSidebar();
+        } else {
+            this.openSidebar();
+        }
+    },
+
+    openSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.getElementById('sidebar-overlay');
+
+        sidebar.classList.add('open');
+        overlay?.classList.add('open');
+    },
+
+    closeSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.getElementById('sidebar-overlay');
+
+        sidebar.classList.remove('open');
+        overlay?.classList.remove('open');
     }
 };
 
@@ -511,9 +581,16 @@ document.addEventListener('DOMContentLoaded', async function() {
     document.querySelectorAll('.nav-link').forEach(link => {
         link.addEventListener('click', function(e) {
             e.preventDefault();
+            this.classList.remove('nav-link-pressed');
+            void this.offsetWidth;
+            this.classList.add('nav-link-pressed');
             const section = this.getAttribute('data-section');
             Navigation.showSection(section);
         });
+    });
+
+    document.getElementById('sidebar-overlay')?.addEventListener('click', function() {
+        Navigation.closeSidebar();
     });
 
     // Dashboard cards navigation
@@ -539,7 +616,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             const menuToggle = document.getElementById('menu-toggle');
             
             if (!sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
-                sidebar.classList.remove('open');
+                Navigation.closeSidebar();
             }
         }
     });
@@ -547,7 +624,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Responsive sidebar
     window.addEventListener('resize', function() {
         if (window.innerWidth > 768) {
-            document.getElementById('sidebar').classList.remove('open');
+            Navigation.closeSidebar();
         }
     });
 });
