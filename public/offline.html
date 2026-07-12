@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MundiPOS sin conexión</title>
+    <meta name="theme-color" content="#172033">
+    <style>
+        :root {
+            color-scheme: light;
+            --brand-dark: #0f172a;
+            --brand-mid: #172033;
+            --brand-blue: #2563eb;
+            --brand-gold: #f39c12;
+            --text: #203247;
+        }
+        * { box-sizing: border-box; }
+        body {
+            min-height: 100vh;
+            margin: 0;
+            display: grid;
+            place-items: center;
+            padding: 1.5rem;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background:
+                radial-gradient(circle at 18% 18%, rgba(255,255,255,.16), transparent 28%),
+                radial-gradient(circle at 82% 12%, rgba(52,152,219,.22), transparent 32%),
+                linear-gradient(135deg, var(--brand-dark) 0%, var(--brand-mid) 52%, #23445a 100%);
+            color: var(--text);
+        }
+        .offline-card {
+            width: min(100%, 430px);
+            padding: 2rem;
+            text-align: center;
+            border-radius: 26px;
+            background: rgba(255, 255, 255, .95);
+            box-shadow: 0 28px 70px rgba(2, 8, 23, .42), inset 0 1px 0 rgba(255,255,255,.85);
+            border: 1px solid rgba(255,255,255,.55);
+        }
+        .offline-logo {
+            width: 96px;
+            height: 96px;
+            margin: 0 auto 1.2rem;
+            display: grid;
+            place-items: center;
+            overflow: hidden;
+            border-radius: 24px;
+            background: white;
+            box-shadow: 0 18px 38px rgba(15, 23, 42, .18);
+        }
+        .offline-logo img {
+            width: 92%;
+            height: 92%;
+            object-fit: contain;
+            border-radius: 19px;
+        }
+        h1 {
+            margin: 0 0 .55rem;
+            color: #0f172a;
+            font-size: clamp(1.6rem, 5vw, 2.15rem);
+        }
+        p {
+            margin: 0 0 1rem;
+            color: #516172;
+            line-height: 1.55;
+        }
+        .hint {
+            display: inline-flex;
+            align-items: center;
+            gap: .45rem;
+            padding: .65rem .9rem;
+            border-radius: 999px;
+            color: #92400e;
+            background: rgba(243,156,18,.13);
+            font-size: .88rem;
+            font-weight: 700;
+        }
+        .reload {
+            width: 100%;
+            margin-top: 1.2rem;
+            padding: .82rem 1rem;
+            border: 0;
+            border-radius: 14px;
+            color: white;
+            font-weight: 800;
+            cursor: pointer;
+            background: linear-gradient(135deg, #172033, var(--brand-blue) 68%, var(--brand-gold));
+            box-shadow: 0 12px 26px rgba(37, 99, 235, .22);
+        }
+    </style>
+</head>
+<body>
+    <main class="offline-card" aria-labelledby="offline-title">
+        <div class="offline-logo" aria-hidden="true">
+            <img src="/POS/assets/brand/mundipos-mark.jpg" alt="">
+        </div>
+        <h1 id="offline-title">MundiPOS sin conexión</h1>
+        <p>La app está instalada, pero el servidor local o la red no están disponibles en este momento.</p>
+        <p class="hint">Verifica la conexión y que el servidor esté iniciado.</p>
+        <button class="reload" type="button" onclick="window.location.reload()">Reintentar conexión</button>
+    </main>
+</body>
+</html>

@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 
 loadEnvFile(path.join(__dirname, '../.env'));
 
@@ -25,6 +26,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'change-this-secret-in-env';
 const NODE_ENV = process.env.NODE_ENV || 'development';
+const HOST = process.env.HOST || '0.0.0.0';
+const HTTPS_ENABLED = ['true', '1', 'yes', 'on'].includes(String(process.env.HTTPS_ENABLED || '').toLowerCase());
+const HTTPS_KEY_PATH = process.env.HTTPS_KEY_PATH || '';
+const HTTPS_CERT_PATH = process.env.HTTPS_CERT_PATH || '';
 
 function loadEnvFile(envPath) {
     if (!fs.existsSync(envPath)) return;
@@ -40,6 +45,69 @@ function loadEnvFile(envPath) {
             process.env[key.trim()] = value;
         }
     }
+}
+
+function resolveProjectPath(filePath) {
+    if (!filePath) return '';
+    return path.isAbsolute(filePath)
+        ? filePath
+        : path.join(__dirname, '..', filePath);
+}
+
+function createHttpServer() {
+    if (!HTTPS_ENABLED) return { server: app, protocol: 'http' };
+
+    const keyPath = resolveProjectPath(HTTPS_KEY_PATH);
+    const certPath = resolveProjectPath(HTTPS_CERT_PATH);
+
+    if (!keyPath || !certPath || !fs.existsSync(keyPath) || !fs.existsSync(certPath)) {
+        throw new Error('HTTPS_ENABLED=true requiere HTTPS_KEY_PATH y HTTPS_CERT_PATH válidos.');
+    }
+
+    return {
+        server: https.createServer({
+            key: fs.readFileSync(keyPath),
+            cert: fs.readFileSync(certPath)
+        }, app),
+        protocol: 'https'
+    };
+}
+
+const publicPath = path.join(__dirname, '../public');
+const indexHtmlPath = path.join(publicPath, 'index.html');
+
+function sendAppIndex(req, res) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.sendFile(indexHtmlPath);
+}
+
+function sendLegacyRootServiceWorkerCleanup(req, res) {
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Service-Worker-Allowed', '/');
+    res.send(`
+const MUNDIPOS_LEGACY_SW_CLEANUP = 'v2.1.5-fix2-root-cleanup';
+self.addEventListener('install', event => {
+  event.waitUntil(self.skipWaiting());
+});
+self.addEventListener('activate', event => {
+  event.waitUntil((async () => {
+    const cacheNames = await caches.keys();
+    await Promise.all(
+      cacheNames
+        .filter(cacheName => cacheName.startsWith('mundipos-'))
+        .map(cacheName => caches.delete(cacheName))
+    );
+    await self.clients.claim();
+    await self.registration.unregister();
+  })());
+});
+self.addEventListener('fetch', () => {
+  // Service worker temporal: no intercepta respuestas. Solo limpia un registro PWA antiguo en scope raíz.
+});
+`);
 }
 
 // Middleware
@@ -75,9 +143,34 @@ app.use(session({
     }
 }));
 
-// Servir archivos estáticos
-app.use('/POS', express.static(path.join(__dirname, '../public')));
-app.use('/uploads', express.static(path.join(__dirname, '../public/uploads')));
+// Archivos PWA con headers explícitos para evitar caché agresivo del service worker/manifest.
+// También se exponen rutas raíz de limpieza para desactivar registros antiguos creados durante pruebas PWA.
+app.get('/POS/service-worker.js', (req, res) => {
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Service-Worker-Allowed', '/POS/');
+    res.sendFile(path.join(publicPath, 'service-worker.js'));
+});
+
+app.get('/service-worker.js', sendLegacyRootServiceWorkerCleanup);
+
+app.get(['/POS/manifest.webmanifest', '/manifest.webmanifest'], (req, res) => {
+    res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.sendFile(path.join(publicPath, 'manifest.webmanifest'));
+});
+
+app.get(['/POS/offline.html', '/offline.html'], (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.sendFile(path.join(publicPath, 'offline.html'));
+});
+
+// Evitar redirecciones permanentes en móvil. Se sirve el shell directamente en rutas de entrada.
+app.get(['/', '/POS', '/POS/', '/PC', '/pc'], sendAppIndex);
+
+// Servir archivos estáticos sin redirección automática para impedir ciclos con cachés viejas del navegador.
+app.use('/POS', express.static(publicPath, { redirect: false }));
+app.use('/uploads', express.static(path.join(publicPath, 'uploads'), { redirect: false }));
 
 // Endpoint público de identidad visual de la app.
 // Expone únicamente datos no sensibles para poder mostrar el nombre del negocio antes del login.
@@ -130,19 +223,8 @@ app.use('/api/credits', requireAuth, creditsRoutes);
 app.use('/api/users', requireAuth, usersRoutes);
 app.use('/api/settings', requireAuth, settingsRoutes);
 
-// Ruta principal - servir index.html
-app.get('/POS', (req, res) => {
-    res.sendFile(path.join(__dirname, '../public/index.html'));
-});
-
-app.get('/POS/*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../public/index.html'));
-});
-
-// Redirección útil para entorno local
-app.get('/', (req, res) => {
-    res.redirect('/POS');
-});
+// Ruta principal - servir index.html sin redirecciones para evitar bucles en navegadores móviles con caché PWA vieja.
+app.get('/POS/*', sendAppIndex);
 
 // Manejo global de errores
 app.use((err, req, res, next) => {
@@ -153,9 +235,17 @@ app.use((err, req, res, next) => {
 // Inicializar la base de datos y arrancar el servidor
 if (require.main === module) {
     database.initializeDatabase().then(() => {
-        app.listen(PORT, '0.0.0.0', () => {
-            console.log(`Servidor POS ejecutándose en http://0.0.0.0:${PORT}`);
-            console.log(`Frontend disponible en http://localhost:${PORT}/POS`);
+        const { server, protocol } = createHttpServer();
+
+        server.listen(PORT, HOST, () => {
+            console.log(`Servidor POS ejecutándose en ${protocol}://${HOST}:${PORT}`);
+            console.log(`Frontend disponible en ${protocol}://localhost:${PORT}/POS/`);
+
+            if (protocol === 'http') {
+                console.log('PWA: instalable en PC usando localhost/127.0.0.1. Para instalar desde móvil por IP local se requiere HTTPS con certificado confiable.');
+            } else {
+                console.log('PWA: modo HTTPS activo. Verifica que el certificado sea confiable en PC y móvil para permitir instalación.');
+            }
         });
     }).catch(err => {
         console.error('Error al inicializar la base de datos:', err);

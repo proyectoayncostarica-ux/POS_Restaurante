@@ -1,0 +1,89 @@
+{
+  "name": "MundiPOS",
+  "short_name": "MundiPOS",
+  "description": "Sistema POS para restaurante y bar con operación local en PC, tablet y móvil.",
+  "lang": "es-CR",
+  "dir": "ltr",
+  "id": "/POS/",
+  "start_url": "/POS/?source=pwa",
+  "scope": "/POS/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#1f325d",
+  "theme_color": "#0f3686",
+  "categories": [
+    "business",
+    "productivity",
+    "food"
+  ],
+  "prefer_related_applications": false,
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  },
+  "icons": [
+
+    {
+      "src": "/POS/assets/icons/mundipos-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/POS/assets/icons/mundipos-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    
+    {
+      "src": "/POS/assets/icons/mundipos-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/POS/assets/icons/mundipos-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Panel",
+      "description": "Abrir el panel operativo de MundiPOS.",
+      "url": "/POS/?section=dashboard",
+      "icons": [
+        {
+          "src": "/POS/assets/icons/mundipos-icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Zonas y mesas",
+      "short_name": "Zonas",
+      "description": "Abrir gestión de zonas, mesas y barra.",
+      "url": "/POS/?section=tables",
+      "icons": [
+        {
+          "src": "/POS/assets/icons/mundipos-icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Cuentas",
+      "short_name": "Cuentas",
+      "description": "Abrir cuentas y pedidos.",
+      "url": "/POS/?section=orders",
+      "icons": [
+        {
+          "src": "/POS/assets/icons/mundipos-icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
+}

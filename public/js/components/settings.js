@@ -74,8 +74,11 @@ render() {
         </div>
     `;
 
-    // 🔧 Esta línea es la que faltaba:
-    section.innerHTML += this.renderCurrentView();
+    section.innerHTML += `
+        <div class="internal-view-panel" data-internal-panel="settings">
+            ${this.renderCurrentView()}
+        </div>
+    `;
 }
 ,
 

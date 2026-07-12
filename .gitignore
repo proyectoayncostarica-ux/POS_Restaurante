@@ -44,5 +44,7 @@ cookies.txt
 *.db-wal
 *.db-journal
 data/restaurant_backup_manual.db
-
 .codex-remote-attachments/
+
+certs/
+public/mundipos-rootCA.crt

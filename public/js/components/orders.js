@@ -61,7 +61,9 @@ const Orders = {
 </div>
 
 
-            ${this.renderOrdersView()}
+            <div class="internal-view-panel" data-internal-panel="orders">
+                ${this.renderOrdersView()}
+            </div>
         `;
     },
 

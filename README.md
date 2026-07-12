@@ -62,18 +62,46 @@ Cada fix debe indicar:
 
 ## Registro de cambios canónico
 
+### v2.1.5 fix2 · Recuperación móvil por bucle de redirecciones PWA
+
+- **Problema detectado:** después de las pruebas de instalación PWA, algunos navegadores móviles podían quedar con redirecciones/cachés persistentes y mostrar `ERR_TOO_MANY_REDIRECTS` al abrir la app por la IP local.
+- **Causa probable:** el uso de redirección permanente para normalizar `/POS` a `/POS/`, combinado con caché del navegador o registros PWA/Service Worker generados durante pruebas, podía dejar al dispositivo en un estado difícil de recuperar.
+- **Objetivo del fix:** eliminar redirecciones permanentes en las rutas de entrada, servir el shell directamente y limpiar registros PWA antiguos para recuperar el acceso móvil.
+- **Archivos modificados:** `server/app.js`, `public/service-worker.js`, `public/js/main.js` y `README.md`.
+- **Cambios realizados en backend:** `server/app.js` ahora sirve `index.html` directamente en `/`, `/POS`, `/POS/`, `/PC` y `/pc` sin redirección; `express.static` se configuró con `redirect: false`; se agregaron respuestas raíz para `manifest.webmanifest`, `offline.html` y un service worker temporal de limpieza en `/service-worker.js` para desactivar registros antiguos de scope raíz.
+- **Cambios realizados en frontend/PWA:** `main.js` intenta limpiar service workers heredados que no pertenezcan al scope `/POS/`; `service-worker.js` subió versión de caché y evita guardar navegaciones fuera de `/POS`.
+- **Prueba recomendada:** reiniciar el servidor, abrir en móvil exactamente `http://IP_LOCAL:3000/POS/`, borrar datos del sitio si el navegador sigue mostrando el error y comprobar que no haya bucle de redirecciones.
+- **Resultado esperado:** el móvil vuelve a cargar MundiPOS sin `ERR_TOO_MANY_REDIRECTS`, incluso si se abre una ruta vieja o un acceso directo creado durante pruebas PWA.
+- **Pendientes o riesgos:** para instalación PWA real desde móvil por IP local sigue siendo necesario HTTPS confiable; por HTTP/IP local se debe usar la app como web responsive, no como PWA instalable.
+
+### v2.1.5 · Preparación PWA para PC y móvil
+
+- **Objetivo:** agregar la base técnica necesaria para que MundiPOS pueda instalarse como PWA en PC, tablet y móvil, manteniendo el enfoque local-first del POS.
+- **Alcance:** se creó el manifiesto web, service worker, página offline, set completo de iconos instalables y lógica frontend de registro/actualización/instalación.
+- **Archivos modificados:** `public/index.html`, `public/css/style.css`, `public/js/main.js`, `server/app.js` y `README.md`.
+- **Archivos nuevos:** `public/manifest.webmanifest`, `public/service-worker.js`, `public/offline.html` y los iconos PWA dentro de `public/assets/icons/`.
+- **Comportamiento en PC:** el navegador compatible puede ofrecer instalación de MundiPOS como app independiente usando `display: standalone`, con accesos directos hacia Dashboard, Zonas y Cuentas.
+- **Comportamiento en móvil:** la app queda preparada para instalación desde navegador compatible, usa iconos dedicados, respeta `theme_color`, safe areas y mantiene la navegación responsive existente.
+- **Service worker:** cachea el app shell local bajo `/POS/`, evita cachear rutas `/api/` con sesión/datos operativos, limpia caches antiguos y muestra una página offline cuando el servidor local o la red no están disponibles.
+- **Lógica de instalación:** se agregó manejo de `beforeinstallprompt`, botón contextual `Instalar` en el header cuando el navegador lo permite y aviso de actualización cuando hay un nuevo service worker listo.
+- **Backend:** `server/app.js` sirve `service-worker.js` y `manifest.webmanifest` con headers explícitos para evitar caché agresivo del navegador.
+- **Pruebas realizadas/recomendadas:** validar sintaxis de `public/js/main.js`, `server/app.js` y `public/service-worker.js`; revisar que `/POS/manifest.webmanifest`, `/POS/service-worker.js` y `/POS/offline.html` respondan correctamente; probar instalación PWA en Chrome/Edge de PC y Android.
+- **Resultado esperado:** MundiPOS queda instalable como PWA y puede cargar su shell visual desde caché, pero las operaciones reales siguen requiriendo el servidor local y SQLite disponibles.
+- **Riesgos o pendientes:** Font Awesome sigue viniendo de CDN y podría no mostrar iconos si no existe caché externa; para una PWA completamente offline conviene migrar iconografía crítica a assets locales en una fase posterior.
+
+### v2.1.5 fix1 · Corrección de instalabilidad PWA y soporte HTTPS local
+
+- **Problema detectado:** la PWA no ofrecía instalación de forma confiable en PC/móvil. Se reforzó la configuración porque Chrome/Edge solo muestran instalación cuando la app cumple manifest + service worker y se sirve desde un origen permitido: HTTPS o localhost/127.0.0.1. En móviles conectados a la IP local de la PC, HTTP no es suficiente.
+- **Objetivo del fix:** hacer más robusta la instalabilidad PWA, evitar rutas ambiguas bajo `/POS`, mejorar el registro del service worker, agregar ayuda contextual cuando el navegador no permite instalar y preparar modo HTTPS local opcional.
+- **Archivos modificados:** `public/index.html`, `public/manifest.webmanifest`, `public/service-worker.js`, `public/js/main.js`, `public/css/style.css`, `server/app.js`, `.env.example` y `README.md`.
+- **Cambios realizados:** se normalizaron rutas absolutas del manifest/assets bajo `/POS/`, se registró el service worker con scope explícito `/POS/`, se agregó header `Service-Worker-Allowed`, se hizo más tolerante el precache del app shell, se redirige `/POS` a `/POS/`, se agregó soporte opcional HTTPS con `HTTPS_ENABLED`, `HTTPS_KEY_PATH` y `HTTPS_CERT_PATH`, y el botón de instalación ahora muestra ayuda si el origen no permite PWA o si el navegador requiere instalación manual.
+- **Comportamiento esperado en PC:** usando `http://localhost:3000/POS/` o `http://127.0.0.1:3000/POS/`, Chrome/Edge deben poder registrar el service worker y ofrecer instalación cuando se cumplan los criterios del navegador.
+- **Comportamiento esperado en móvil:** si se accede por `http://IP_LOCAL:3000/POS/`, el navegador puede bloquear la instalación por no ser HTTPS. Para instalación real desde móvil por red local debe usarse HTTPS con certificado confiable instalado en el dispositivo o un túnel HTTPS.
+- **Pruebas realizadas/recomendadas:** validar sintaxis de `public/js/main.js`, `server/app.js` y `public/service-worker.js`; validar JSON de `public/manifest.webmanifest`; probar en PC con `http://localhost:3000/POS/`; si se prueba desde móvil por IP local, configurar HTTPS confiable antes de esperar instalación PWA.
+- **Resultado esperado:** PWA más robusta y clara: instala en contexto permitido, muestra ayuda cuando el navegador bloquea la instalación y deja documentado el requisito de HTTPS para móvil en red local.
+- **Riesgos o pendientes:** falta generar/instalar certificados confiables para cada entorno real; si el local no quiere gestionar HTTPS, la alternativa futura será empaquetar con Capacitor/Electron/Tauri o usar un túnel HTTPS.
+
 ### v2.1.4 · Estabilización de subnavegación interna por módulo
-
-### v2.1.4 fix1 · Ajuste visual de barra inferior móvil de subnavegación
-
-- **Objetivo del fix:** transformar la subnavegación móvil de un dock flotante oscuro a una barra inferior clara tipo app nativa, más cercana a la referencia visual solicitada.
-- **Problema detectado:** la primera implementación quedaba centrada, oscura y superpuesta sobre las tarjetas del módulo, por lo que se percibía como un overlay flotante y no como navegación inferior fija.
-- **Cambios aplicados:** `mobile-subnav` ahora ocupa todo el ancho, queda pegada al borde inferior, usa fondo claro/translúcido, sombra superior suave, borde superior, soporte de `safe-area-inset-bottom` y estado activo tipo tarjeta/píldora.
-- **Cómo se evita tapar contenido:** en móvil, cuando existe subnavegación visible, `.main-content` recibe padding y `scroll-padding-bottom` ampliados para que el contenido final pueda desplazarse por encima de la barra.
-- **Archivos modificados:** `public/css/style.css` y `README.md`.
-- **Prueba recomendada:** revisar en viewport móvil Dashboard, Zonas, Menú, Cuentas y Configuración confirmando que la barra se ve clara, fija al fondo, con icono/texto centrados y sin apariencia de dock oscuro.
-- **Resultado esperado:** navegación inferior móvil más ligera, profesional y nativa, coherente con la identidad visual de MundiPOS y sin cambios en la lógica de filtros/subpáginas.
-- **Pendientes o riesgos:** validar en dispositivos físicos con distintas barras de navegador/SO para ajustar la altura exacta si algún equipo requiere más espacio inferior.
 
 - **Objetivo:** modernizar la navegación interna de los módulos para diferenciar claramente la navegación principal entre módulos de la subnavegación contextual dentro de cada módulo.
 - **Diferencia de navegación:** el sidebar/hamburguesa mantiene la navegación principal entre Dashboard, Zonas, Menú, Cuentas, Créditos, Usuarios y Configuración; la nueva subnavegación controla solo vistas internas del módulo activo.

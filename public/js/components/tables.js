@@ -63,14 +63,16 @@ const Tables = {
             ${botonesFiltro}
         </div>
 
-        <div class="d-flex gap-2">
-            <span class="badge badge-success">Libres: ${this.data.filter(m => m.estado === 'libre').length}</span>
-            <span class="badge badge-danger">Ocupadas: ${this.data.filter(m => m.estado === 'ocupada').length}</span>
-            <span class="badge badge-warning">Reservadas: ${this.data.filter(m => m.estado === 'reservada').length}</span>
-        </div>
+        <div class="internal-view-panel" data-internal-panel="tables">
+            <div class="d-flex gap-2">
+                <span class="badge badge-success">Libres: ${this.data.filter(m => m.estado === 'libre').length}</span>
+                <span class="badge badge-danger">Ocupadas: ${this.data.filter(m => m.estado === 'ocupada').length}</span>
+                <span class="badge badge-warning">Reservadas: ${this.data.filter(m => m.estado === 'reservada').length}</span>
+            </div>
 
-        <div class="mesas-grid">
-            ${this.renderMesasGrid()}
+            <div class="mesas-grid">
+                ${this.renderMesasGrid()}
+            </div>
         </div>
     `;
 },

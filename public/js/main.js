@@ -432,10 +432,13 @@ const Navigation = {
                 link.classList.add('active');
             }
 
+            if (window.innerWidth <= 768) {
+                this.closeSidebar();
+            }
+
             if (isSameSection) {
                 await this.loadSectionContent(sectionName);
                 this.renderInternalSubnav(sectionName);
-                this.closeSidebar();
                 return;
             }
 
@@ -598,7 +601,13 @@ const Navigation = {
             await this.showSection(sectionName);
         }
 
-        await this.runInternalTransition(async () => {
+        const currentActive = this.getInternalActive(sectionName);
+        if (currentActive === itemId) {
+            this.syncInternalSubnav(sectionName);
+            return;
+        }
+
+        await this.runInternalTransition(sectionName, async () => {
             switch (sectionName) {
                 case 'dashboard':
                     Dashboard.filtrarPorZona(itemId);
@@ -622,20 +631,57 @@ const Navigation = {
         this.syncInternalSubnav(sectionName);
     },
 
-    async runInternalTransition(action) {
-        const section = document.getElementById(`${currentSection}-section`);
+    getInternalTransitionTarget(sectionName = currentSection) {
+        const section = document.getElementById(`${sectionName}-section`);
+        if (!section) return null;
+
+        if (sectionName === 'dashboard') {
+            return section.querySelector('#mesas-grid') || section.querySelector('.dashboard-tables') || section;
+        }
+
+        if (sectionName === 'menu') {
+            return section.querySelector('[data-internal-panel="menu-content"]')
+                || section.querySelector('[data-internal-panel="menu"]')
+                || section;
+        }
+
+        const scopedPanel = section.querySelector(`[data-internal-panel="${sectionName}"]`);
+        if (scopedPanel) return scopedPanel;
+
+        return section.querySelector('[data-internal-panel]') || section;
+    },
+
+    async runInternalTransition(sectionName, action) {
         const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-        if (section && !prefersReducedMotion) {
-            section.classList.add('internal-switching');
-            await wait(90);
+        if (prefersReducedMotion) {
+            await action();
+            return;
+        }
+
+        const target = this.getInternalTransitionTarget(sectionName);
+
+        if (target) {
+            target.classList.remove('internal-panel-entering', 'internal-panel-ready');
+            target.classList.add('internal-panel-leaving');
+            await wait(160);
         }
 
         await action();
 
-        if (section && !prefersReducedMotion) {
-            requestAnimationFrame(() => section.classList.remove('internal-switching'));
-        }
+        const newTarget = this.getInternalTransitionTarget(sectionName);
+        if (!newTarget) return;
+
+        newTarget.classList.remove('internal-panel-leaving', 'internal-panel-ready');
+        newTarget.classList.add('internal-panel-entering');
+
+        requestAnimationFrame(() => {
+            newTarget.classList.add('internal-panel-ready');
+        });
+
+        window.setTimeout(() => {
+            newTarget.classList.remove('internal-panel-entering', 'internal-panel-ready');
+        }, 320);
     },
 
     toggleSidebar() {
@@ -664,8 +710,201 @@ const Navigation = {
     }
 };
 
+
+
+// PWA
+const PWA = {
+    deferredPrompt: null,
+    registration: null,
+
+    init() {
+        this.bindInstallPrompt();
+        this.registerServiceWorker();
+        this.updateInstallButtonVisibility();
+    },
+
+    bindInstallPrompt() {
+        const installButton = document.getElementById('pwa-install-btn');
+
+        window.addEventListener('beforeinstallprompt', (event) => {
+            event.preventDefault();
+            this.deferredPrompt = event;
+            this.updateInstallButtonVisibility();
+        });
+
+        window.addEventListener('appinstalled', () => {
+            this.deferredPrompt = null;
+            this.updateInstallButtonVisibility();
+            Utils.showNotification('MundiPOS instalado correctamente', 'success');
+        });
+
+        if (installButton) {
+            installButton.addEventListener('click', () => this.promptInstall());
+        }
+    },
+
+    async promptInstall() {
+        if (!this.isInstallContextSecure()) {
+            this.showInstallHelp('secure-origin');
+            return;
+        }
+
+        if (!this.deferredPrompt) {
+            this.showInstallHelp(this.isIOS() ? 'ios' : 'manual');
+            return;
+        }
+
+        const promptEvent = this.deferredPrompt;
+        this.deferredPrompt = null;
+        promptEvent.prompt();
+
+        try {
+            await promptEvent.userChoice;
+        } finally {
+            this.updateInstallButtonVisibility();
+        }
+    },
+
+    updateInstallButtonVisibility() {
+        const installButton = document.getElementById('pwa-install-btn');
+        if (!installButton) return;
+
+        const isStandalone = this.isStandalone();
+        const canPromptInstall = Boolean(this.deferredPrompt) && !isStandalone;
+        const shouldShowHelp = !isStandalone && (!this.isInstallContextSecure() || this.isIOS());
+        const shouldShow = canPromptInstall || shouldShowHelp;
+
+        installButton.hidden = !shouldShow;
+        installButton.classList.toggle('is-visible', shouldShow);
+        installButton.classList.toggle('is-help-only', shouldShow && !canPromptInstall);
+        installButton.title = canPromptInstall
+            ? 'Instalar MundiPOS'
+            : 'Ver requisitos de instalación PWA';
+        installButton.setAttribute('aria-label', installButton.title);
+    },
+
+    async registerServiceWorker() {
+        if (!('serviceWorker' in navigator)) return;
+
+        if (!this.isInstallContextSecure()) {
+            console.warn('MundiPOS PWA: el service worker requiere HTTPS o localhost/127.0.0.1 para ser instalable. Origen actual:', window.location.origin);
+            this.updateInstallButtonVisibility();
+            return;
+        }
+
+        try {
+            await this.cleanupLegacyServiceWorkers();
+
+            const registration = await navigator.serviceWorker.register('/POS/service-worker.js', { scope: '/POS/' });
+            this.registration = registration;
+
+            registration.addEventListener('updatefound', () => {
+                const newWorker = registration.installing;
+                if (!newWorker) return;
+
+                newWorker.addEventListener('statechange', () => {
+                    if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                        this.notifyUpdateAvailable(newWorker);
+                    }
+                });
+            });
+
+            this.updateInstallButtonVisibility();
+        } catch (error) {
+            console.warn('No se pudo registrar el service worker de MundiPOS:', error);
+        }
+    },
+
+    async cleanupLegacyServiceWorkers() {
+        if (!navigator.serviceWorker.getRegistrations) return;
+
+        try {
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(
+                registrations
+                    .filter(registration => registration.scope && !registration.scope.endsWith('/POS/'))
+                    .map(registration => registration.unregister())
+            );
+        } catch (error) {
+            console.warn('No se pudieron limpiar service workers antiguos de MundiPOS:', error);
+        }
+    },
+
+    isInstallContextSecure() {
+        const host = window.location.hostname;
+        return window.location.protocol === 'https:'
+            || host === 'localhost'
+            || host === '127.0.0.1'
+            || host === '[::1]';
+    },
+
+    isStandalone() {
+        return window.matchMedia('(display-mode: standalone)').matches
+            || window.matchMedia('(display-mode: window-controls-overlay)').matches
+            || window.navigator.standalone === true;
+    },
+
+    isIOS() {
+        const ua = window.navigator.userAgent || '';
+        return /iPad|iPhone|iPod/.test(ua) || (ua.includes('Macintosh') && 'ontouchend' in document);
+    },
+
+    showInstallHelp(reason = 'manual') {
+        const secureMessage = `
+            <p>La instalación PWA requiere abrir MundiPOS desde <strong>HTTPS</strong> o desde <strong>localhost/127.0.0.1</strong>.</p>
+            <p>En PC puedes probar con <code>http://localhost:3000/POS/</code>. En móvil, si accedes por la IP local de la PC, debes usar HTTPS con un certificado confiable en el dispositivo.</p>
+        `;
+
+        const iosMessage = `
+            <p>En iPhone/iPad el navegador no muestra el botón automático de instalación.</p>
+            <p>Usa <strong>Compartir</strong> y luego <strong>Agregar a pantalla de inicio</strong>.</p>
+        `;
+
+        const manualMessage = `
+            <p>El navegador todavía no entregó el evento de instalación automática.</p>
+            <p>Verifica en DevTools &gt; Application que el manifest y el service worker estén activos, o usa el botón de instalación de Chrome/Edge en la barra de dirección cuando aparezca.</p>
+        `;
+
+        const content = reason === 'secure-origin'
+            ? secureMessage
+            : reason === 'ios'
+                ? iosMessage
+                : manualMessage;
+
+        Utils.showModal('Instalar MundiPOS', `<div class="pwa-install-help">${content}</div>`, [
+            {
+                text: 'Entendido',
+                class: 'btn-primary',
+                onclick: 'Utils.hideModal()'
+            }
+        ]);
+    },
+
+    notifyUpdateAvailable(worker) {
+        const container = document.getElementById('notification-container');
+        if (!container) return;
+
+        const notification = document.createElement('div');
+        notification.className = 'notification info pwa-update-notification';
+        notification.innerHTML = `
+            <div class="pwa-update-content">
+                <span>Hay una actualización de MundiPOS lista.</span>
+                <button type="button" class="btn btn-primary btn-sm">Actualizar</button>
+            </div>
+        `;
+
+        notification.querySelector('button')?.addEventListener('click', () => {
+            worker.postMessage({ type: 'SKIP_WAITING' });
+            window.location.reload();
+        });
+
+        container.appendChild(notification);
+    }
+};
+
 // Event Listeners
 document.addEventListener('DOMContentLoaded', async function() {
+    PWA.init();
     await loadPublicBranding();
 
     // Verificar sesión al cargar
@@ -724,6 +963,9 @@ document.addEventListener('DOMContentLoaded', async function() {
             void this.offsetWidth;
             this.classList.add('nav-link-pressed');
             const section = this.getAttribute('data-section');
+            if (window.innerWidth <= 768) {
+                Navigation.closeSidebar();
+            }
             Navigation.showSection(section);
         });
     });
@@ -737,6 +979,9 @@ document.addEventListener('DOMContentLoaded', async function() {
         const card = e.target.closest('.dashboard-card[data-navigate]');
         if (card) {
             const section = card.getAttribute('data-navigate');
+            if (window.innerWidth <= 768) {
+                Navigation.closeSidebar();
+            }
             Navigation.showSection(section);
         }
     });
@@ -772,6 +1017,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 window.Utils = Utils;
 window.Auth = Auth;
 window.Navigation = Navigation;
+window.PWA = PWA;
 
 
 

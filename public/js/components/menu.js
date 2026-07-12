@@ -35,47 +35,51 @@ const Menu = {
                     <p>Administra categorías y productos del menú</p>
                 </div>
 
-    <div class="mb-3">
-        <!-- Línea 1: botones de vista -->
-        <div class="d-flex gap-2 mb-2 flex-wrap internal-tabs" aria-label="Vistas del menú">
-            <button class="btn ${this.currentView === 'products' ? 'btn-primary active' : 'btn-light'}" data-subnav-item="products" onclick="Navigation.selectInternal('menu', 'products')">
-                <i class="fas fa-utensils"></i> Productos
-            </button>
-            <button class="btn ${this.currentView === 'categories' ? 'btn-primary active' : 'btn-light'}" data-subnav-item="categories" onclick="Navigation.selectInternal('menu', 'categories')">
-                <i class="fas fa-tags"></i> Categorías
-            </button>
-            <button class="btn ${this.currentView === 'presentations' ? 'btn-primary active' : 'btn-light'}" data-subnav-item="presentations" onclick="Navigation.selectInternal('menu', 'presentations')">
-                <i class="fas fa-box-open"></i> Presentaciones
-            </button>
-        </div>
+                <div class="mb-3">
+                    <!-- Línea 1: botones de vista -->
+                    <div class="d-flex gap-2 mb-2 flex-wrap internal-tabs" aria-label="Vistas del menú">
+                        <button class="btn ${this.currentView === 'products' ? 'btn-primary active' : 'btn-light'}" data-subnav-item="products" onclick="Navigation.selectInternal('menu', 'products')">
+                            <i class="fas fa-utensils"></i> Productos
+                        </button>
+                        <button class="btn ${this.currentView === 'categories' ? 'btn-primary active' : 'btn-light'}" data-subnav-item="categories" onclick="Navigation.selectInternal('menu', 'categories')">
+                            <i class="fas fa-tags"></i> Categorías
+                        </button>
+                        <button class="btn ${this.currentView === 'presentations' ? 'btn-primary active' : 'btn-light'}" data-subnav-item="presentations" onclick="Navigation.selectInternal('menu', 'presentations')">
+                            <i class="fas fa-box-open"></i> Presentaciones
+                        </button>
+                    </div>
+                </div>
 
-        <!-- Línea 2: botón crear + botón actualizar + botón Presentaciones-->
-    <div class="d-flex gap-2 flex-wrap">
-        ${
-            this.currentView === 'products'
-                ? `<button class="btn btn-success" onclick="Menu.showCreateProductModal()">
-                        <i class="fas fa-plus"></i> Nuevo Producto
-                </button>`
-                : this.currentView === 'categories'
-                ? `<button class="btn btn-success" onclick="Menu.showCreateCategoryModal()">
-                        <i class="fas fa-plus"></i> Nueva Categoría
-                </button>`
-                : `<button class="btn btn-success" onclick="Menu.showCreatePresentationModal()">
-                        <i class="fas fa-plus"></i> Nueva Presentación
-                </button>`
-        }
+                <div class="internal-view-panel" data-internal-panel="menu">
+                    <!-- Línea 2: botón crear + botón actualizar + botón Presentaciones-->
+                    <div class="d-flex gap-2 flex-wrap mb-3">
+                        ${
+                            this.currentView === 'products'
+                                ? `<button class="btn btn-success" onclick="Menu.showCreateProductModal()">
+                                        <i class="fas fa-plus"></i> Nuevo Producto
+                                </button>`
+                                : this.currentView === 'categories'
+                                ? `<button class="btn btn-success" onclick="Menu.showCreateCategoryModal()">
+                                        <i class="fas fa-plus"></i> Nueva Categoría
+                                </button>`
+                                : `<button class="btn btn-success" onclick="Menu.showCreatePresentationModal()">
+                                        <i class="fas fa-plus"></i> Nueva Presentación
+                                </button>`
+                        }
 
-        <button class="btn btn-secondary btn-sm" onclick="Menu.load()" title="Actualizar menú">
-            <i class="fas fa-sync text-white"></i>
-        </button>
-    </div>
+                        <button class="btn btn-secondary btn-sm" onclick="Menu.load()" title="Actualizar menú">
+                            <i class="fas fa-sync text-white"></i>
+                        </button>
+                    </div>
 
-    </div>
-
-
-                ${
-        this.currentView === 'products' ? this.renderProductsView() : this.currentView === 'categories' ? this.renderCategoriesView(): this.renderPresentationsView() }
-
+                    ${
+                        this.currentView === 'products'
+                            ? this.renderProductsView()
+                            : this.currentView === 'categories'
+                                ? this.renderCategoriesView()
+                                : this.renderPresentationsView()
+                    }
+                </div>
             `;
     },
 
