@@ -78,6 +78,66 @@ function getSelectableWorkRoles(roles = []) {
     return roles.filter(isSelectableWorkRole);
 }
 
+
+function getActiveZoneIdsForRole(role = {}) {
+    const zones = Array.isArray(role.zonas) ? role.zonas : [];
+    return zones
+        .filter(zone => Number(zone.activa) === 1 && Number(zone.id) > 0)
+        .map(zone => Number(zone.id));
+}
+
+async function getRoleChangeBlockStatus(activeRole = null) {
+    if (!activeRole || !Number(activeRole.id)) {
+        return {
+            bloqueado: false,
+            cuentas_pendientes: 0,
+            puestos_ocupados: 0,
+            mensaje: null
+        };
+    }
+
+    const zoneIds = getActiveZoneIdsForRole(activeRole);
+    if (!zoneIds.length) {
+        return {
+            bloqueado: false,
+            cuentas_pendientes: 0,
+            puestos_ocupados: 0,
+            mensaje: null
+        };
+    }
+
+    const placeholders = zoneIds.map(() => '?').join(',');
+    const [pendingOrders, occupiedSeats] = await Promise.all([
+        database.get(`
+            SELECT COUNT(DISTINCT p.id) AS count
+            FROM pedidos p
+            INNER JOIN mesas m ON m.id = p.mesa_id
+            WHERE p.estado = 'pendiente'
+              AND m.zona_id IN (${placeholders})
+        `, zoneIds),
+        database.get(`
+            SELECT COUNT(*) AS count
+            FROM mesas
+            WHERE activo = 1
+              AND estado = 'ocupada'
+              AND zona_id IN (${placeholders})
+        `, zoneIds)
+    ]);
+
+    const cuentasPendientes = Number(pendingOrders?.count || 0);
+    const puestosOcupados = Number(occupiedSeats?.count || 0);
+    const bloqueado = cuentasPendientes > 0 || puestosOcupados > 0;
+
+    return {
+        bloqueado,
+        cuentas_pendientes: cuentasPendientes,
+        puestos_ocupados: puestosOcupados,
+        mensaje: bloqueado
+            ? `No se puede cambiar de rol porque el rol actual tiene ${cuentasPendientes} cuenta(s) pendiente(s) y ${puestosOcupados} puesto(s) con consumo activo.`
+            : null
+    };
+}
+
 async function getUserWorkRoles(userId) {
     if (!userId) return [];
 
@@ -420,6 +480,37 @@ router.get('/operational-session', requireSession, async (req, res) => {
     }
 });
 
+
+// Consultar si es posible cambiar el rol de trabajo activo sin cerrar sesión.
+router.get('/operational-session/change-status', requireSession, async (req, res) => {
+    try {
+        const user = {
+            id: req.session.userId,
+            nombre: req.session.userName,
+            tipo: req.session.userType
+        };
+        const rolesTrabajo = await getUserWorkRoles(req.session.userId);
+        const sesionOperativa = buildOperationalSession(req, user, rolesTrabajo);
+        const activeRole = sesionOperativa.rol_trabajo || null;
+        const bloqueo = await getRoleChangeBlockStatus(activeRole);
+
+        res.json({
+            success: true,
+            data: {
+                puede_cambiar: !bloqueo.bloqueado,
+                bloqueo,
+                rol_trabajo_actual: activeRole,
+                roles_disponibles: getSelectableWorkRoles(rolesTrabajo),
+                sesion_operativa: sesionOperativa
+            },
+            user: buildUserPayload(req, user, rolesTrabajo, sesionOperativa)
+        });
+    } catch (error) {
+        console.error('Error consultando cambio de rol operativo:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
 // Seleccionar el rol de trabajo activo para la sesión actual.
 router.post('/operational-session', requireSession, async (req, res) => {
     try {
@@ -439,6 +530,22 @@ router.post('/operational-session', requireSession, async (req, res) => {
 
         if (!selectedRole) {
             return res.status(403).json({ error: 'El rol seleccionado no está disponible para este usuario o no tiene zonas activas' });
+        }
+
+        const currentRoleId = Number(req.session.activeWorkRoleId || 0);
+        const currentRole = currentRoleId
+            ? selectableRoles.find(role => Number(role.id) === currentRoleId) || null
+            : null;
+
+        if (currentRole && Number(currentRole.id) !== Number(selectedRole.id)) {
+            const bloqueo = await getRoleChangeBlockStatus(currentRole);
+            if (bloqueo.bloqueado) {
+                return res.status(409).json({
+                    error: bloqueo.mensaje || 'No se puede cambiar de rol mientras existan cuentas pendientes o consumos activos en el rol actual.',
+                    code: 'ROLE_CHANGE_BLOCKED_ACTIVE_CONSUMPTION',
+                    bloqueo
+                });
+            }
         }
 
         req.session.activeWorkRoleId = selectedRole.id;

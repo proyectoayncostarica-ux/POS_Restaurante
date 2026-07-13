@@ -7093,3 +7093,445 @@ body {
         width: 100%;
     }
 }
+
+/* v2.2.4.9 · Header con rol de sistema y rol de trabajo activo */
+.user-info {
+    min-width: 19rem;
+}
+
+.header-role-summary {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 0.34rem;
+    max-width: 100%;
+}
+
+.user-type,
+.active-work-role {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.active-work-role {
+    max-width: 13rem;
+    padding: 0.14rem 0.52rem;
+    border: 1px solid rgba(52, 152, 219, 0.26);
+    border-radius: 999px;
+    color: rgba(255, 255, 255, 0.94);
+    background: rgba(52, 152, 219, 0.16);
+    font-size: 0.72rem;
+    font-weight: 900;
+    line-height: 1.08;
+    text-transform: none;
+}
+
+.user-info.without-work-role .active-work-role {
+    color: rgba(255, 224, 178, 0.96);
+    background: rgba(243, 156, 18, 0.13);
+    border-color: rgba(243, 156, 18, 0.24);
+}
+
+@media (max-width: 1024px) and (min-width: 769px) {
+    .user-info {
+        min-width: 15.5rem;
+    }
+
+    .active-work-role {
+        max-width: 9.8rem;
+    }
+}
+
+@media (max-width: 768px) {
+    .header-right .user-info {
+        flex: 0 1 clamp(5.6rem, 22vw, 6.8rem);
+        width: clamp(5.6rem, 22vw, 6.8rem);
+        height: 38px;
+        min-height: 38px;
+        padding: 0.16rem 0.28rem;
+        gap: 0.02rem;
+    }
+
+    .header-right .user-info #current-user {
+        display: none;
+    }
+
+    .header-role-summary {
+        width: 100%;
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: center;
+        gap: 0.07rem;
+        min-width: 0;
+    }
+
+    .header-right .user-info .user-type,
+    .header-right .user-info .active-work-role {
+        display: block;
+        width: 100%;
+        max-width: 100%;
+        overflow: hidden;
+        text-align: center;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .header-right .user-info .user-type {
+        order: 1;
+        color: rgba(243, 156, 18, 0.98);
+        font-size: clamp(0.48rem, 2vw, 0.58rem);
+        font-weight: 950;
+        line-height: 1.02;
+        text-transform: uppercase;
+    }
+
+    .header-right .user-info .active-work-role {
+        order: 2;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        color: rgba(255, 255, 255, 0.94);
+        background: transparent;
+        font-size: clamp(0.54rem, 2.28vw, 0.64rem);
+        font-weight: 900;
+        line-height: 1.02;
+    }
+}
+
+@media (max-width: 390px) {
+    .header-right .user-info {
+        flex-basis: clamp(4.95rem, 20vw, 5.55rem);
+        width: clamp(4.95rem, 20vw, 5.55rem);
+        padding-right: 0.2rem;
+        padding-left: 0.2rem;
+    }
+}
+
+
+/* v2.2.4.9 fix1 · Cambio de rol desde Header */
+.active-work-role,
+.role-change-btn {
+    appearance: none;
+    font: inherit;
+}
+
+.active-work-role {
+    cursor: default;
+}
+
+.active-work-role.is-clickable {
+    cursor: pointer;
+}
+
+.active-work-role.is-clickable:hover,
+.active-work-role.is-clickable:focus-visible {
+    border-color: rgba(243, 156, 18, 0.46);
+    background: rgba(52, 152, 219, 0.24);
+    box-shadow: 0 8px 20px rgba(52, 152, 219, 0.16);
+    outline: none;
+}
+
+.active-work-role:disabled {
+    cursor: default;
+    opacity: 0.88;
+}
+
+.role-change-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.32rem;
+    max-width: 10rem;
+    padding: 0.14rem 0.52rem;
+    color: rgba(255, 245, 225, 0.98);
+    background: rgba(243, 156, 18, 0.18);
+    border: 1px solid rgba(243, 156, 18, 0.32);
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 950;
+    line-height: 1.08;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.role-change-btn:hover,
+.role-change-btn:focus-visible {
+    transform: translateY(-1px);
+    background: rgba(243, 156, 18, 0.25);
+    box-shadow: 0 10px 22px rgba(243, 156, 18, 0.14);
+    outline: none;
+}
+
+.role-change-btn[hidden] {
+    display: none !important;
+}
+
+.modal-content.modal-role-change {
+    width: min(92vw, 560px);
+    max-height: min(88vh, 720px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 24px;
+}
+
+.modal-content.modal-role-change .modal-body {
+    overflow-y: auto;
+    padding-bottom: 0.9rem;
+}
+
+.modal-content.modal-role-change .modal-footer {
+    flex: 0 0 auto;
+    margin-top: 0;
+    padding-top: 0.85rem;
+    border-top: 1px solid rgba(44, 62, 80, 0.08);
+    background: rgba(255, 255, 255, 0.94);
+}
+
+.role-change-shell {
+    display: grid;
+    gap: 0.85rem;
+}
+
+.role-change-current {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    padding: 0.78rem 0.9rem;
+    border: 1px solid rgba(52, 152, 219, 0.12);
+    border-radius: 18px;
+    background: linear-gradient(135deg, rgba(235, 247, 255, 0.94), rgba(255, 255, 255, 0.92));
+}
+
+.role-change-current span {
+    color: rgba(44, 62, 80, 0.62);
+    font-size: 0.76rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.role-change-current strong {
+    min-width: 0;
+    overflow: hidden;
+    color: #203247;
+    font-size: 0.98rem;
+    font-weight: 950;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.role-change-warning {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.75rem;
+    padding: 0.85rem;
+    border: 1px solid rgba(231, 76, 60, 0.18);
+    border-radius: 18px;
+    color: #7d2d25;
+    background: rgba(231, 76, 60, 0.08);
+}
+
+.role-change-warning > i {
+    width: 2.25rem;
+    height: 2.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 14px;
+    color: #fff;
+    background: linear-gradient(135deg, #c0392b, #e74c3c);
+}
+
+.role-change-warning strong {
+    display: block;
+    margin-bottom: 0.16rem;
+    font-size: 0.92rem;
+    font-weight: 950;
+}
+
+.role-change-warning p,
+.role-change-warning small {
+    display: block;
+    margin: 0;
+    line-height: 1.35;
+}
+
+.role-change-warning p {
+    color: rgba(125, 45, 37, 0.9);
+    font-size: 0.84rem;
+    font-weight: 750;
+}
+
+.role-change-warning small {
+    margin-top: 0.28rem;
+    color: rgba(125, 45, 37, 0.68);
+    font-size: 0.76rem;
+    font-weight: 800;
+}
+
+.role-change-options {
+    display: grid;
+    gap: 0.58rem;
+}
+
+.role-change-option {
+    width: 100%;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 0.72rem;
+    border: 1px solid rgba(44, 62, 80, 0.08);
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 251, 253, 0.96));
+    cursor: pointer;
+    text-align: left;
+    transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.role-change-option:hover:not(:disabled),
+.role-change-option:focus-visible:not(:disabled) {
+    transform: translateY(-1px);
+    border-color: rgba(52, 152, 219, 0.24);
+    box-shadow: 0 14px 26px rgba(15, 23, 42, 0.08);
+    outline: none;
+}
+
+.role-change-option:disabled {
+    cursor: not-allowed;
+    opacity: 0.58;
+}
+
+.role-change-option-icon {
+    width: 2.45rem;
+    height: 2.45rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 16px;
+    color: #fff;
+    background: linear-gradient(135deg, #203247, #3498db);
+    box-shadow: 0 12px 24px rgba(52, 152, 219, 0.16);
+}
+
+.role-change-option-copy {
+    min-width: 0;
+}
+
+.role-change-option-copy strong,
+.role-change-option-copy small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.role-change-option-copy strong {
+    color: #203247;
+    font-size: 0.96rem;
+    font-weight: 950;
+}
+
+.role-change-option-copy small {
+    margin-top: 0.08rem;
+    color: rgba(44, 62, 80, 0.6);
+    font-size: 0.76rem;
+    font-weight: 800;
+}
+
+.role-change-option-action {
+    padding: 0.28rem 0.62rem;
+    border-radius: 999px;
+    color: #fff;
+    background: linear-gradient(135deg, #203247, #3498db);
+    font-size: 0.72rem;
+    font-weight: 950;
+    white-space: nowrap;
+}
+
+.role-change-empty {
+    display: grid;
+    justify-items: center;
+    gap: 0.28rem;
+    padding: 1rem;
+    border: 1px dashed rgba(52, 152, 219, 0.2);
+    border-radius: 18px;
+    color: rgba(44, 62, 80, 0.68);
+    background: rgba(235, 247, 255, 0.62);
+    text-align: center;
+}
+
+.role-change-empty i {
+    color: rgba(52, 152, 219, 0.86);
+    font-size: 1.35rem;
+}
+
+.role-change-empty strong {
+    color: #203247;
+    font-weight: 950;
+}
+
+.role-change-empty span {
+    font-size: 0.82rem;
+    font-weight: 750;
+}
+
+@media (max-width: 768px) {
+    .header-right .user-info .active-work-role {
+        appearance: none;
+    }
+
+    .header-right .user-info .active-work-role.is-clickable {
+        cursor: pointer;
+    }
+
+    .header-right .user-info .active-work-role.is-clickable::after {
+        content: '';
+        display: inline-block;
+        width: 0.28rem;
+        height: 0.28rem;
+        margin-left: 0.18rem;
+        border-right: 1.5px solid rgba(255, 255, 255, 0.72);
+        border-bottom: 1.5px solid rgba(255, 255, 255, 0.72);
+        transform: translateY(-0.05rem) rotate(45deg);
+    }
+
+    .role-change-btn {
+        display: none !important;
+    }
+
+    .modal-content.modal-role-change {
+        width: calc(100vw - 1rem);
+        max-height: calc(92vh - env(safe-area-inset-bottom, 0px));
+        border-radius: 24px;
+    }
+
+    .role-change-current {
+        display: grid;
+        align-items: start;
+    }
+
+    .role-change-current strong {
+        text-align: left;
+    }
+
+    .role-change-option {
+        grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .role-change-option-action {
+        grid-column: 1 / -1;
+        justify-self: stretch;
+        text-align: center;
+    }
+}

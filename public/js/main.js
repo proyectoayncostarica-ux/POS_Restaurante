@@ -599,18 +599,261 @@ const Auth = {
         }
     },
 
+
+    canOpenRoleChangeControl() {
+        const session = currentUser?.sesion_operativa || {};
+        const roles = Array.isArray(session.roles_disponibles) ? session.roles_disponibles : [];
+        const activeRole = getActiveWorkRole(currentUser);
+
+        return roles.length > 1 || (!activeRole && roles.length > 0) || Boolean(session.requiere_seleccion && roles.length);
+    },
+
+    buildRoleChangeStatusFromOperationalSession(response = {}) {
+        const session = response.data || response.user?.sesion_operativa || currentUser?.sesion_operativa || {};
+        const roles = Array.isArray(session.roles_disponibles) ? session.roles_disponibles : [];
+        const activeRole = session.rol_trabajo || getActiveWorkRole(response.user || currentUser);
+
+        return {
+            puede_cambiar: true,
+            bloqueo: {
+                bloqueado: false,
+                cuentas_pendientes: 0,
+                puestos_ocupados: 0,
+                mensaje: null
+            },
+            rol_trabajo_actual: activeRole,
+            roles_disponibles: roles,
+            sesion_operativa: session
+        };
+    },
+
+    async requestRoleChangeStatus() {
+        const response = await fetch(`${API_BASE}/auth/operational-session/change-status`, {
+            method: 'GET',
+            credentials: 'include',
+            cache: 'no-store',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-MundiPOS-Client': MUNDIPOS_CLIENT_ID
+            }
+        });
+
+        const contentType = response.headers.get('content-type') || '';
+        const data = contentType.includes('application/json')
+            ? await response.json()
+            : { success: response.ok, message: await response.text() };
+
+        if (response.status === 404) {
+            const sessionResponse = await Utils.request('/auth/operational-session', {
+                method: 'GET',
+                cache: 'no-store'
+            });
+
+            return {
+                success: true,
+                data: this.buildRoleChangeStatusFromOperationalSession(sessionResponse),
+                user: sessionResponse.user,
+                fallback: true
+            };
+        }
+
+        if (!response.ok) {
+            throw new Error(data.error || data.message || 'No se pudo consultar el cambio de rol');
+        }
+
+        return data;
+    },
+
+    async openRoleChangeModal() {
+        if (!currentUser) return;
+
+        if (!this.canOpenRoleChangeControl()) {
+            Utils.showNotification('Este usuario no tiene otros roles de trabajo disponibles para cambiar.', 'info');
+            return;
+        }
+
+        try {
+            const response = await this.requestRoleChangeStatus();
+
+            if (response.user) {
+                currentUser = response.user;
+                this.updateUserInfo();
+            }
+
+            const data = response.data || {};
+            const roles = Array.isArray(data.roles_disponibles) ? data.roles_disponibles : [];
+            const currentRole = data.rol_trabajo_actual || getActiveWorkRole(currentUser);
+            const availableAlternatives = roles.filter(role => Number(role.id) !== Number(currentRole?.id || 0));
+
+            if (!availableAlternatives.length && currentRole) {
+                Utils.showNotification('No tienes otro rol de trabajo activo disponible para cambiar.', 'info');
+                return;
+            }
+
+            Utils.showModal(
+                'Cambio de Rol',
+                this.renderRoleChangeModal(data),
+                [
+                    {
+                        text: 'Cancelar',
+                        class: 'btn-light',
+                        onclick: 'Utils.hideModal()'
+                    }
+                ],
+                'modal-role-change'
+            );
+        } catch (error) {
+            Utils.showNotification(error.message || 'No se pudo consultar el cambio de rol', 'error');
+        }
+    },
+
+    renderRoleChangeModal(data = {}) {
+        const roles = Array.isArray(data.roles_disponibles) ? data.roles_disponibles : [];
+        const currentRole = data.rol_trabajo_actual || getActiveWorkRole(currentUser);
+        const bloqueo = data.bloqueo || {};
+        const canChange = data.puede_cambiar !== false && !bloqueo.bloqueado;
+        const currentRoleName = currentRole?.nombre || 'Sin rol operativo';
+        const alternatives = roles.filter(role => Number(role.id) !== Number(currentRole?.id || 0));
+
+        const warning = canChange ? '' : `
+            <div class="role-change-warning">
+                <i class="fas fa-lock"></i>
+                <div>
+                    <strong>No se puede cambiar de rol todavía</strong>
+                    <p>${this.escapeHtml(bloqueo.mensaje || 'El rol actual tiene cuentas pendientes o consumos activos.')}</p>
+                    <small>Cierra o libera las cuentas activas del rol actual antes de cambiar.</small>
+                </div>
+            </div>
+        `;
+
+        const emptyState = alternatives.length ? '' : `
+            <div class="role-change-empty">
+                <i class="fas fa-circle-info"></i>
+                <strong>Sin roles alternativos</strong>
+                <span>Este usuario no tiene otro rol de trabajo activo disponible.</span>
+            </div>
+        `;
+
+        return `
+            <div class="role-change-shell">
+                <div class="role-change-current">
+                    <span>Rol actual</span>
+                    <strong>${this.escapeHtml(currentRoleName)}</strong>
+                </div>
+                ${warning}
+                <div class="role-change-options" aria-label="Roles de trabajo disponibles para cambio">
+                    ${alternatives.map(role => this.renderRoleChangeOption(role, canChange)).join('')}
+                    ${emptyState}
+                </div>
+            </div>
+        `;
+    },
+
+    renderRoleChangeOption(role, canChange = true) {
+        const zones = Array.isArray(role.zonas) ? role.zonas.filter(zone => Number(zone.activa) === 1) : [];
+        const zoneNames = zones.length
+            ? zones.map(zone => this.escapeHtml(zone.nombre)).join(' · ')
+            : 'Sin zonas activas';
+        const disabledAttr = canChange ? '' : 'disabled aria-disabled="true"';
+        const actionText = canChange ? 'Cambiar' : 'Bloqueado';
+
+        return `
+            <button type="button" class="role-change-option" onclick="Auth.changeOperationalRole(${Number(role.id)})" ${disabledAttr}>
+                <span class="role-change-option-icon"><i class="fas fa-user-tag"></i></span>
+                <span class="role-change-option-copy">
+                    <strong>${this.escapeHtml(role.nombre)}</strong>
+                    <small>${zoneNames}</small>
+                </span>
+                <span class="role-change-option-action">${actionText}</span>
+            </button>
+        `;
+    },
+
+    async changeOperationalRole(roleId) {
+        try {
+            const selectedButton = document.querySelector(`.role-change-option[onclick="Auth.changeOperationalRole(${Number(roleId)})"]`);
+            if (selectedButton) {
+                selectedButton.disabled = true;
+                selectedButton.classList.add('is-loading');
+            }
+
+            const response = await Utils.request('/auth/operational-session', {
+                method: 'POST',
+                body: JSON.stringify({ rol_trabajo_id: roleId })
+            });
+
+            if (response.success) {
+                currentUser = response.user;
+                this.updateUserInfo();
+                Utils.hideModal();
+                Utils.showNotification('Rol de trabajo cambiado correctamente', 'success');
+
+                if (typeof Dashboard !== 'undefined' && typeof Dashboard.refreshData === 'function') {
+                    Dashboard.refreshData();
+                }
+
+                if (currentSection === 'tables' && typeof Tables !== 'undefined' && typeof Tables.load === 'function') {
+                    Tables.load();
+                }
+            }
+        } catch (error) {
+            Utils.showNotification(error.message || 'No se pudo cambiar el rol de trabajo', 'error');
+
+            if (typeof Auth.openRoleChangeModal === 'function') {
+                Auth.openRoleChangeModal();
+            }
+        }
+    },
+
     updateUserInfo() {
         if (!currentUser) return;
 
         const currentUserElement = document.getElementById('current-user');
         const userTypeElement = document.getElementById('user-type');
+        const activeWorkRoleElement = document.getElementById('active-work-role');
+        const roleChangeButton = document.getElementById('role-change-btn');
+        const userInfoElement = document.querySelector('.user-info');
         const usuarioActualElement = document.getElementById('usuario-actual');
         const tipoUsuarioElement = document.getElementById('tipo-usuario');
 
         const userTypeLabel = formatUserTypeLabel(currentUser.tipo);
+        const workRoleLabel = formatActiveWorkRoleLabel(currentUser);
+        const hasActiveWorkRole = Boolean(getActiveWorkRole(currentUser));
+        const canChangeRole = this.canOpenRoleChangeControl();
 
-        if (currentUserElement) currentUserElement.textContent = currentUser.nombre;
-        if (userTypeElement) userTypeElement.textContent = userTypeLabel;
+        if (currentUserElement) {
+            currentUserElement.textContent = currentUser.nombre;
+            currentUserElement.title = currentUser.nombre || '';
+        }
+
+        if (userTypeElement) {
+            userTypeElement.textContent = userTypeLabel;
+            userTypeElement.title = `Rol de sistema: ${userTypeLabel}`;
+        }
+
+        if (activeWorkRoleElement) {
+            activeWorkRoleElement.textContent = workRoleLabel;
+            activeWorkRoleElement.title = canChangeRole
+                ? `Rol de trabajo activo: ${workRoleLabel}. Toca para cambiar de rol.`
+                : `Rol de trabajo activo: ${workRoleLabel}`;
+            activeWorkRoleElement.disabled = !canChangeRole;
+            activeWorkRoleElement.classList.toggle('is-clickable', canChangeRole);
+        }
+
+        if (roleChangeButton) {
+            roleChangeButton.hidden = !canChangeRole;
+            roleChangeButton.disabled = !canChangeRole;
+            roleChangeButton.title = canChangeRole
+                ? 'Cambiar rol de trabajo activo'
+                : 'Sin otros roles de trabajo disponibles';
+        }
+
+        if (userInfoElement) {
+            userInfoElement.classList.toggle('has-work-role', hasActiveWorkRole);
+            userInfoElement.classList.toggle('without-work-role', !hasActiveWorkRole);
+            userInfoElement.setAttribute('title', `${currentUser.nombre || 'Usuario'} · ${userTypeLabel} · ${workRoleLabel}`);
+        }
+
         if (usuarioActualElement) usuarioActualElement.textContent = currentUser.nombre;
         if (tipoUsuarioElement) tipoUsuarioElement.textContent = userTypeLabel;
     }
@@ -1499,6 +1742,39 @@ function getOrCreateClientId() {
 }
 
 
+
+function getActiveWorkRole(user = currentUser) {
+    const session = user?.sesion_operativa || {};
+    const activeRole = session.rol_trabajo || user?.rol_trabajo_activo || null;
+
+    if (activeRole && activeRole.nombre) {
+        return activeRole;
+    }
+
+    return null;
+}
+
+function formatActiveWorkRoleLabel(user = currentUser) {
+    const activeRole = getActiveWorkRole(user);
+    if (activeRole?.nombre) return activeRole.nombre;
+
+    const session = user?.sesion_operativa || {};
+    const userType = String(user?.tipo || '').trim().toLowerCase();
+
+    if (session.requiere_seleccion) {
+        return 'Seleccionar rol';
+    }
+
+    if (session.modo === 'bloqueado_sin_rol') {
+        return 'Sin rol activo';
+    }
+
+    if (userType === 'administrador' || userType === 'admin') {
+        return 'Sin rol operativo';
+    }
+
+    return 'Rol pendiente';
+}
 
 function formatUserTypeLabel(tipo) {
     const normalizedType = String(tipo || '').trim().toLowerCase();

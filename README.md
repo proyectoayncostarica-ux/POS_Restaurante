@@ -557,8 +557,28 @@ En Windows también puedes usar `Inicio_Servidor.bat`. En Linux/macOS puedes usa
 - **Alcance:** todavía no filtra Dashboard/Zonas por zonas permitidas ni muestra el rol activo en Header; eso queda para v2.2.4.9/v2.2.4.10.
 - **PWA/cache:** se actualizó el versionado de `style.css`, `main.js` y `service-worker.js` para evitar caché antigua.
 
-### v2.2.4.8 fix1 · Corrección de login en sesión operativa
+### v2.2.4.9 · Header con rol de sistema y rol de trabajo activo
 
-- **Problema detectado:** el login respondía con error 500 porque `buildOperationalSession` devolvía la propiedad `modo` usando una variable inexistente.
-- **Corrección aplicada:** la respuesta de sesión operativa ahora expone `modo` desde la variable interna correcta `mode`.
-- **Alcance:** corrección backend puntual; no cambia estructura de base de datos, endpoints, UI ni reglas funcionales de selección de rol operativo.
+- El header principal ahora muestra el rol de sistema del usuario autenticado: **Admin** o **Estándar**.
+- El header también muestra el rol de trabajo activo de la sesión operativa, cuando existe.
+- Si un administrador ingresa sin rol de trabajo, el header indica **Sin rol operativo** sin bloquear la administración.
+- En PC se muestran usuario, rol de sistema, rol de trabajo activo y fecha/hora.
+- En móvil se priorizan los roles activos en un bloque compacto para evitar romper el layout del header.
+- No se activan todavía filtros por zonas permitidas ni restricciones backend por zona; eso corresponde a subfases posteriores.
+
+### v2.2.4.9 fix1 · Cambio de rol operativo desde Header
+
+- **Ajuste no previsto en roadmap:** se permite cambiar el rol de trabajo activo sin cerrar sesión.
+- **Móvil:** el badge compacto de rol sistema / rol trabajo activo del Header abre el selector de cambio de rol.
+- **PC:** se agrega un nuevo badge **Cambio de Rol** dentro del Header con la misma función.
+- **Regla operativa crítica:** no se permite cambiar de rol si el rol actual tiene cuentas pendientes o consumos activos en sus zonas.
+- **Backend Auth:** se agrega `GET /api/auth/operational-session/change-status` para consultar si el cambio está permitido y se endurece `POST /api/auth/operational-session` para bloquear el cambio con HTTP 409 cuando existan cuentas pendientes o puestos ocupados del rol actual.
+- **Frontend:** se agrega modal premium de cambio de rol con estado bloqueado, roles disponibles y mensajes operativos claros.
+- **Alcance:** no activa todavía filtros por zonas permitidas ni restricciones globales por zona; mantiene intacta la lógica de apertura/cierre de cuentas.
+
+### v2.2.4.9 fix2 · Corrección de consulta para cambio de rol desde Header
+
+- **Problema detectado:** el botón/badge de cambio de rol podía consultar `GET /api/auth/operational-session/change-status` y recibir 404 si el backend no exponía la ruta cargada en el proceso activo o si había una desincronización temporal entre frontend y backend.
+- **Corrección aplicada:** el frontend ahora consulta el estado especializado cuando está disponible y usa `GET /api/auth/operational-session` como respaldo compatible para abrir el modal sin romper la experiencia.
+- **Regla crítica conservada:** el backend mantiene el bloqueo en `POST /api/auth/operational-session` con HTTP 409 cuando el rol actual tiene cuentas pendientes o puestos ocupados.
+- **Alcance:** no cambia base de datos ni permisos; solo estabiliza el flujo de consulta y conserva el endpoint especializado.

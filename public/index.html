@@ -14,7 +14,7 @@
     <meta name="msapplication-starturl" content="/POS/">
     <title>MundiPOS</title>
     <link rel="manifest" href="/POS/manifest.webmanifest">
-    <link rel="stylesheet" href="/POS/css/style.css?v=2.2.4.8-operational-session">
+    <link rel="stylesheet" href="/POS/css/style.css?v=2.2.4.9-fix2-role-change-endpoint">
     <link rel="icon" href="/POS/favicon.ico" type="image/x-icon">
     <link rel="shortcut icon" href="/POS/favicon.ico" type="image/x-icon">
     <link rel="apple-touch-icon" href="/POS/assets/icons/mundipos-icon-180.png">
@@ -124,9 +124,16 @@
                 </div>
             </div>
             <div class="header-right">
-                <div class="user-info">
+                <div class="user-info" aria-label="Usuario y roles activos">
                     <span id="current-user">Usuario</span>
-                    <span id="user-type" class="user-type">Tipo</span>
+                    <span class="header-role-summary">
+                        <span id="user-type" class="user-type">Tipo</span>
+                        <button id="active-work-role" class="active-work-role" type="button" onclick="Auth.openRoleChangeModal()" aria-label="Cambiar rol de trabajo activo">Rol operativo</button>
+                        <button id="role-change-btn" class="role-change-btn" type="button" onclick="Auth.openRoleChangeModal()" aria-label="Cambiar rol de trabajo activo">
+                            <i class="fas fa-right-left"></i>
+                            <span>Cambio de Rol</span>
+                        </button>
+                    </span>
                     <span id="current-datetime" class="current-datetime"></span>
                 </div>
                 <button id="daily-close-btn" class="btn btn-secondary daily-close-btn" type="button" aria-label="Cierre diario" title="Cierre diario">
@@ -340,7 +347,7 @@
     </div>
 
     <!-- Scripts -->
-    <script src="js/main.js?v=2.2.4.8-operational-session"></script>
+    <script src="js/main.js?v=2.2.4.9-fix2-role-change-endpoint"></script>
     <script src="js/components/dashboard.js"></script>
     <script src="js/components/tables.js"></script>
     <script src="js/components/menu.js"></script>
