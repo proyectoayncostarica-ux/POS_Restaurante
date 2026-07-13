@@ -49,6 +49,7 @@ class Database {
         await this.createTables();
         await this.migrateSchema();
         await this.insertInitialData();
+        await this.ensureDynamicModelConsistency();
         await this.run('PRAGMA foreign_keys = ON');
     }
 
@@ -63,6 +64,33 @@ class Database {
                 fecha_creacion TEXT NOT NULL
             )`,
 
+            `CREATE TABLE IF NOT EXISTS zonas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT NOT NULL UNIQUE,
+                slug TEXT NOT NULL UNIQUE,
+                icono TEXT,
+                color TEXT,
+                orden INTEGER NOT NULL DEFAULT 0,
+                acepta_reservas INTEGER NOT NULL DEFAULT 1,
+                aplica_servicio INTEGER NOT NULL DEFAULT 1,
+                porcentaje_servicio REAL NOT NULL DEFAULT 10,
+                visible_dashboard INTEGER NOT NULL DEFAULT 1,
+                activa INTEGER NOT NULL DEFAULT 1,
+                creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                actualizado_en TEXT
+            )`,
+
+            `CREATE TABLE IF NOT EXISTS tipos_puesto (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT NOT NULL UNIQUE,
+                slug TEXT NOT NULL UNIQUE,
+                icono TEXT,
+                orden INTEGER NOT NULL DEFAULT 0,
+                activo INTEGER NOT NULL DEFAULT 1,
+                creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                actualizado_en TEXT
+            )`,
+
             `CREATE TABLE IF NOT EXISTS mesas (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 numero INTEGER NOT NULL,
@@ -70,6 +98,12 @@ class Database {
                 estado TEXT NOT NULL DEFAULT 'libre' CHECK(estado IN ('libre', 'ocupada', 'reservada')),
                 zona TEXT NOT NULL DEFAULT 'salon',
                 tipo_asiento TEXT NOT NULL DEFAULT 'mesa',
+                zona_id INTEGER,
+                tipo_puesto_id INTEGER,
+                nombre_visible TEXT,
+                acepta_reservas_override INTEGER,
+                aplica_servicio_override INTEGER,
+                activo INTEGER NOT NULL DEFAULT 1,
                 cliente_nombre TEXT,
                 fecha_apertura TEXT,
                 cantidad_personas INTEGER,
@@ -241,8 +275,21 @@ class Database {
             'CREATE INDEX IF NOT EXISTS idx_pedido_productos_pedido ON pedido_productos(pedido_id)',
             'CREATE INDEX IF NOT EXISTS idx_pagos_pedido ON pagos(pedido_id)',
             'CREATE INDEX IF NOT EXISTS idx_mesas_estado ON mesas(estado)',
+            'CREATE INDEX IF NOT EXISTS idx_zonas_slug ON zonas(slug)',
+            'CREATE INDEX IF NOT EXISTS idx_tipos_puesto_slug ON tipos_puesto(slug)',
             'CREATE INDEX IF NOT EXISTS idx_cuentas_credito_fecha ON cuentas_credito(fecha)',
             'CREATE INDEX IF NOT EXISTS idx_historial_fecha ON historial_transacciones(fecha)'
+        ];
+
+        for (const sql of indexes) {
+            await this.run(sql);
+        }
+    }
+
+    async createDynamicModelIndexes() {
+        const indexes = [
+            'CREATE INDEX IF NOT EXISTS idx_mesas_zona_id ON mesas(zona_id)',
+            'CREATE INDEX IF NOT EXISTS idx_mesas_tipo_puesto_id ON mesas(tipo_puesto_id)'
         ];
 
         for (const sql of indexes) {
@@ -256,11 +303,18 @@ class Database {
 
         await this.ensureColumn('mesas', 'zona', "TEXT NOT NULL DEFAULT 'salon'");
         await this.ensureColumn('mesas', 'tipo_asiento', "TEXT NOT NULL DEFAULT 'mesa'");
+        await this.ensureColumn('mesas', 'zona_id', 'INTEGER');
+        await this.ensureColumn('mesas', 'tipo_puesto_id', 'INTEGER');
+        await this.ensureColumn('mesas', 'nombre_visible', 'TEXT');
+        await this.ensureColumn('mesas', 'acepta_reservas_override', 'INTEGER');
+        await this.ensureColumn('mesas', 'aplica_servicio_override', 'INTEGER');
+        await this.ensureColumn('mesas', 'activo', 'INTEGER NOT NULL DEFAULT 1');
         await this.ensureColumn('mesas', 'cliente_nombre', 'TEXT');
         await this.ensureColumn('mesas', 'fecha_apertura', 'TEXT');
         await this.ensureColumn('mesas', 'cantidad_personas', 'INTEGER');
         await this.ensureColumn('mesas', 'hora_estimada', 'TEXT');
         await this.normalizeLegacyTableColumns();
+        await this.createDynamicModelIndexes();
 
         await this.ensureColumn('productos', 'imagen', 'TEXT');
         await this.ensureColumn('presentaciones', 'tipo', "TEXT DEFAULT 'tamaño'");
@@ -300,6 +354,7 @@ class Database {
         await this.run(`UPDATE mesas SET zona = COALESCE(NULLIF(zona, ''), 'salon')`);
         await this.run(`UPDATE mesas SET tipo_asiento = COALESCE(NULLIF(tipo_asiento, ''), 'mesa')`);
         await this.run(`UPDATE mesas SET estado = 'libre' WHERE estado IS NULL OR estado NOT IN ('libre', 'ocupada', 'reservada')`);
+        await this.run(`UPDATE mesas SET activo = 1 WHERE activo IS NULL`);
         await this.run(`UPDATE mesas SET capacidad = 1 WHERE zona = 'bar' AND tipo_asiento = 'banco' AND (capacidad IS NULL OR capacidad < 1)`);
     }
 
@@ -424,6 +479,233 @@ class Database {
     shouldSeedDemoUser() {
         const value = String(process.env.SEED_DEMO_USER || '').trim().toLowerCase();
         return ['true', '1', 'yes', 'on'].includes(value);
+    }
+
+    normalizeDynamicSlug(value, fallback = 'zona') {
+        const rawValue = String(value || fallback).trim().toLowerCase();
+        const normalized = rawValue
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/ñ/g, 'n')
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+
+        return normalized || fallback;
+    }
+
+    titleFromSlug(slug, fallback = 'Zona') {
+        return String(slug || fallback)
+            .split('-')
+            .filter(Boolean)
+            .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+            .join(' ') || fallback;
+    }
+
+    legacyZoneSlugForSeat(row = {}) {
+        const zona = this.normalizeDynamicSlug(row.zona || 'salon', 'salon');
+        const tipo = this.normalizeDynamicSlug(row.tipo_asiento || 'mesa', 'mesa');
+
+        if (zona === 'bar' && tipo === 'banco') return 'barra';
+        if (zona === 'barra') return 'barra';
+        return zona;
+    }
+
+    legacySeatTypeSlug(row = {}) {
+        return this.normalizeDynamicSlug(row.tipo_asiento || 'mesa', 'mesa');
+    }
+
+    async upsertDynamicZone({ nombre, slug, icono, color, orden, acepta_reservas, aplica_servicio, porcentaje_servicio, visible_dashboard, activa }) {
+        await this.run(`
+            INSERT INTO zonas (
+                nombre, slug, icono, color, orden,
+                acepta_reservas, aplica_servicio, porcentaje_servicio,
+                visible_dashboard, activa, creado_en, actualizado_en
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(slug) DO UPDATE SET
+                nombre = excluded.nombre,
+                icono = COALESCE(NULLIF(zonas.icono, ''), excluded.icono),
+                color = COALESCE(NULLIF(zonas.color, ''), excluded.color),
+                orden = CASE WHEN zonas.orden IS NULL OR zonas.orden = 0 THEN excluded.orden ELSE zonas.orden END,
+                actualizado_en = excluded.actualizado_en
+        `, [
+            nombre,
+            slug,
+            icono || null,
+            color || null,
+            Number.isFinite(Number(orden)) ? Number(orden) : 0,
+            acepta_reservas ? 1 : 0,
+            aplica_servicio ? 1 : 0,
+            Number.isFinite(Number(porcentaje_servicio)) ? Number(porcentaje_servicio) : 10,
+            visible_dashboard === false ? 0 : 1,
+            activa === false ? 0 : 1,
+            new Date().toISOString(),
+            new Date().toISOString()
+        ]);
+    }
+
+    async upsertDynamicSeatType({ nombre, slug, icono, orden, activo }) {
+        await this.run(`
+            INSERT INTO tipos_puesto (nombre, slug, icono, orden, activo, creado_en, actualizado_en)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(slug) DO UPDATE SET
+                nombre = excluded.nombre,
+                icono = COALESCE(NULLIF(tipos_puesto.icono, ''), excluded.icono),
+                orden = CASE WHEN tipos_puesto.orden IS NULL OR tipos_puesto.orden = 0 THEN excluded.orden ELSE tipos_puesto.orden END,
+                actualizado_en = excluded.actualizado_en
+        `, [
+            nombre,
+            slug,
+            icono || null,
+            Number.isFinite(Number(orden)) ? Number(orden) : 0,
+            activo === false ? 0 : 1,
+            new Date().toISOString(),
+            new Date().toISOString()
+        ]);
+    }
+
+    async ensureDefaultDynamicZonesAndTypes() {
+        const defaultZones = [
+            {
+                nombre: 'Salón',
+                slug: 'salon',
+                icono: 'fa-chair',
+                color: '#2ecc71',
+                orden: 1,
+                acepta_reservas: true,
+                aplica_servicio: true,
+                porcentaje_servicio: 10,
+                visible_dashboard: true,
+                activa: true
+            },
+            {
+                nombre: 'Bar',
+                slug: 'bar',
+                icono: 'fa-martini-glass-citrus',
+                color: '#3498db',
+                orden: 2,
+                acepta_reservas: true,
+                aplica_servicio: false,
+                porcentaje_servicio: 10,
+                visible_dashboard: true,
+                activa: true
+            },
+            {
+                nombre: 'Barra',
+                slug: 'barra',
+                icono: 'fa-grip-lines',
+                color: '#f39c12',
+                orden: 3,
+                acepta_reservas: false,
+                aplica_servicio: false,
+                porcentaje_servicio: 10,
+                visible_dashboard: true,
+                activa: true
+            }
+        ];
+
+        const defaultSeatTypes = [
+            { nombre: 'Mesa', slug: 'mesa', icono: 'fa-chair', orden: 1, activo: true },
+            { nombre: 'Banco', slug: 'banco', icono: 'fa-grip-lines', orden: 2, activo: true }
+        ];
+
+        for (const zone of defaultZones) {
+            await this.upsertDynamicZone(zone);
+        }
+
+        for (const seatType of defaultSeatTypes) {
+            await this.upsertDynamicSeatType(seatType);
+        }
+    }
+
+    async ensureZonesFromLegacySeats() {
+        const rows = await this.all(`
+            SELECT DISTINCT
+                COALESCE(NULLIF(zona, ''), 'salon') AS zona,
+                COALESCE(NULLIF(tipo_asiento, ''), 'mesa') AS tipo_asiento
+            FROM mesas
+        `);
+
+        const existingSlugs = new Set((await this.all('SELECT slug FROM zonas')).map(row => row.slug));
+        let nextOrderRow = await this.get('SELECT COALESCE(MAX(orden), 0) + 1 AS nextOrder FROM zonas');
+        let nextOrder = Number(nextOrderRow?.nextOrder || 1);
+
+        for (const row of rows) {
+            const slug = this.legacyZoneSlugForSeat(row);
+            if (existingSlugs.has(slug)) continue;
+
+            await this.upsertDynamicZone({
+                nombre: this.titleFromSlug(slug, 'Zona'),
+                slug,
+                icono: 'fa-location-dot',
+                color: '#95a5a6',
+                orden: nextOrder,
+                acepta_reservas: true,
+                aplica_servicio: false,
+                porcentaje_servicio: 10,
+                visible_dashboard: true,
+                activa: true
+            });
+            existingSlugs.add(slug);
+            nextOrder += 1;
+        }
+    }
+
+    async ensureSeatTypesFromLegacySeats() {
+        const rows = await this.all(`
+            SELECT DISTINCT COALESCE(NULLIF(tipo_asiento, ''), 'mesa') AS tipo_asiento
+            FROM mesas
+        `);
+
+        const existingSlugs = new Set((await this.all('SELECT slug FROM tipos_puesto')).map(row => row.slug));
+        let nextOrderRow = await this.get('SELECT COALESCE(MAX(orden), 0) + 1 AS nextOrder FROM tipos_puesto');
+        let nextOrder = Number(nextOrderRow?.nextOrder || 1);
+
+        for (const row of rows) {
+            const slug = this.legacySeatTypeSlug(row);
+            if (existingSlugs.has(slug)) continue;
+
+            await this.upsertDynamicSeatType({
+                nombre: this.titleFromSlug(slug, 'Puesto'),
+                slug,
+                icono: 'fa-chair',
+                orden: nextOrder,
+                activo: true
+            });
+            existingSlugs.add(slug);
+            nextOrder += 1;
+        }
+    }
+
+    async backfillDynamicSeatLinks() {
+        const zonas = await this.all('SELECT id, slug FROM zonas');
+        const tipos = await this.all('SELECT id, slug FROM tipos_puesto');
+        const zonaBySlug = new Map(zonas.map(row => [row.slug, row.id]));
+        const tipoBySlug = new Map(tipos.map(row => [row.slug, row.id]));
+        const seats = await this.all('SELECT id, zona, tipo_asiento FROM mesas');
+
+        for (const seat of seats) {
+            const zoneSlug = this.legacyZoneSlugForSeat(seat);
+            const typeSlug = this.legacySeatTypeSlug(seat);
+            const zonaId = zonaBySlug.get(zoneSlug) || null;
+            const tipoPuestoId = tipoBySlug.get(typeSlug) || null;
+
+            await this.run(`
+                UPDATE mesas
+                SET zona_id = ?,
+                    tipo_puesto_id = ?,
+                    nombre_visible = COALESCE(NULLIF(nombre_visible, ''), NULL),
+                    activo = COALESCE(activo, 1)
+                WHERE id = ?
+            `, [zonaId, tipoPuestoId, seat.id]);
+        }
+    }
+
+    async ensureDynamicModelConsistency() {
+        await this.ensureDefaultDynamicZonesAndTypes();
+        await this.ensureZonesFromLegacySeats();
+        await this.ensureSeatTypesFromLegacySeats();
+        await this.backfillDynamicSeatLinks();
     }
 
     async insertInitialData() {

@@ -84,6 +84,21 @@ No se continúa con la siguiente subfase hasta que la subfase actual esté compr
 
 ## Registro de cambios canónico
 
+### v2.2.4.3 · Modelo base de zonas dinámicas y puestos dinámicos
+
+- **Objetivo:** preparar la estructura de datos para que `Zonas` deje de depender únicamente de valores rígidos (`salon`, `bar`, `bar-banco`) y pueda evolucionar hacia locaciones y puestos configurables por cada local.
+- **Nueva base dinámica:** se agregan las tablas `zonas` y `tipos_puesto` como modelo inicial para locaciones físicas del negocio y tipos de puesto operativos.
+- **Compatibilidad:** la tabla actual `mesas` se mantiene para no romper Dashboard, Zonas, Pedidos, Cuentas ni realtime; se agregan columnas de enlace (`zona_id`, `tipo_puesto_id`) y configuración futura (`nombre_visible`, overrides de reservas/servicio y `activo`).
+- **Migración compatible:** los datos actuales se enlazan automáticamente al modelo dinámico: `salon` → `Salón`, `bar` + `mesa` → `Bar`, `bar` + `banco` → `Barra`, `mesa` → `Mesa` y `banco` → `Banco`.
+- **Servicio 10% preparado:** las zonas ya pueden almacenar `aplica_servicio` y `porcentaje_servicio`; los puestos pueden sobrescribir esa regla en fases posteriores. Esta subfase todavía no modifica cálculos de pedidos ni cuentas.
+- **Reservaciones preparadas:** las zonas ya pueden indicar si aceptan reservas y los puestos podrán heredar o sobrescribir la regla en fases posteriores. Esta subfase no cambia todavía los modales ni restricciones operativas.
+- **Endpoint de lectura:** se agrega `GET /api/tables/structure` para consultar la estructura dinámica base de zonas y tipos de puesto sin alterar la operación actual.
+- **Respuesta enriquecida:** `GET /api/tables` mantiene los campos antiguos, pero ahora incluye metadata dinámica (`zona_nombre`, `zona_slug`, `tipo_puesto_nombre`, `acepta_reservas`, `aplica_servicio`, etc.) para futuras fases.
+- **Alcance:** no se rediseña el módulo Zonas, no se activan permisos, no se filtra Dashboard por roles de trabajo y no se renombra la tabla `mesas`.
+- **Archivos modificados:** `server/db/database.js`, `server/routes/tables.js` y `README.md`.
+- **Prueba recomendada:** iniciar con una base existente y confirmar que la app arranca, que `Zonas` muestra mesas/bancos como antes, que crear una nueva mesa/banco funciona y que `/api/tables/structure` devuelve `Salón`, `Bar`, `Barra`, `Mesa` y `Banco`.
+- **Siguiente subfase:** avanzar solo después de validar esta migración y hacer commit/push seguro.
+
 ### v2.2.4.2 · Bootstrap de administrador inicial
 
 - **Objetivo:** preparar MundiPOS para instalaciones nuevas de producción donde todavía no existe ningún administrador activo.

@@ -3,15 +3,137 @@ const database = require('../db/database');
 
 const router = express.Router();
 
-// Obtener todas las mesas
+function normalizeSlug(value, fallback = 'mesa') {
+    const rawValue = String(value || fallback).trim().toLowerCase();
+    const normalized = rawValue
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/ñ/g, 'n')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+
+    return normalized || fallback;
+}
+
+function legacyZoneSlugForSeat({ zona, tipo_asiento } = {}) {
+    const zonaSlug = normalizeSlug(zona || 'salon', 'salon');
+    const tipoSlug = normalizeSlug(tipo_asiento || 'mesa', 'mesa');
+
+    if (zonaSlug === 'bar' && tipoSlug === 'banco') return 'barra';
+    if (zonaSlug === 'barra') return 'barra';
+    return zonaSlug;
+}
+
+function legacySeatTypeSlug({ tipo_asiento } = {}) {
+    return normalizeSlug(tipo_asiento || 'mesa', 'mesa');
+}
+
+function legacySeatName(mesa = {}) {
+    const zona = String(mesa.zona || '').toLowerCase();
+    const tipo = String(mesa.tipo_asiento || 'mesa').toLowerCase();
+    return zona === 'bar' && tipo === 'banco' ? 'banco' : 'mesa';
+}
+
+async function getDynamicZoneAndTypeIds({ zona, tipo_asiento }) {
+    const zonaSlug = legacyZoneSlugForSeat({ zona, tipo_asiento });
+    const tipoSlug = legacySeatTypeSlug({ tipo_asiento });
+
+    const [zonaRow, tipoRow] = await Promise.all([
+        database.get('SELECT id FROM zonas WHERE slug = ? AND activa = 1', [zonaSlug]),
+        database.get('SELECT id FROM tipos_puesto WHERE slug = ? AND activo = 1', [tipoSlug])
+    ]);
+
+    return {
+        zona_id: zonaRow?.id || null,
+        tipo_puesto_id: tipoRow?.id || null
+    };
+}
+
+function buildTablesSelect(whereClause = '') {
+    return `
+        SELECT
+            m.*,
+            z.id AS zona_dinamica_id,
+            z.nombre AS zona_nombre,
+            z.slug AS zona_slug,
+            z.icono AS zona_icono,
+            z.orden AS zona_orden,
+            z.acepta_reservas AS zona_acepta_reservas,
+            z.aplica_servicio AS zona_aplica_servicio,
+            z.porcentaje_servicio AS zona_porcentaje_servicio,
+            z.visible_dashboard AS zona_visible_dashboard,
+            tp.id AS tipo_puesto_dinamico_id,
+            tp.nombre AS tipo_puesto_nombre,
+            tp.slug AS tipo_puesto_slug,
+            tp.icono AS tipo_puesto_icono,
+            CASE
+                WHEN m.acepta_reservas_override IS NOT NULL THEN m.acepta_reservas_override
+                ELSE COALESCE(z.acepta_reservas, 1)
+            END AS acepta_reservas,
+            CASE
+                WHEN m.aplica_servicio_override IS NOT NULL THEN m.aplica_servicio_override
+                ELSE COALESCE(z.aplica_servicio, 0)
+            END AS aplica_servicio,
+            COALESCE(z.porcentaje_servicio, 10) AS porcentaje_servicio
+        FROM mesas m
+        LEFT JOIN zonas z ON z.id = m.zona_id
+        LEFT JOIN tipos_puesto tp ON tp.id = m.tipo_puesto_id
+        ${whereClause}
+        ORDER BY
+            COALESCE(z.orden, CASE LOWER(COALESCE(m.zona, 'salon')) WHEN 'salon' THEN 1 WHEN 'bar' THEN 2 ELSE 99 END),
+            CASE LOWER(COALESCE(tp.slug, m.tipo_asiento, 'mesa')) WHEN 'mesa' THEN 1 WHEN 'banco' THEN 2 ELSE 50 END,
+            m.numero ASC
+    `;
+}
+
+// Obtener todas las mesas/puestos con metadata dinámica compatible
 router.get('/', async (req, res) => {
-    
     try {
-        const mesas = await database.all('SELECT * FROM mesas ORDER BY numero');
+        const mesas = await database.all(buildTablesSelect('WHERE COALESCE(m.activo, 1) = 1'));
         res.json({ success: true, data: mesas });
     } catch (error) {
         console.error('Error obteniendo Zonas:', error);
         res.status(500).json({ error: 'Error interno del servidor1' });
+    }
+});
+
+// Obtener estructura dinámica base: zonas y tipos de puesto.
+// Esta lectura no cambia la operación actual; prepara futuras fases de Zonas dinámicas.
+router.get('/structure', async (req, res) => {
+    try {
+        const zonas = await database.all(`
+            SELECT
+                z.*,
+                COUNT(m.id) AS puestos_total,
+                SUM(CASE WHEN m.estado = 'libre' THEN 1 ELSE 0 END) AS puestos_libres,
+                SUM(CASE WHEN m.estado = 'ocupada' THEN 1 ELSE 0 END) AS puestos_ocupados,
+                SUM(CASE WHEN m.estado = 'reservada' THEN 1 ELSE 0 END) AS puestos_reservados
+            FROM zonas z
+            LEFT JOIN mesas m ON m.zona_id = z.id AND COALESCE(m.activo, 1) = 1
+            GROUP BY z.id
+            ORDER BY z.orden ASC, z.nombre ASC
+        `);
+
+        const tiposPuesto = await database.all(`
+            SELECT
+                tp.*,
+                COUNT(m.id) AS puestos_total
+            FROM tipos_puesto tp
+            LEFT JOIN mesas m ON m.tipo_puesto_id = tp.id AND COALESCE(m.activo, 1) = 1
+            GROUP BY tp.id
+            ORDER BY tp.orden ASC, tp.nombre ASC
+        `);
+
+        res.json({
+            success: true,
+            data: {
+                zonas,
+                tipos_puesto: tiposPuesto
+            }
+        });
+    } catch (error) {
+        console.error('Error obteniendo estructura dinámica de zonas:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -60,9 +182,26 @@ router.post('/', async (req, res) => {
             return res.status(400).json({ error: 'Ya existe una mesa/banco con ese número en esa zona' });
         }
 
+        const dynamicLinks = await getDynamicZoneAndTypeIds({
+            zona: tipo_zona,
+            tipo_asiento
+        });
+
         const result = await database.run(
-            'INSERT INTO mesas (numero, capacidad, estado, zona, tipo_asiento) VALUES (?, ?, ?, ?, ?)',
-            [numero, capacidad, 'libre', tipo_zona, tipo_asiento]
+            `INSERT INTO mesas (
+                numero, capacidad, estado, zona, tipo_asiento,
+                zona_id, tipo_puesto_id, activo
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                numero,
+                capacidad,
+                'libre',
+                tipo_zona,
+                tipo_asiento,
+                dynamicLinks.zona_id,
+                dynamicLinks.tipo_puesto_id,
+                1
+            ]
         );
 
         return res.status(201).json({
@@ -73,6 +212,8 @@ router.post('/', async (req, res) => {
                 capacidad,
                 zona: tipo_zona,
                 tipo_asiento,
+                zona_id: dynamicLinks.zona_id,
+                tipo_puesto_id: dynamicLinks.tipo_puesto_id,
                 estado: 'libre'
             }
         });
@@ -422,7 +563,7 @@ router.get('/next-numero', async (req, res) => {
 router.get('/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const mesa = await database.get('SELECT * FROM mesas WHERE id = ?', [id]);
+        const mesa = await database.get(buildTablesSelect('WHERE m.id = ?'), [id]);
         
         if (!mesa) {
             return res.status(404).json({ error: 'Zona no encontrada' });
