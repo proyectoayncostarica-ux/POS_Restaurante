@@ -86,57 +86,164 @@ function getActiveZoneIdsForRole(role = {}) {
         .map(zone => Number(zone.id));
 }
 
-async function getRoleChangeBlockStatus(activeRole = null) {
-    if (!activeRole || !Number(activeRole.id)) {
+async function getRoleChangeBlockStatus(userId) {
+    const numericUserId = Number(userId || 0);
+    if (!numericUserId) {
         return {
             bloqueado: false,
             cuentas_pendientes: 0,
             puestos_ocupados: 0,
+            responsabilidades_activas: 0,
+            responsabilidades_compartidas: 0,
+            responsabilidades_unicas: 0,
+            mesas_bloqueantes: [],
             mensaje: null
         };
     }
 
-    const zoneIds = getActiveZoneIdsForRole(activeRole);
-    if (!zoneIds.length) {
-        return {
-            bloqueado: false,
-            cuentas_pendientes: 0,
-            puestos_ocupados: 0,
-            mensaje: null
-        };
-    }
+    const rows = await database.all(`
+        SELECT
+            m.id AS mesa_id,
+            m.numero,
+            COALESCE(z.nombre, CASE
+                WHEN LOWER(COALESCE(m.zona, 'salon')) = 'bar' AND LOWER(COALESCE(m.tipo_asiento, 'mesa')) = 'banco' THEN 'Barra'
+                WHEN LOWER(COALESCE(m.zona, 'salon')) = 'bar' THEN 'Bar'
+                ELSE 'Salón'
+            END) AS zona_nombre,
+            COALESCE(tp.nombre, CASE
+                WHEN LOWER(COALESCE(m.tipo_asiento, 'mesa')) = 'banco' THEN 'Banco'
+                ELSE 'Mesa'
+            END) AS tipo_puesto_nombre,
+            m.estado,
+            COALESCE(pendientes.cuentas_pendientes, 0) AS cuentas_pendientes,
+            (
+                SELECT COUNT(DISTINCT mr2.usuario_id)
+                FROM mesa_responsables mr2
+                INNER JOIN usuarios u2 ON u2.id = mr2.usuario_id AND u2.activo = 1
+                WHERE mr2.mesa_id = m.id
+            ) AS responsables_activos
+        FROM mesa_responsables mr
+        INNER JOIN mesas m ON m.id = mr.mesa_id
+        LEFT JOIN zonas z ON z.id = m.zona_id
+        LEFT JOIN tipos_puesto tp ON tp.id = m.tipo_puesto_id
+        LEFT JOIN (
+            SELECT mesa_id, COUNT(DISTINCT id) AS cuentas_pendientes
+            FROM pedidos
+            WHERE estado = 'pendiente'
+            GROUP BY mesa_id
+        ) pendientes ON pendientes.mesa_id = m.id
+        WHERE mr.usuario_id = ?
+          AND COALESCE(m.activo, 1) = 1
+          AND (m.estado IN ('ocupada', 'reservada') OR COALESCE(pendientes.cuentas_pendientes, 0) > 0)
+        ORDER BY z.orden ASC, m.numero ASC
+    `, [numericUserId]);
 
-    const placeholders = zoneIds.map(() => '?').join(',');
-    const [pendingOrders, occupiedSeats] = await Promise.all([
-        database.get(`
-            SELECT COUNT(DISTINCT p.id) AS count
-            FROM pedidos p
-            INNER JOIN mesas m ON m.id = p.mesa_id
-            WHERE p.estado = 'pendiente'
-              AND m.zona_id IN (${placeholders})
-        `, zoneIds),
-        database.get(`
-            SELECT COUNT(*) AS count
-            FROM mesas
-            WHERE activo = 1
-              AND estado = 'ocupada'
-              AND zona_id IN (${placeholders})
-        `, zoneIds)
-    ]);
-
-    const cuentasPendientes = Number(pendingOrders?.count || 0);
-    const puestosOcupados = Number(occupiedSeats?.count || 0);
-    const bloqueado = cuentasPendientes > 0 || puestosOcupados > 0;
+    const activeRows = rows.filter(row => Number(row.cuentas_pendientes || 0) > 0 || ['ocupada', 'reservada'].includes(String(row.estado || '').toLowerCase()));
+    const uniqueRows = activeRows.filter(row => Number(row.responsables_activos || 0) <= 1);
+    const sharedRows = activeRows.filter(row => Number(row.responsables_activos || 0) > 1);
+    const pendingTotal = activeRows.reduce((sum, row) => sum + Number(row.cuentas_pendientes || 0), 0);
+    const occupiedTotal = activeRows.filter(row => String(row.estado || '').toLowerCase() === 'ocupada').length;
 
     return {
-        bloqueado,
-        cuentas_pendientes: cuentasPendientes,
-        puestos_ocupados: puestosOcupados,
-        mensaje: bloqueado
-            ? `No se puede cambiar de rol porque el rol actual tiene ${cuentasPendientes} cuenta(s) pendiente(s) y ${puestosOcupados} puesto(s) con consumo activo.`
+        bloqueado: uniqueRows.length > 0,
+        cuentas_pendientes: pendingTotal,
+        puestos_ocupados: occupiedTotal,
+        responsabilidades_activas: activeRows.length,
+        responsabilidades_compartidas: sharedRows.length,
+        responsabilidades_unicas: uniqueRows.length,
+        mesas_bloqueantes: uniqueRows.map(row => ({
+            mesa_id: Number(row.mesa_id),
+            numero: Number(row.numero),
+            zona_nombre: row.zona_nombre,
+            tipo_puesto_nombre: row.tipo_puesto_nombre,
+            estado: row.estado,
+            cuentas_pendientes: Number(row.cuentas_pendientes || 0)
+        })),
+        mensaje: uniqueRows.length > 0
+            ? 'No se puede cambiar de rol porque hay mesas/cuentas activas donde este usuario es el único responsable asignado. Un administrador debe agregar otro responsable desde Zonas o cerrar la cuenta.'
             : null
     };
 }
+
+async function verifyAdminPasswordForRoleChange(req, password) {
+    if (!password) {
+        return { error: 'Se requiere contraseña de administrador para autorizar el cambio de rol.' };
+    }
+
+    if (isAdminVerificationBlocked(req)) {
+        return { error: 'Demasiados intentos. Intente de nuevo en unos minutos.', status: 429 };
+    }
+
+    const admins = await database.all(
+        'SELECT id, nombre, password FROM usuarios WHERE tipo = ? AND activo = 1',
+        ['administrador']
+    );
+
+    for (const admin of admins) {
+        if (await bcrypt.compare(String(password || ''), admin.password)) {
+            clearAdminVerificationFailures(req);
+            return { admin: { id: Number(admin.id), nombre: admin.nombre } };
+        }
+    }
+
+    registerAdminVerificationFailure(req);
+    return { error: 'Contraseña de administrador incorrecta', status: 401 };
+}
+
+async function releaseSharedMesaResponsibilitiesForUser(userId, authorizedByAdmin = null) {
+    const numericUserId = Number(userId || 0);
+    if (!numericUserId) return { removed: [] };
+
+    const rows = await database.all(`
+        SELECT
+            m.id AS mesa_id,
+            m.numero,
+            COALESCE(z.nombre, CASE
+                WHEN LOWER(COALESCE(m.zona, 'salon')) = 'bar' AND LOWER(COALESCE(m.tipo_asiento, 'mesa')) = 'banco' THEN 'Barra'
+                WHEN LOWER(COALESCE(m.zona, 'salon')) = 'bar' THEN 'Bar'
+                ELSE 'Salón'
+            END) AS zona_nombre,
+            COALESCE(tp.nombre, CASE
+                WHEN LOWER(COALESCE(m.tipo_asiento, 'mesa')) = 'banco' THEN 'Banco'
+                ELSE 'Mesa'
+            END) AS tipo_puesto_nombre
+        FROM mesa_responsables mr
+        INNER JOIN mesas m ON m.id = mr.mesa_id
+        LEFT JOIN zonas z ON z.id = m.zona_id
+        LEFT JOIN tipos_puesto tp ON tp.id = m.tipo_puesto_id
+        WHERE mr.usuario_id = ?
+          AND COALESCE(m.activo, 1) = 1
+          AND (m.estado IN ('ocupada', 'reservada') OR EXISTS (
+              SELECT 1 FROM pedidos p WHERE p.mesa_id = m.id AND p.estado = 'pendiente'
+          ))
+          AND (
+              SELECT COUNT(DISTINCT mr2.usuario_id)
+              FROM mesa_responsables mr2
+              INNER JOIN usuarios u2 ON u2.id = mr2.usuario_id AND u2.activo = 1
+              WHERE mr2.mesa_id = m.id
+          ) > 1
+    `, [numericUserId]);
+
+    for (const row of rows) {
+        await database.run(
+            'DELETE FROM mesa_responsables WHERE mesa_id = ? AND usuario_id = ?',
+            [row.mesa_id, numericUserId]
+        );
+
+        await database.run(
+            'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+            [
+                'responsabilidad_mesa_liberada_por_cambio_rol',
+                numericUserId,
+                `Usuario liberado automáticamente de ${row.tipo_puesto_nombre} ${row.numero} (${row.zona_nombre}) por cambio de rol${authorizedByAdmin?.nombre ? ` autorizado por ${authorizedByAdmin.nombre}` : ''}`,
+                new Date().toISOString()
+            ]
+        );
+    }
+
+    return { removed: rows };
+}
+
 
 async function getUserWorkRoles(userId) {
     if (!userId) return [];
@@ -492,7 +599,7 @@ router.get('/operational-session/change-status', requireSession, async (req, res
         const rolesTrabajo = await getUserWorkRoles(req.session.userId);
         const sesionOperativa = buildOperationalSession(req, user, rolesTrabajo);
         const activeRole = sesionOperativa.rol_trabajo || null;
-        const bloqueo = await getRoleChangeBlockStatus(activeRole);
+        const bloqueo = await getRoleChangeBlockStatus(req.session.userId);
 
         res.json({
             success: true,
@@ -537,15 +644,49 @@ router.post('/operational-session', requireSession, async (req, res) => {
             ? selectableRoles.find(role => Number(role.id) === currentRoleId) || null
             : null;
 
-        if (currentRole && Number(currentRole.id) !== Number(selectedRole.id)) {
-            const bloqueo = await getRoleChangeBlockStatus(currentRole);
+        const isRoleChange = Boolean(currentRole && Number(currentRole.id) !== Number(selectedRole.id));
+        let adminAutorizador = null;
+        let responsabilidadesLiberadas = [];
+
+        if (isRoleChange) {
+            const bloqueo = await getRoleChangeBlockStatus(req.session.userId);
             if (bloqueo.bloqueado) {
+                await database.run(
+                    'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+                    [
+                        'cambio_rol_bloqueado_responsabilidad_unica',
+                        req.session.userId,
+                        bloqueo.mensaje,
+                        new Date().toISOString()
+                    ]
+                );
+
                 return res.status(409).json({
-                    error: bloqueo.mensaje || 'No se puede cambiar de rol mientras existan cuentas pendientes o consumos activos en el rol actual.',
-                    code: 'ROLE_CHANGE_BLOCKED_ACTIVE_CONSUMPTION',
+                    error: bloqueo.mensaje || 'No se puede cambiar de rol porque el usuario es responsable único de una o más mesas activas.',
+                    code: 'ROLE_CHANGE_BLOCKED_SINGLE_RESPONSIBLE',
                     bloqueo
                 });
             }
+
+            if (req.session.userType !== 'administrador') {
+                const verification = await verifyAdminPasswordForRoleChange(req, req.body?.admin_password || req.body?.adminPassword);
+                if (verification.error) {
+                    await database.run(
+                        'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+                        [
+                            'cambio_rol_rechazado_password_admin',
+                            req.session.userId,
+                            `Cambio de rol de ${currentRole.nombre} a ${selectedRole.nombre} rechazado por autorización admin inválida`,
+                            new Date().toISOString()
+                        ]
+                    );
+                    return res.status(verification.status || 403).json({ error: verification.error });
+                }
+                adminAutorizador = verification.admin;
+            }
+
+            const releaseResult = await releaseSharedMesaResponsibilitiesForUser(req.session.userId, adminAutorizador);
+            responsabilidadesLiberadas = releaseResult.removed || [];
         }
 
         req.session.activeWorkRoleId = selectedRole.id;
@@ -553,7 +694,14 @@ router.post('/operational-session', requireSession, async (req, res) => {
 
         await database.run(
             'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
-            ['seleccion_rol_trabajo', req.session.userId, `Rol de trabajo activo: ${selectedRole.nombre}`, new Date().toISOString()]
+            [
+                isRoleChange ? 'cambio_rol_trabajo' : 'seleccion_rol_trabajo',
+                req.session.userId,
+                isRoleChange
+                    ? `Rol de trabajo cambiado de ${currentRole.nombre} a ${selectedRole.nombre}${adminAutorizador?.nombre ? ` con autorización admin de ${adminAutorizador.nombre}` : ''}. Responsabilidades liberadas: ${responsabilidadesLiberadas.length}`
+                    : `Rol de trabajo activo: ${selectedRole.nombre}`,
+                new Date().toISOString()
+            ]
         );
 
         const sesionOperativa = buildOperationalSession(req, user, rolesTrabajo);

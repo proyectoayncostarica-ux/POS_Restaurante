@@ -3,6 +3,73 @@ const database = require("../db/database");
 
 const router = express.Router();
 
+function isAdminSession(req) {
+  return req.session?.userType === 'administrador';
+}
+
+function getSessionUserId(req) {
+  return Number(req.session?.userId || 0);
+}
+
+function getSessionActiveWorkRoleId(req) {
+  return Number(req.session?.activeWorkRoleId || 0) || null;
+}
+
+async function getMesaResponsibilitySummary(mesaId, currentUserId = 0) {
+  const summary = await database.get(`
+    SELECT
+      COUNT(DISTINCT mr.usuario_id) AS responsables_total,
+      SUM(CASE WHEN mr.usuario_id = ? THEN 1 ELSE 0 END) AS soy_responsable
+    FROM mesa_responsables mr
+    INNER JOIN usuarios u ON u.id = mr.usuario_id AND u.activo = 1
+    WHERE mr.mesa_id = ?
+  `, [Number(currentUserId || 0), mesaId]);
+
+  return {
+    responsables_total: Number(summary?.responsables_total || 0),
+    soy_responsable: Number(summary?.soy_responsable || 0) > 0
+  };
+}
+
+async function canOperateMesa(req, mesaId) {
+  if (isAdminSession(req)) return true;
+  const summary = await getMesaResponsibilitySummary(mesaId, getSessionUserId(req));
+  return summary.soy_responsable;
+}
+
+async function requireMesaOperationAccess(req, res, mesaId) {
+  if (await canOperateMesa(req, mesaId)) return true;
+  res.status(403).json({
+    error: 'Responsable asignado. No puedes operar esta mesa/cuenta con tu usuario actual.',
+    code: 'MESA_ASSIGNED_TO_OTHER_USER'
+  });
+  return false;
+}
+
+async function ensureMesaResponsibility(mesaId, req, actionLabel = 'responsable_mesa_asignado_pedido') {
+  const userId = getSessionUserId(req);
+  if (!userId) return;
+
+  const summary = await getMesaResponsibilitySummary(mesaId, userId);
+  if (summary.soy_responsable || summary.responsables_total > 0) return;
+
+  await database.run(`
+    INSERT OR IGNORE INTO mesa_responsables (
+      mesa_id, usuario_id, rol_trabajo_id, asignado_por_usuario_id, fecha_asignacion
+    ) VALUES (?, ?, ?, ?, ?)
+  `, [mesaId, userId, getSessionActiveWorkRoleId(req), userId, new Date().toISOString()]);
+
+  await database.run(
+    'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+    [actionLabel, userId, `Usuario asignado como responsable operativo de mesa/puesto #${mesaId}`, new Date().toISOString()]
+  );
+}
+
+async function clearMesaResponsibilities(mesaId) {
+  await database.run('DELETE FROM mesa_responsables WHERE mesa_id = ?', [mesaId]);
+}
+
+
 // Obtener todos los pedidos
 router.get("/", async (req, res) => {
     try {
@@ -112,6 +179,9 @@ router.post("/", async (req, res) => {
       });
     }
 
+    if (!(await requireMesaOperationAccess(req, res, mesa_id))) return;
+    await ensureMesaResponsibility(mesa_id, req);
+
     const pedidoPendienteExistente = await database.get(
       "SELECT id FROM pedidos WHERE mesa_id = ? AND estado = ? LIMIT 1",
       [mesa_id, "pendiente"]
@@ -185,9 +255,9 @@ router.post("/", async (req, res) => {
 
     // Crear pedido
     const pedidoResult = await database.run(
-      `INSERT INTO pedidos (mesa_id, usuario_id, fecha, estado, total, cliente_nombre)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [mesa_id, userId, new Date().toISOString(), "pendiente", total, mesa.cliente_nombre]
+      `INSERT INTO pedidos (mesa_id, usuario_id, rol_trabajo_id, fecha, estado, total, cliente_nombre)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [mesa_id, userId, getSessionActiveWorkRoleId(req), new Date().toISOString(), "pendiente", total, mesa.cliente_nombre]
     );
 
     const pedidoId = pedidoResult.id;
@@ -262,6 +332,8 @@ router.post("/:id/products", async (req, res) => {
         if (!pedido) {
             return res.status(400).json({ error: "Pedido no encontrado o ya está procesado" });
         }
+
+        if (!(await requireMesaOperationAccess(req, res, pedido.mesa_id))) return;
 
         // Obtener zona (mesa) relacionada para personalizar historial
         const zona = await database.get("SELECT numero, zona, tipo_asiento FROM mesas WHERE id = ?", [pedido.mesa_id]);
@@ -389,6 +461,8 @@ router.put("/:pedido_id/products/:producto_id", async (req, res) => {
             return res.status(400).json({ error: "Pedido no encontrado o ya está procesado" });
         }
 
+        if (!(await requireMesaOperationAccess(req, res, pedido.mesa_id))) return;
+
         // Obtener el producto actual en el pedido
         const productoActual = await database.get(`
             SELECT pp.*, p.precio as precio_actual, p.nombre as nombre_actual
@@ -491,6 +565,8 @@ router.post("/:id/pay", async (req, res) => {
             return res.status(400).json({ error: "Pedido no encontrado o ya está procesado" });
         }
 
+        if (!(await requireMesaOperationAccess(req, res, pedido.mesa_id))) return;
+
         const nombreZona = pedido.zona?.toLowerCase() === 'bar'
         ? (pedido.tipo_asiento?.toLowerCase() === 'banco' ? 'banco' : 'mesa')
         : 'mesa';
@@ -526,6 +602,7 @@ router.post("/:id/pay", async (req, res) => {
 
             // 2. Liberar la mesa
             await database.run("UPDATE mesas SET estado = ?, cliente_nombre = NULL, fecha_apertura = NULL, cantidad_personas = NULL, hora_estimada = NULL WHERE id = ?", ["libre", pedido.mesa_id]);
+            await clearMesaResponsibilities(pedido.mesa_id);
 
             // 3. Registrar en historial
             await database.run(
@@ -574,6 +651,7 @@ router.post("/:id/pay", async (req, res) => {
                 "UPDATE mesas SET estado = ?, cliente_nombre = NULL, fecha_apertura = NULL, cantidad_personas = NULL, hora_estimada = NULL WHERE id = ?",
                 ["libre", pedido.mesa_id]
             );
+            await clearMesaResponsibilities(pedido.mesa_id);
         }
 
         await database.run(

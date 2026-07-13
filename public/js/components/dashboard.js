@@ -32,6 +32,8 @@ const Dashboard = {
     render() {
         if (!this.data) return;
         this.filtroTipo = this.filtroTipo || 'todos';
+        this.normalizeActiveFilter();
+        this.renderZoneFilters();
 
         this.setText('greeting-message', getGreetingMessage());
         this.updateOperationalMetrics();
@@ -82,6 +84,62 @@ const Dashboard = {
         }
     },
 
+    getDashboardZones() {
+        const zonas = Array.isArray(this.data?.dashboardZonas) ? this.data.dashboardZonas : [];
+        if (zonas.length) return zonas;
+
+        return [
+            { id: 'todos', label: 'Todos', icon: 'fa-border-all' },
+            { id: 'salon', label: 'Salón', icon: 'fa-chair' },
+            { id: 'bar-mesa', label: 'Bar', icon: 'fa-martini-glass-citrus' },
+            { id: 'bar-banco', label: 'Barra', icon: 'fa-grip-lines' }
+        ];
+    },
+
+    getInternalNavItems() {
+        return this.getDashboardZones().map(zone => ({
+            id: zone.id,
+            label: zone.label,
+            icon: zone.icon || 'fa-layer-group'
+        }));
+    },
+
+    normalizeActiveFilter() {
+        const zones = this.getDashboardZones();
+        const validIds = new Set(zones.map(zone => zone.id));
+        if (!validIds.has(this.filtroTipo)) {
+            this.filtroTipo = 'todos';
+            this.filtroEstado = null;
+        }
+    },
+
+    safeCssColor(value) {
+        const color = String(value || '').trim();
+        if (/^#[0-9a-fA-F]{3,8}$/.test(color)) return color;
+        return null;
+    },
+
+    renderZoneFilters() {
+        const container = document.getElementById('dashboard-zones-filter');
+        if (!container) return;
+
+        const zones = this.getDashboardZones();
+        container.innerHTML = zones.map(zone => {
+            const icon = zone.icon || 'fa-layer-group';
+            const zoneColor = this.safeCssColor(zone.color);
+            const style = zoneColor ? ` style="--dashboard-zone-color: ${zoneColor}"` : '';
+            return `
+                <button class="btn btn-zona ${this.filtroTipo === zone.id ? 'active' : ''}"
+                        data-tipo="${this.escapeHTML(zone.id)}"
+                        data-subnav-item="${this.escapeHTML(zone.id)}"
+                        onclick="Navigation.selectInternal('dashboard', '${this.escapeHTML(zone.id)}')"
+                        title="${this.escapeHTML(zone.label)}"${style}>
+                    <i class="fas ${this.escapeHTML(icon)}"></i> ${this.escapeHTML(zone.label)}
+                </button>
+            `;
+        }).join('');
+    },
+
     filtrarPorZona(zonaSeleccionada) {
         this.filtroTipo = zonaSeleccionada || 'todos';
         this.resetEstadoFilterIfUnavailable();
@@ -129,9 +187,9 @@ const Dashboard = {
         const ocupadas = Number(zonaActual.ocupadas) || 0;
         const ocupacion = zonasTotal > 0 ? Math.round((ocupadas / zonasTotal) * 100) : 0;
 
-        this.setText('mesas-libres', totales.mesasLibres || data.mesasLibres || 0);
-        this.setText('mesas-ocupadas', totales.mesasOcupadas || data.mesasOcupadas || 0);
-        this.setText('mesas-reservadas', totales.mesasReservadas || data.mesasReservadas || 0);
+        this.setText('mesas-libres', totales.puestosLibres ?? totales.mesasLibres ?? data.mesasLibres ?? 0);
+        this.setText('mesas-ocupadas', totales.puestosOcupados ?? totales.mesasOcupadas ?? data.mesasOcupadas ?? 0);
+        this.setText('mesas-reservadas', totales.puestosReservados ?? totales.mesasReservadas ?? data.mesasReservadas ?? 0);
         this.setText('bancos-libres', totales.bancosLibres || data.bancosLibres || 0);
         this.setText('bancos-ocupados', totales.bancosOcupados || data.bancosOcupados || 0);
 
@@ -169,11 +227,12 @@ const Dashboard = {
 
         if (!zonas.length) {
             const estadoLabel = this.filtroEstado ? this.getEstadoLabel(this.filtroEstado).toLowerCase() : null;
+            const scopeMessage = this.data?.dashboardScope?.mensaje;
             container.innerHTML = `
                 <div class="dashboard-empty-state dashboard-empty-state-wide">
-                    <i class="fas fa-chair"></i>
-                    <strong>${estadoLabel ? `No hay puestos ${estadoLabel} en ${label}` : `No hay zonas para ${label}`}</strong>
-                    <span>${estadoLabel ? 'El filtro de estado se reiniciará al cambiar a una zona sin coincidencias.' : 'Crea o revisa las zonas desde el módulo Zonas.'}</span>
+                    <i class="fas fa-layer-group"></i>
+                    <strong>${estadoLabel ? `No hay puestos ${estadoLabel} en ${label}` : `No hay puestos visibles para ${label}`}</strong>
+                    <span>${estadoLabel ? 'Cambia el filtro de estado o revisa la operación actual.' : (scopeMessage || 'El Dashboard solo muestra las zonas permitidas para el rol operativo activo.')}</span>
                 </div>
             `;
             return;
@@ -183,24 +242,24 @@ const Dashboard = {
     },
 
     renderMesaCard(mesa) {
-        const tipoAsiento = (mesa.tipo_asiento || 'mesa').toLowerCase();
-        const zona = (mesa.zona || 'salon').toLowerCase();
-        const esBanco = zona === 'bar' && tipoAsiento === 'banco';
-        const tipoNombre = esBanco ? 'Banco' : 'Mesa';
+        const tipoNombre = this.getSeatTypeLabel(mesa);
         const estado = this.normalizeEstado(mesa.estado);
         const badgeInfo = this.getMesaBadge(mesa);
         const monto = Number(mesa.monto_consumido) || 0;
         const action = this.getMesaAction(mesa);
         const tituloPrincipal = this.getMesaPrimaryTitle(mesa, tipoNombre, estado);
-        const zonaLabel = `${tipoNombre} ${mesa.numero}`;
+        const puestoLabel = this.getSeatDisplayLabel(mesa, tipoNombre);
+        const zonaLabel = this.getMesaZoneLabel(mesa);
         const estadoPrincipal = this.getMesaStatusSlot(mesa, tipoNombre, estado);
         const estadoClass = estado === 'ocupada' ? `${estado} mesa-ubicacion-destacada` : estado;
+        const badgeColor = this.safeCssColor(badgeInfo.color);
+        const badgeStyle = badgeColor ? ` style="--zone-badge-color: ${badgeColor}"` : '';
 
         return `
-            <button type="button" class="mesa-card dashboard-zone-card ${estado} ${badgeInfo.typeClass}"
+            <button type="button" class="mesa-card dashboard-zone-card ${estado} ${badgeInfo.typeClass} ${action.enabled === false ? 'is-assigned-blocked' : ''}"
                     onclick="${action.onclick}" ${action.doubleClick ? `ondblclick="${action.doubleClick}"` : ''}
-                    aria-label="${this.escapeHTML(zonaLabel)}, ${this.getEstadoLabel(estado)}">
-                <span class="badge-zona ${badgeInfo.badgeClass}">${badgeInfo.label}</span>
+                    aria-label="${this.escapeHTML(`${zonaLabel}, ${puestoLabel}`)}, ${this.getEstadoLabel(estado)}">
+                <span class="badge-zona ${badgeInfo.badgeClass}"${badgeStyle}>${this.escapeHTML(badgeInfo.label)}</span>
                 <span class="mesa-numero">${tituloPrincipal}</span>
                 <span class="mesa-estado ${estadoClass}">${estadoPrincipal}</span>
                 <span class="mesa-info dashboard-zone-info">
@@ -212,24 +271,24 @@ const Dashboard = {
     },
 
     getMesaPrimaryTitle(mesa, tipoNombre, estado) {
-        const zonaLabel = `${tipoNombre} ${mesa.numero}`;
+        const puestoLabel = this.getSeatDisplayLabel(mesa, tipoNombre);
 
         if (estado === 'ocupada' || estado === 'reservada') {
             const cliente = String(mesa.cliente_nombre || '').trim();
-            return this.escapeHTML(cliente || zonaLabel);
+            return this.escapeHTML(cliente || puestoLabel);
         }
 
-        return this.escapeHTML(zonaLabel);
+        return this.escapeHTML(puestoLabel);
     },
 
     getMesaReferenceBadge(mesa, tipoNombre, estado) {
-        const zonaLabel = `${tipoNombre} ${mesa.numero}`.toUpperCase();
-        return `<small class="mesa-reference-badge mesa-reference-${estado}">${this.escapeHTML(zonaLabel)}</small>`;
+        const puestoLabel = this.getSeatDisplayLabel(mesa, tipoNombre).toUpperCase();
+        return `<small class="mesa-reference-badge mesa-reference-${estado}">${this.escapeHTML(puestoLabel)}</small>`;
     },
 
     getMesaStatusSlot(mesa, tipoNombre, estado) {
         if (estado === 'ocupada') {
-            return this.escapeHTML(`${tipoNombre} ${mesa.numero}`.toUpperCase());
+            return this.escapeHTML(this.getSeatDisplayLabel(mesa, tipoNombre).toUpperCase());
         }
 
         return this.getEstadoLabel(estado);
@@ -268,6 +327,14 @@ const Dashboard = {
     getMesaAction(mesa) {
         const estado = this.normalizeEstado(mesa.estado);
 
+        if (estado !== 'libre' && Number(mesa.puede_operar) !== 1) {
+            return {
+                label: 'Responsable asignado',
+                onclick: 'Dashboard.notifyMesaAssigned()',
+                enabled: false
+            };
+        }
+
         if (estado === 'libre') {
             return {
                 label: 'Abrir',
@@ -296,7 +363,36 @@ const Dashboard = {
         };
     },
 
+    notifyMesaAssigned() {
+        Utils.showNotification('Responsable asignado. No puedes operar esta mesa/cuenta con tu usuario actual.', 'info');
+    },
+
+    getSeatTypeLabel(mesa = {}) {
+        return String(mesa.tipo_puesto_nombre || '').trim()
+            || (((mesa.zona || '').toLowerCase() === 'bar' && (mesa.tipo_asiento || '').toLowerCase() === 'banco') ? 'Banco' : 'Mesa');
+    },
+
+    getMesaZoneLabel(mesa = {}) {
+        return String(mesa.zona_nombre || '').trim()
+            || this.getZoneLabel(this.normalizeZoneKey(mesa));
+    },
+
+    getSeatDisplayLabel(mesa = {}, tipoNombre = this.getSeatTypeLabel(mesa)) {
+        const visibleName = String(mesa.nombre_visible || '').trim();
+        return visibleName || `${tipoNombre} ${mesa.numero || mesa.mesa_numero || '-'}`;
+    },
+
     getMesaBadge(mesa) {
+        const dynamicLabel = String(mesa.zona_nombre || '').trim();
+        if (dynamicLabel) {
+            return {
+                label: dynamicLabel,
+                badgeClass: 'badge-dynamic',
+                typeClass: `tipo-dynamic ${this.normalizeZoneKey(mesa)}`,
+                color: mesa.zona_color || null
+            };
+        }
+
         const zona = (mesa.zona || 'salon').toLowerCase();
         const tipoAsiento = (mesa.tipo_asiento || 'mesa').toLowerCase();
 
@@ -326,9 +422,12 @@ const Dashboard = {
         return mesas.filter(m => this.normalizeEstado(m.estado) === this.filtroEstado);
     },
 
-    createEmptyZoneSummary(label) {
+    createEmptyZoneSummary(label, zone = {}) {
         return {
+            id: zone.id || null,
             label,
+            icon: zone.icon || 'fa-layer-group',
+            color: zone.color || null,
             total: 0,
             libres: 0,
             ocupadas: 0,
@@ -338,12 +437,14 @@ const Dashboard = {
     },
 
     buildSummaryFromMesas() {
-        const zonas = {
-            todos: this.createEmptyZoneSummary('Todos'),
-            salon: this.createEmptyZoneSummary('Salón'),
-            'bar-mesa': this.createEmptyZoneSummary('Bar'),
-            'bar-banco': this.createEmptyZoneSummary('Barra')
-        };
+        const zonas = {};
+        this.getDashboardZones().forEach(zone => {
+            zonas[zone.id] = this.createEmptyZoneSummary(zone.label, zone);
+        });
+
+        if (!zonas.todos) {
+            zonas.todos = this.createEmptyZoneSummary('Todos', { id: 'todos' });
+        }
 
         const mesas = Array.isArray(this.data?.mesasDetalle) ? this.data.mesasDetalle : [];
 
@@ -365,12 +466,16 @@ const Dashboard = {
         return {
             zonas,
             totales: {
-                mesasLibres: zonas.salon.libres + zonas['bar-mesa'].libres,
-                mesasOcupadas: zonas.salon.ocupadas + zonas['bar-mesa'].ocupadas,
-                mesasReservadas: zonas.salon.reservadas + zonas['bar-mesa'].reservadas,
-                bancosLibres: zonas['bar-banco'].libres,
-                bancosOcupados: zonas['bar-banco'].ocupadas,
-                bancosReservados: zonas['bar-banco'].reservadas
+                mesasLibres: this.data?.mesasLibres || 0,
+                mesasOcupadas: this.data?.mesasOcupadas || 0,
+                mesasReservadas: this.data?.mesasReservadas || 0,
+                bancosLibres: this.data?.bancosLibres || 0,
+                bancosOcupados: this.data?.bancosOcupados || 0,
+                bancosReservados: this.data?.bancosReservados || 0,
+                puestosLibres: zonas.todos.libres,
+                puestosOcupados: zonas.todos.ocupadas,
+                puestosReservados: zonas.todos.reservadas,
+                puestosTotal: zonas.todos.total
             }
         };
     },
@@ -383,21 +488,26 @@ const Dashboard = {
             return clientSummary;
         }
 
-        const zonas = this.data?.zonasResumen || {};
+        const serverZones = this.data?.zonasResumen || {};
+        const zonas = {};
+        this.getDashboardZones().forEach(zone => {
+            zonas[zone.id] = serverZones[zone.id] || this.createEmptyZoneSummary(zone.label, zone);
+        });
+        if (!zonas.todos) zonas.todos = serverZones.todos || this.createEmptyZoneSummary('Todos', { id: 'todos' });
+
         return {
-            zonas: {
-                todos: zonas.todos || this.createEmptyZoneSummary('Todos'),
-                salon: zonas.salon || this.createEmptyZoneSummary('Salón'),
-                'bar-mesa': zonas['bar-mesa'] || this.createEmptyZoneSummary('Bar'),
-                'bar-banco': zonas['bar-banco'] || this.createEmptyZoneSummary('Barra')
-            },
+            zonas,
             totales: {
                 mesasLibres: this.data?.mesasLibres || 0,
                 mesasOcupadas: this.data?.mesasOcupadas || 0,
                 mesasReservadas: this.data?.mesasReservadas || 0,
                 bancosLibres: this.data?.bancosLibres || 0,
                 bancosOcupados: this.data?.bancosOcupados || 0,
-                bancosReservados: this.data?.bancosReservados || 0
+                bancosReservados: this.data?.bancosReservados || 0,
+                puestosLibres: this.data?.puestosLibres || 0,
+                puestosOcupados: this.data?.puestosOcupados || 0,
+                puestosReservados: this.data?.puestosReservados || 0,
+                puestosTotal: this.data?.puestosTotal || 0
             }
         };
     },
@@ -446,6 +556,9 @@ const Dashboard = {
     },
 
     normalizeZoneKey(row = {}) {
+        const dynamicId = Number(row.zona_dinamica_id || row.zona_id || 0);
+        if (dynamicId > 0) return `zona-${dynamicId}`;
+
         const zona = String(row.zona || 'salon').trim().toLowerCase();
         const tipoAsiento = String(row.tipo_asiento || 'mesa').trim().toLowerCase();
 
@@ -470,6 +583,9 @@ const Dashboard = {
     },
 
     getZoneLabel(filtro) {
+        const zone = this.getDashboardZones().find(item => item.id === filtro);
+        if (zone?.label) return zone.label;
+
         const labels = {
             todos: 'Todos',
             salon: 'Salón',
@@ -575,8 +691,8 @@ const Dashboard = {
     },
 
     renderCuentaPagadaCard(cuenta) {
-        const esBanco = (cuenta.zona || '').toLowerCase() === 'bar' && (cuenta.tipo_asiento || '').toLowerCase() === 'banco';
-        const zonaLabel = esBanco ? 'Banco' : 'Mesa';
+        const tipoNombre = this.getSeatTypeLabel(cuenta);
+        const zonaLabel = this.getSeatDisplayLabel(cuenta, tipoNombre);
         const fecha = cuenta.fecha ? new Date(cuenta.fecha) : null;
         const hora = fecha && !Number.isNaN(fecha.getTime())
             ? fecha.toLocaleTimeString('es-CR', { hour: 'numeric', minute: '2-digit', hour12: true })
@@ -586,7 +702,7 @@ const Dashboard = {
             <button type="button" class="dashboard-paid-card" onclick="Dashboard.verCuenta(${cuenta.id})" aria-label="Ver cuenta pagada ${cuenta.id}">
                 <span class="dashboard-paid-icon"><i class="fas fa-check"></i></span>
                 <span class="dashboard-paid-main">
-                    <strong>${zonaLabel} ${cuenta.mesa_numero || '-'}</strong>
+                    <strong>${this.escapeHTML(zonaLabel)}</strong>
                     <small>${cuenta.cliente_nombre || 'Cliente anónimo'} · ${hora}</small>
                 </span>
                 <span class="dashboard-paid-amount">${Utils.formatCurrency(cuenta.total || 0)}</span>
@@ -625,7 +741,7 @@ const Dashboard = {
                             ${ventasDetalle.map(venta => {
                                 return `
                                 <tr>
-                                    <td>${((venta.zona || '').toLowerCase() === 'bar' && (venta.tipo_asiento || '').toLowerCase() === 'banco') ? 'Banco' : 'Mesa'} ${venta.mesa_numero}</td>
+                                    <td>${this.escapeHTML(this.getSeatDisplayLabel(venta, this.getSeatTypeLabel(venta)))}</td>
                                     <td>${venta.cliente_nombre || 'Cliente anónimo'}</td>
                                     <td>${Utils.formatDateTime(venta.fecha_venta)}</td>
                                     <td>₡${Utils.formatNumber(venta.total)}</td>
@@ -662,13 +778,13 @@ async verDetalleVenta(ventaId, tipo) {
         const response = await Utils.request(`/accounts/${ventaId}`);
         const venta = response.data;
 
-        const nombreZona = ((venta.zona || '').toLowerCase() === 'bar' && (venta.tipo_asiento || '').toLowerCase() === 'banco') ? 'Banco' : 'Mesa';
+        const nombreZona = this.getSeatDisplayLabel(venta, this.getSeatTypeLabel(venta));
 
         const modalContent = `
             <div class="venta-detalle">
                 <h3>Detalle de Venta #${venta.id}</h3>
                 <div class="venta-info">
-                    <p><strong>${nombreZona}:</strong> ${venta.mesa_numero}</p>
+                    <p><strong>Puesto:</strong> ${this.escapeHTML(nombreZona)}</p>
                     <p><strong>Cliente?:</strong> ${venta.cliente_nombre}</p>
                     <p><strong>Fecha:</strong> ${Utils.formatDateTime(venta.fecha)}</p>
                     <p><strong>Total:</strong> ₡${Utils.formatNumber(venta.total)}</p>
@@ -722,14 +838,13 @@ async verCuenta(cuentaId) {
         const response = await Utils.request(`/accounts/${cuentaId}`);
         const cuenta = response.data;
 
-        // Determinar si es Mesa o Banco
-        const nombreZona = ((cuenta.zona || '').toLowerCase() === 'bar' && (cuenta.tipo_asiento || '').toLowerCase() === 'banco') ? 'Banco' : 'Mesa';
+        const nombreZona = this.getSeatDisplayLabel(cuenta, this.getSeatTypeLabel(cuenta));
 
         const modalContent = `
             <div class="cuenta-detalle">
                 <h3>Detalle de Cuenta #${cuenta.id}</h3>
                 <div class="cuenta-info">
-                    <p><strong>${nombreZona}:</strong> ${cuenta.mesa_numero}</p>
+                    <p><strong>Puesto:</strong> ${this.escapeHTML(nombreZona)}</p>
                     <p><strong>Cliente:</strong> ${cuenta.cliente_nombre}</p>
                     <p><strong>Fecha:</strong> ${Utils.formatDateTime(cuenta.fecha)}</p>
                     <p><strong>Total:</strong> ₡${Utils.formatNumber(cuenta.total)}</p>

@@ -466,6 +466,7 @@ router.post('/reset-database', requireAdmin, async (req, res) => {
         await database.run('DELETE FROM pagos');
         await database.run('DELETE FROM comandas');
         await database.run('DELETE FROM pagos_creditos');
+        await database.run('DELETE FROM mesa_responsables');
         await database.run('DELETE FROM pedidos');
         await database.run('DELETE FROM cuentas_credito');
         await database.run('DELETE FROM historial_transacciones');
@@ -480,7 +481,8 @@ router.post('/reset-database', requireAdmin, async (req, res) => {
                 'pagos_creditos',
                 'pedido_productos',
                 'comandas',
-                'historial_transacciones'
+                'historial_transacciones',
+                'mesa_responsables'
             )
         `);
 

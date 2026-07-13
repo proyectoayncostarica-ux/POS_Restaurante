@@ -720,8 +720,8 @@ const Auth = {
                 <i class="fas fa-lock"></i>
                 <div>
                     <strong>No se puede cambiar de rol todavía</strong>
-                    <p>${this.escapeHtml(bloqueo.mensaje || 'El rol actual tiene cuentas pendientes o consumos activos.')}</p>
-                    <small>Cierra o libera las cuentas activas del rol actual antes de cambiar.</small>
+                    <p>${this.escapeHtml(bloqueo.mensaje || 'Hay mesas activas donde este usuario es el único responsable asignado.')}</p>
+                    <small>Cierra la cuenta o solicita que un administrador agregue otro responsable desde Zonas.</small>
                 </div>
             </div>
         `;
@@ -769,8 +769,17 @@ const Auth = {
         `;
     },
 
-    async changeOperationalRole(roleId) {
+    async changeOperationalRole(roleId, options = {}) {
         try {
+            const currentRole = getActiveWorkRole(currentUser);
+            const isRoleChange = Boolean(currentRole && Number(currentRole.id) !== Number(roleId));
+            const requiresAdminAuthorization = currentUser?.tipo !== 'administrador' && isRoleChange && !options.adminPassword;
+
+            if (requiresAdminAuthorization) {
+                this.showRoleChangeAuthorizationModal(roleId);
+                return;
+            }
+
             const selectedButton = document.querySelector(`.role-change-option[onclick="Auth.changeOperationalRole(${Number(roleId)})"]`);
             if (selectedButton) {
                 selectedButton.disabled = true;
@@ -779,7 +788,10 @@ const Auth = {
 
             const response = await Utils.request('/auth/operational-session', {
                 method: 'POST',
-                body: JSON.stringify({ rol_trabajo_id: roleId })
+                body: JSON.stringify({
+                    rol_trabajo_id: roleId,
+                    admin_password: options.adminPassword || undefined
+                })
             });
 
             if (response.success) {
@@ -803,6 +815,55 @@ const Auth = {
                 Auth.openRoleChangeModal();
             }
         }
+    },
+
+    showRoleChangeAuthorizationModal(roleId) {
+        const roles = currentUser?.sesion_operativa?.roles_disponibles || [];
+        const targetRole = roles.find(role => Number(role.id) === Number(roleId));
+        const currentRole = getActiveWorkRole(currentUser);
+        const targetName = targetRole?.nombre || 'rol seleccionado';
+        const currentName = currentRole?.nombre || 'rol actual';
+
+        Utils.showModal('Autorizar cambio de rol', `
+            <div class="role-change-auth-shell">
+                <div class="role-change-auth-icon"><i class="fas fa-shield-halved"></i></div>
+                <div class="role-change-auth-copy">
+                    <strong>${this.escapeHtml(currentName)} → ${this.escapeHtml(targetName)}</strong>
+                    <p>Un administrador debe ingresar su contraseña para autorizar este cambio de rol.</p>
+                    <small>Si el usuario es responsable único de una mesa activa, el sistema bloqueará el cambio aunque la contraseña sea correcta.</small>
+                </div>
+                <label class="form-group role-change-auth-field">
+                    <span>Contraseña de administrador</span>
+                    <input type="password" id="role-change-admin-password" autocomplete="current-password" placeholder="Contraseña admin" onkeydown="if(event.key === 'Enter') Auth.submitRoleChangeAuthorization(${Number(roleId)})">
+                </label>
+            </div>
+        `, [
+            {
+                text: 'Cancelar',
+                class: 'btn-light',
+                onclick: 'Auth.openRoleChangeModal()'
+            },
+            {
+                text: '<i class="fas fa-check"></i> Autorizar cambio',
+                class: 'btn-primary',
+                align: 'right',
+                onclick: `Auth.submitRoleChangeAuthorization(${Number(roleId)})`
+            }
+        ], 'modal-role-change-auth');
+
+        setTimeout(() => document.getElementById('role-change-admin-password')?.focus(), 80);
+    },
+
+    async submitRoleChangeAuthorization(roleId) {
+        const input = document.getElementById('role-change-admin-password');
+        const adminPassword = input?.value || '';
+        if (!adminPassword.trim()) {
+            Utils.showNotification('Ingrese la contraseña de administrador', 'warning');
+            input?.focus();
+            return;
+        }
+
+        await this.changeOperationalRole(roleId, { adminPassword });
     },
 
     updateUserInfo() {
@@ -1060,6 +1121,11 @@ const Navigation = {
 
     // Toggle sidebar en móvil
     getInternalItems(sectionName) {
+        if (sectionName === 'dashboard' && typeof Dashboard !== 'undefined' && typeof Dashboard.getInternalNavItems === 'function') {
+            const dynamicItems = Dashboard.getInternalNavItems();
+            if (Array.isArray(dynamicItems) && dynamicItems.length) return dynamicItems;
+        }
+
         return INTERNAL_SUBNAV[sectionName] || [];
     },
 

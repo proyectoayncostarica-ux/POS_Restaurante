@@ -582,3 +582,39 @@ En Windows también puedes usar `Inicio_Servidor.bat`. En Linux/macOS puedes usa
 - **Corrección aplicada:** el frontend ahora consulta el estado especializado cuando está disponible y usa `GET /api/auth/operational-session` como respaldo compatible para abrir el modal sin romper la experiencia.
 - **Regla crítica conservada:** el backend mantiene el bloqueo en `POST /api/auth/operational-session` con HTTP 409 cuando el rol actual tiene cuentas pendientes o puestos ocupados.
 - **Alcance:** no cambia base de datos ni permisos; solo estabiliza el flujo de consulta y conserva el endpoint especializado.
+
+### v2.2.4.10 · Dashboard dinámico por zonas permitidas
+
+- **Objetivo:** hacer que el Dashboard lea zonas dinámicas reales y respete las zonas permitidas por el rol de trabajo activo.
+- **Backend Dashboard:** `GET /api/dashboard` ahora determina el alcance operativo desde la sesión actual:
+  - usuario con rol de trabajo activo: solo zonas activas/visibles asignadas a ese rol;
+  - administrador sin rol operativo: todas las zonas activas/visibles en Dashboard;
+  - usuario sin rol operativo válido: no expone puestos operativos.
+- **Filtros dinámicos:** el Dashboard devuelve `dashboardZonas`, `dashboardScope` y `zonasResumen` con claves dinámicas `zona-{id}` para reemplazar la lógica fija Salón/Bar/Barra.
+- **Cards operativas:** las tarjetas del Dashboard muestran `zona_nombre`, `tipo_puesto_nombre` y `nombre_visible` cuando existen; por ejemplo, **Terraza / Sillón 1** ya no se normaliza visualmente como **Salón / Mesa 1**.
+- **Métricas por alcance:** cuentas pendientes, cuentas pagadas del día, ventas de contado y últimas cuentas pagadas se calculan sobre las zonas permitidas del Dashboard.
+- **Subnavegación Dashboard:** los filtros superiores de PC y la subnavegación móvil del Dashboard se alimentan de las zonas permitidas/visibles para el rol activo.
+- **Compatibilidad:** se conserva respaldo para claves legacy `salon`, `bar-mesa` y `bar-banco` cuando falte metadata dinámica.
+- **Alcance pendiente:** Zonas, Pedidos, Cuentas y restricciones backend globales por zona se mantienen para fases posteriores; esta subfase se concentra en el Dashboard.
+
+### v2.2.4.10 fix1 · Responsabilidad compartida y cambio de rol seguro
+
+- **Objetivo:** evitar que las mesas/cuentas activas queden huérfanas al permitir múltiples responsables operativos por mesa y corregir el cambio de rol para que libere responsabilidades compartidas sin abandonar cuentas pendientes.
+- **Base de datos:** se agrega la tabla `mesa_responsables` para vincular una mesa/cuenta activa con uno o varios usuarios responsables. También se agrega `pedidos.rol_trabajo_id` para guardar el rol operativo usado al crear el pedido.
+- **Asignación por defecto:** al abrir o reservar una mesa, el usuario que realiza la acción queda asignado automáticamente como responsable inicial.
+- **Responsabilidad compartida:** un administrador puede agregar o quitar responsables desde el módulo **Zonas**, usando el botón **Reasignar mesa** en el footer del modal de mesa ocupada/reservada.
+- **Usuarios válidos:** la reasignación solo muestra usuarios activos compatibles con la zona del puesto: administradores activos o usuarios con un rol de trabajo activo vinculado a esa zona.
+- **Dashboard:** se mantiene la operación rápida sin minimodales nuevos; el administrador puede operar cualquier mesa normalmente. Un usuario estándar no responsable no ve nombres de responsables y solo recibe el estado genérico **Responsable asignado**.
+- **Zonas/Pedidos:** un usuario estándar solo puede operar, agregar productos, editar productos o cobrar mesas/cuentas donde esté asignado como responsable. El administrador conserva intervención operativa completa.
+- **Cambio de rol:** los usuarios estándar deben contar con autorización por contraseña de administrador para cambiar de rol. Si el usuario está asignado a mesas compartidas, el cambio lo libera automáticamente de esas mesas y deja a los demás responsables activos.
+- **Bloqueo sin excepción:** si el usuario es el único responsable activo de una mesa/cuenta pendiente, el cambio de rol se bloquea aunque se ingrese contraseña de administrador. Primero debe cerrarse la cuenta o agregarse otro responsable desde **Zonas**.
+- **Auditoría:** los cambios de responsables, liberaciones automáticas por cambio de rol, autorizaciones, rechazos y bloqueos se registran en `historial_transacciones` para los reportes existentes.
+- **Endpoints nuevos:** `GET /api/tables/:id/responsibles` lista usuarios asignables y responsables actuales; `PUT /api/tables/:id/responsibles` reemplaza la lista de responsables de una mesa/cuenta activa.
+- **Compatibilidad:** las cuentas antiguas sin responsables se completan defensivamente con el usuario creador del pedido cuando exista información suficiente, sin borrar datos existentes.
+
+### v2.2.4.10 fix2 · Corrección de migración de columna rol_trabajo_id
+
+- **Problema detectado:** en bases existentes, el índice `idx_pedidos_rol_trabajo` podía intentar crearse antes de que la migración agregara la columna `pedidos.rol_trabajo_id`, provocando error de arranque `SQLITE_ERROR: no such column: rol_trabajo_id`.
+- **Corrección aplicada:** el índice de `pedidos.rol_trabajo_id` se crea ahora después de verificar/agregar la columna correspondiente durante la migración de esquema.
+- **Alcance:** corrección de arranque/migración únicamente; no cambia UI, permisos, endpoints ni lógica operativa.
+

@@ -189,12 +189,27 @@ class Database {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 mesa_id INTEGER NOT NULL,
                 usuario_id INTEGER NOT NULL,
+                rol_trabajo_id INTEGER,
                 fecha TEXT NOT NULL,
                 estado TEXT NOT NULL CHECK(estado IN ('pendiente', 'pagado', 'cancelado', 'credito')),
                 total REAL NOT NULL DEFAULT 0,
                 cliente_nombre TEXT,
                 FOREIGN KEY (mesa_id) REFERENCES mesas (id) ON DELETE RESTRICT,
-                FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE RESTRICT
+                FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE RESTRICT,
+                FOREIGN KEY (rol_trabajo_id) REFERENCES roles_trabajo (id) ON DELETE SET NULL
+            )`,
+
+            `CREATE TABLE IF NOT EXISTS mesa_responsables (
+                mesa_id INTEGER NOT NULL,
+                usuario_id INTEGER NOT NULL,
+                rol_trabajo_id INTEGER,
+                asignado_por_usuario_id INTEGER,
+                fecha_asignacion TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (mesa_id, usuario_id),
+                FOREIGN KEY (mesa_id) REFERENCES mesas (id) ON DELETE CASCADE,
+                FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE CASCADE,
+                FOREIGN KEY (rol_trabajo_id) REFERENCES roles_trabajo (id) ON DELETE SET NULL,
+                FOREIGN KEY (asignado_por_usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
             )`,
 
             `CREATE TABLE IF NOT EXISTS pedido_productos (
@@ -310,6 +325,9 @@ class Database {
             'CREATE INDEX IF NOT EXISTS idx_rol_trabajo_zonas_zona ON rol_trabajo_zonas(zona_id)',
             'CREATE INDEX IF NOT EXISTS idx_usuario_roles_trabajo_usuario ON usuario_roles_trabajo(usuario_id)',
             'CREATE INDEX IF NOT EXISTS idx_usuario_roles_trabajo_rol ON usuario_roles_trabajo(rol_trabajo_id)',
+            'CREATE INDEX IF NOT EXISTS idx_mesa_responsables_mesa ON mesa_responsables(mesa_id)',
+            'CREATE INDEX IF NOT EXISTS idx_mesa_responsables_usuario ON mesa_responsables(usuario_id)',
+            'CREATE INDEX IF NOT EXISTS idx_mesa_responsables_rol ON mesa_responsables(rol_trabajo_id)',
             'CREATE INDEX IF NOT EXISTS idx_cuentas_credito_fecha ON cuentas_credito(fecha)',
             'CREATE INDEX IF NOT EXISTS idx_historial_fecha ON historial_transacciones(fecha)'
         ];
@@ -362,6 +380,8 @@ class Database {
         await this.ensureColumn('presentaciones_producto', 'imagen', 'TEXT');
 
         await this.ensureColumn('pedidos', 'cliente_nombre', 'TEXT');
+        await this.ensureColumn('pedidos', 'rol_trabajo_id', 'INTEGER');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_pedidos_rol_trabajo ON pedidos(rol_trabajo_id)');
         await this.ensureColumn('pedido_productos', 'creado_en', 'TEXT DEFAULT CURRENT_TIMESTAMP');
         await this.ensureColumn('pedido_productos', 'presentacion_id', 'INTEGER');
         await this.ensureColumn('cuentas_credito', 'pedido_id', 'INTEGER');
@@ -445,13 +465,15 @@ class Database {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             mesa_id INTEGER NOT NULL,
             usuario_id INTEGER NOT NULL,
+            rol_trabajo_id INTEGER,
             fecha TEXT NOT NULL,
             estado TEXT NOT NULL CHECK(estado IN ('pendiente', 'pagado', 'cancelado', 'credito')),
             total REAL NOT NULL DEFAULT 0,
             cliente_nombre TEXT,
             FOREIGN KEY (mesa_id) REFERENCES mesas (id) ON DELETE RESTRICT,
-            FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE RESTRICT
-        )`, ['id', 'mesa_id', 'usuario_id', 'fecha', 'estado', 'total', 'cliente_nombre']);
+            FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE RESTRICT,
+            FOREIGN KEY (rol_trabajo_id) REFERENCES roles_trabajo (id) ON DELETE SET NULL
+        )`, ['id', 'mesa_id', 'usuario_id', 'rol_trabajo_id', 'fecha', 'estado', 'total', 'cliente_nombre']);
 
         await this.rebuildTable('pedido_productos', `CREATE TABLE pedido_productos_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -558,6 +580,11 @@ class Database {
         await this.run(`UPDATE historial_transacciones SET usuario_id = NULL WHERE usuario_id IS NOT NULL AND usuario_id NOT IN (SELECT id FROM usuarios)`);
         await this.run(`DELETE FROM usuario_roles_trabajo WHERE usuario_id NOT IN (SELECT id FROM usuarios)`);
         await this.run(`DELETE FROM usuario_roles_trabajo WHERE rol_trabajo_id NOT IN (SELECT id FROM roles_trabajo)`);
+        await this.run(`DELETE FROM mesa_responsables WHERE mesa_id NOT IN (SELECT id FROM mesas)`);
+        await this.run(`DELETE FROM mesa_responsables WHERE usuario_id NOT IN (SELECT id FROM usuarios)`);
+        await this.run(`UPDATE mesa_responsables SET rol_trabajo_id = NULL WHERE rol_trabajo_id IS NOT NULL AND rol_trabajo_id NOT IN (SELECT id FROM roles_trabajo)`);
+        await this.run(`UPDATE mesa_responsables SET asignado_por_usuario_id = NULL WHERE asignado_por_usuario_id IS NOT NULL AND asignado_por_usuario_id NOT IN (SELECT id FROM usuarios)`);
+        await this.run(`UPDATE pedidos SET rol_trabajo_id = NULL WHERE rol_trabajo_id IS NOT NULL AND rol_trabajo_id NOT IN (SELECT id FROM roles_trabajo)`);
     }
 
     shouldSeedDemoUser() {
@@ -785,11 +812,51 @@ class Database {
         }
     }
 
+
+    async ensureMesaResponsibilityConsistency() {
+        // Compatibilidad: las cuentas pendientes antiguas se enlazan al usuario que creó el pedido
+        // solo cuando la mesa activa todavía no tiene responsables asignados.
+        const pendingRows = await this.all(`
+            SELECT
+                p.id AS pedido_id,
+                p.mesa_id,
+                p.usuario_id,
+                p.rol_trabajo_id,
+                m.estado
+            FROM pedidos p
+            INNER JOIN mesas m ON m.id = p.mesa_id
+            WHERE p.estado = 'pendiente'
+              AND COALESCE(m.activo, 1) = 1
+              AND m.estado IN ('ocupada', 'reservada')
+              AND p.usuario_id IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM mesa_responsables mr WHERE mr.mesa_id = p.mesa_id
+              )
+        `);
+
+        for (const row of pendingRows) {
+            await this.run(`
+                INSERT OR IGNORE INTO mesa_responsables (
+                    mesa_id, usuario_id, rol_trabajo_id, asignado_por_usuario_id, fecha_asignacion
+                ) VALUES (?, ?, ?, ?, ?)
+            `, [row.mesa_id, row.usuario_id, row.rol_trabajo_id || null, row.usuario_id, new Date().toISOString()]);
+        }
+
+        // Las mesas libres no deben conservar responsables operativos activos.
+        await this.run(`
+            DELETE FROM mesa_responsables
+            WHERE mesa_id IN (
+                SELECT id FROM mesas WHERE estado = 'libre' OR COALESCE(activo, 1) = 0
+            )
+        `);
+    }
+
     async ensureDynamicModelConsistency() {
         await this.ensureDefaultDynamicZonesAndTypes();
         await this.ensureZonesFromLegacySeats();
         await this.ensureSeatTypesFromLegacySeats();
         await this.backfillDynamicSeatLinks();
+        await this.ensureMesaResponsibilityConsistency();
 
         const report = await this.getDynamicModelCompatibilityReport();
         if (!report.ok) {

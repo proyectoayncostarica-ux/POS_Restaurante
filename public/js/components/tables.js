@@ -450,6 +450,11 @@ const Tables = {
 
     const esBanco = mesa.zona?.toLowerCase() === 'bar' && mesa.tipo_asiento?.toLowerCase() === 'banco';
 
+    if (mesa.estado !== 'libre' && Number(mesa.puede_operar) !== 1) {
+        Utils.showNotification('Responsable asignado. No puedes operar esta mesa/cuenta con tu usuario actual.', 'info');
+        return;
+    }
+
     if (mesa.estado === 'libre') {
         this.showAbrirMesaModal(mesaId);
     } else if (mesa.estado === 'ocupada') {
@@ -1391,6 +1396,34 @@ const Tables = {
     const clienteNombre = mesa.cliente_nombre || mesa.nombre_reserva || 'Cliente sin nombre';
     const horaEstimada = mesa.hora_estimada || 'No especificada';
     const cantidadPersonas = mesa.cantidad_personas || 'No especificada';
+    const reservationActions = [
+        {
+            text: 'Cancelar',
+            class: 'btn-light'
+        }
+    ];
+
+    if (this.isAdmin()) {
+        reservationActions.push({
+            text: '<i class="fas fa-users-gear"></i> Reasignar mesa',
+            class: 'btn-secondary',
+            onclick: `Tables.showMesaResponsiblesModal(${mesaId})`
+        });
+    }
+
+    reservationActions.push(
+        {
+            text: '<i class="fas fa-user-check"></i> Cambiar a ocupada',
+            class: 'btn-success',
+            onclick: `Tables.cambiarReservaAOcupada(${mesaId})`
+        },
+        {
+            text: '<i class="fas fa-door-open"></i> Liberar mesa',
+            class: 'btn-warning',
+            align: 'right',
+            onclick: `Tables.liberarMesaReservada(${mesaId})`
+        }
+    );
 
     Utils.showModal(`${tipoNombre} ${mesa.numero} - Reservada`, `
         <div class="reservation-status-modal">
@@ -1430,23 +1463,7 @@ const Tables = {
                 <span>Seleccione si la reserva llegó al local o si debe liberarse para volver a quedar disponible.</span>
             </div>
         </div>
-    `, [
-        {
-            text: 'Cancelar',
-            class: 'btn-light'
-        },
-        {
-            text: '<i class="fas fa-user-check"></i> Cambiar a ocupada',
-            class: 'btn-success',
-            onclick: `Tables.cambiarReservaAOcupada(${mesaId})`
-        },
-        {
-            text: '<i class="fas fa-door-open"></i> Liberar mesa',
-            class: 'btn-warning',
-            align: 'right',
-            onclick: `Tables.liberarMesaReservada(${mesaId})`
-        }
-    ], 'modal-reservation-status');
+    `, reservationActions, 'modal-reservation-status');
 },
 
     // Cambiar mesa reservada a ocupada
@@ -1593,6 +1610,32 @@ const Tables = {
 
     const clienteNombre = mesa.cliente_nombre || 'Cliente sin nombre';
     const desdeTexto = mesa.fecha_apertura ? Utils.formatDate(mesa.fecha_apertura) : 'No especificado';
+    const occupiedActions = [
+        {
+            text: 'Cerrar',
+            class: 'btn-light'
+        },
+        {
+            text: '<i class="fas fa-receipt"></i> Ver pedidos',
+            class: 'btn-primary',
+            onclick: `Utils.hideModal(); Navigation.showSection('orders');`
+        }
+    ];
+
+    if (this.isAdmin()) {
+        occupiedActions.push({
+            text: '<i class="fas fa-users-gear"></i> Reasignar mesa',
+            class: 'btn-secondary',
+            onclick: `Tables.showMesaResponsiblesModal(${mesaId})`
+        });
+    }
+
+    occupiedActions.push({
+        text: `<i class="fas fa-stop"></i> Cerrar ${tipoNombre}`,
+        class: 'btn-warning',
+        align: 'right',
+        onclick: `Tables.cerrarMesa(${mesaId})`
+    });
 
     Utils.showModal(`${tipoNombre} ${mesa.numero} - Ocupado`, `
         <div class="occupied-zone-modal">
@@ -1632,24 +1675,101 @@ const Tables = {
                 <span>Revise los pedidos asociados o cierre el puesto cuando no tenga cuentas pendientes.</span>
             </div>
         </div>
-    `, [
-        {
-            text: 'Cerrar',
-            class: 'btn-light'
-        },
-        {
-            text: '<i class="fas fa-receipt"></i> Ver pedidos',
-            class: 'btn-primary',
-            onclick: `Utils.hideModal(); Navigation.showSection('orders');`
-        },
-        {
-            text: `<i class="fas fa-stop"></i> Cerrar ${tipoNombre}`,
-            class: 'btn-warning',
-            align: 'right',
-            onclick: `Tables.cerrarMesa(${mesaId})`
-        }
-    ], 'modal-zone-occupied');
+    `, occupiedActions, 'modal-zone-occupied');
 },
+
+
+    async showMesaResponsiblesModal(mesaId) {
+        if (!this.isAdmin()) {
+            Utils.showNotification('Solo un administrador puede reasignar responsables', 'warning');
+            return;
+        }
+
+        try {
+            const response = await Utils.request(`/tables/${mesaId}/responsibles`);
+            const data = response.data || {};
+            const mesa = data.mesa || this.data.find(m => Number(m.id) === Number(mesaId)) || {};
+            const usuarios = Array.isArray(data.usuarios) ? data.usuarios : [];
+            const tipoNombre = mesa.tipo_puesto_nombre || ((mesa.zona || '').toLowerCase() === 'bar' && (mesa.tipo_asiento || '').toLowerCase() === 'banco' ? 'Banco' : 'Mesa');
+            const zonaNombre = mesa.zona_nombre || ((mesa.zona || '').toLowerCase() === 'bar' ? 'Bar' : 'Salón');
+
+            Utils.showModal('Reasignar mesa', `
+                <div class="mesa-responsibles-shell">
+                    <div class="mesa-responsibles-hero">
+                        <div class="mesa-responsibles-icon"><i class="fas fa-users-gear"></i></div>
+                        <div>
+                            <span class="mesa-responsibles-eyebrow">Responsabilidad compartida</span>
+                            <strong>${this.escapeHtml(tipoNombre)} ${this.escapeHtml(mesa.numero || '')} · ${this.escapeHtml(zonaNombre)}</strong>
+                            <p>Selecciona los usuarios que pueden atender esta mesa/cuenta. Debe quedar al menos un responsable asignado.</p>
+                        </div>
+                    </div>
+                    <div class="mesa-responsibles-list">
+                        ${usuarios.length ? usuarios.map(user => this.renderMesaResponsibleOption(user)).join('') : `
+                            <div class="zones-empty-admin">
+                                No hay usuarios activos disponibles para la zona de esta mesa.
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `, [
+                {
+                    text: 'Cancelar',
+                    class: 'btn-light',
+                    onclick: `Utils.hideModal(); ${String(mesa.estado || '').toLowerCase() === 'reservada' ? 'Tables.showMesaReservadaModal' : 'Tables.showMesaOcupadaModal'}(${mesaId});`
+                },
+                {
+                    text: '<i class="fas fa-save"></i> Guardar responsables',
+                    class: 'btn-primary',
+                    align: 'right',
+                    onclick: `Tables.saveMesaResponsibles(${Number(mesaId)})`
+                }
+            ], 'modal-mesa-responsibles');
+        } catch (error) {
+            Utils.showNotification(error.message || 'No se pudieron cargar responsables', 'error');
+        }
+    },
+
+    renderMesaResponsibleOption(user = {}) {
+        const checked = Number(user.asignado) === 1 ? 'checked' : '';
+        const tipo = user.tipo === 'administrador' ? 'Admin' : 'Estándar';
+        return `
+            <label class="mesa-responsible-option">
+                <input type="checkbox" class="mesa-responsible-checkbox" value="${Number(user.id)}" ${checked}>
+                <span class="mesa-responsible-avatar"><i class="fas fa-user"></i></span>
+                <span class="mesa-responsible-copy">
+                    <strong>${this.escapeHtml(user.nombre || 'Usuario')}</strong>
+                    <small>${this.escapeHtml(tipo)}</small>
+                </span>
+            </label>
+        `;
+    },
+
+    async saveMesaResponsibles(mesaId) {
+        const selectedIds = Array.from(document.querySelectorAll('.mesa-responsible-checkbox:checked'))
+            .map(input => Number(input.value))
+            .filter(Boolean);
+
+        if (!selectedIds.length) {
+            Utils.showNotification('Debe quedar al menos un responsable asignado', 'warning');
+            return;
+        }
+
+        try {
+            await Utils.request(`/tables/${mesaId}/responsibles`, {
+                method: 'PUT',
+                body: JSON.stringify({ usuario_ids: selectedIds })
+            });
+
+            Utils.hideModal();
+            Utils.showNotification('Responsables actualizados correctamente', 'success');
+            await this.load();
+            if (typeof Dashboard?.refreshData === 'function') {
+                Dashboard.refreshData();
+            }
+        } catch (error) {
+            Utils.showNotification(error.message || 'No se pudieron guardar responsables', 'error');
+        }
+    },
 
     // Cerrar mesa
 async cerrarMesa(mesaId) {

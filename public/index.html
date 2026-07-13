@@ -14,7 +14,7 @@
     <meta name="msapplication-starturl" content="/POS/">
     <title>MundiPOS</title>
     <link rel="manifest" href="/POS/manifest.webmanifest">
-    <link rel="stylesheet" href="/POS/css/style.css?v=2.2.4.9-fix2-role-change-endpoint">
+    <link rel="stylesheet" href="/POS/css/style.css?v=2.2.4.10-fix1-responsables-compartidos">
     <link rel="icon" href="/POS/favicon.ico" type="image/x-icon">
     <link rel="shortcut icon" href="/POS/favicon.ico" type="image/x-icon">
     <link rel="apple-touch-icon" href="/POS/assets/icons/mundipos-icon-180.png">
@@ -216,11 +216,8 @@
                     </div>
                 </div>
 
-                <div class="btn-filtro-zonas internal-tabs" aria-label="Filtros del dashboard">
+                <div id="dashboard-zones-filter" class="btn-filtro-zonas internal-tabs dashboard-dynamic-tabs" aria-label="Filtros dinámicos del dashboard">
                     <button class="btn btn-zona active" data-tipo="todos" data-subnav-item="todos" onclick="Navigation.selectInternal('dashboard', 'todos')"><i class="fas fa-border-all"></i> Todos</button>
-                    <button class="btn btn-zona" data-tipo="salon" data-subnav-item="salon" onclick="Navigation.selectInternal('dashboard', 'salon')"><i class="fas fa-chair"></i> Salón</button>
-                    <button class="btn btn-zona" data-tipo="bar-mesa" data-subnav-item="bar-mesa" onclick="Navigation.selectInternal('dashboard', 'bar-mesa')"><i class="fas fa-martini-glass-citrus"></i> Bar</button>
-                    <button class="btn btn-zona" data-tipo="bar-banco" data-subnav-item="bar-banco" onclick="Navigation.selectInternal('dashboard', 'bar-banco')"><i class="fas fa-grip-lines"></i> Barra</button>
                 </div>
 
                 <div class="dashboard-status-strip dashboard-command-grid" aria-label="Resumen operativo fijo del dashboard">
@@ -347,9 +344,9 @@
     </div>
 
     <!-- Scripts -->
-    <script src="js/main.js?v=2.2.4.9-fix2-role-change-endpoint"></script>
-    <script src="js/components/dashboard.js"></script>
-    <script src="js/components/tables.js"></script>
+    <script src="js/main.js?v=2.2.4.10-fix1-responsables-compartidos"></script>
+    <script src="js/components/dashboard.js?v=2.2.4.10-fix1-responsables-compartidos"></script>
+    <script src="js/components/tables.js?v=2.2.4.10-fix1-responsables-compartidos"></script>
     <script src="js/components/menu.js"></script>
     <script src="js/components/orders.js"></script>
     <script src="js/components/accounts.js"></script>

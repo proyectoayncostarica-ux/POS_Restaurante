@@ -239,7 +239,176 @@ async function replaceWorkRoleZones(roleId, zoneIds) {
     }
 }
 
-function buildTablesSelect(whereClause = '') {
+function isAdminSession(req) {
+    return req.session?.userType === 'administrador';
+}
+
+function getSessionUserId(req) {
+    return Number(req.session?.userId || 0);
+}
+
+function getSessionActiveWorkRoleId(req) {
+    return Number(req.session?.activeWorkRoleId || 0) || null;
+}
+
+function getSeatDisplayName(mesa = {}) {
+    const tipo = String(mesa.tipo_puesto_nombre || '').trim()
+        || (String(mesa.tipo_asiento || '').toLowerCase() === 'banco' ? 'Banco' : 'Mesa');
+    const zona = String(mesa.zona_nombre || '').trim()
+        || (String(mesa.zona || '').toLowerCase() === 'bar' ? 'Bar' : 'Salón');
+    return `${tipo} ${mesa.numero} (${zona})`;
+}
+
+async function logHistory(tipoAccion, usuarioId, descripcion) {
+    await database.run(
+        'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+        [tipoAccion, usuarioId || null, descripcion, new Date().toISOString()]
+    );
+}
+
+async function getMesaWithDynamicData(mesaId) {
+    return database.get(`
+        SELECT
+            m.*,
+            z.nombre AS zona_nombre,
+            z.slug AS zona_slug,
+            tp.nombre AS tipo_puesto_nombre,
+            tp.slug AS tipo_puesto_slug
+        FROM mesas m
+        LEFT JOIN zonas z ON z.id = m.zona_id
+        LEFT JOIN tipos_puesto tp ON tp.id = m.tipo_puesto_id
+        WHERE m.id = ?
+    `, [mesaId]);
+}
+
+async function getMesaResponsibilitySummary(mesaId, currentUserId = 0) {
+    const summary = await database.get(`
+        SELECT
+            COUNT(DISTINCT mr.usuario_id) AS responsables_total,
+            SUM(CASE WHEN mr.usuario_id = ? THEN 1 ELSE 0 END) AS soy_responsable
+        FROM mesa_responsables mr
+        INNER JOIN usuarios u ON u.id = mr.usuario_id AND u.activo = 1
+        WHERE mr.mesa_id = ?
+    `, [Number(currentUserId || 0), mesaId]);
+
+    return {
+        responsables_total: Number(summary?.responsables_total || 0),
+        soy_responsable: Number(summary?.soy_responsable || 0) > 0
+    };
+}
+
+async function canOperateAssignedMesa(req, mesa) {
+    if (!mesa) return false;
+    if (isAdminSession(req)) return true;
+    const estado = String(mesa.estado || 'libre').toLowerCase();
+    if (estado === 'libre') return true;
+    const summary = await getMesaResponsibilitySummary(mesa.id, getSessionUserId(req));
+    return summary.soy_responsable;
+}
+
+async function requireMesaOperationAccess(req, res, mesa) {
+    const canOperate = await canOperateAssignedMesa(req, mesa);
+    if (canOperate) return true;
+
+    res.status(403).json({
+        error: 'Responsable asignado. No puedes operar esta mesa/cuenta con tu usuario actual.',
+        code: 'MESA_ASSIGNED_TO_OTHER_USER'
+    });
+    return false;
+}
+
+async function ensureMesaResponsibility(mesaId, req, actionLabel = 'asignar_responsable_mesa') {
+    const userId = getSessionUserId(req);
+    if (!userId) return;
+
+    const summary = await getMesaResponsibilitySummary(mesaId, userId);
+    if (summary.soy_responsable || summary.responsables_total > 0) return;
+
+    await database.run(`
+        INSERT OR IGNORE INTO mesa_responsables (
+            mesa_id, usuario_id, rol_trabajo_id, asignado_por_usuario_id, fecha_asignacion
+        ) VALUES (?, ?, ?, ?, ?)
+    `, [mesaId, userId, getSessionActiveWorkRoleId(req), userId, new Date().toISOString()]);
+
+    await logHistory(
+        actionLabel,
+        userId,
+        `Usuario asignado como responsable operativo de mesa/puesto #${mesaId}`
+    );
+}
+
+async function clearMesaResponsibilities(mesaId) {
+    await database.run('DELETE FROM mesa_responsables WHERE mesa_id = ?', [mesaId]);
+}
+
+async function getAssignableUsersForMesa(mesaId) {
+    const mesa = await getMesaWithDynamicData(mesaId);
+    if (!mesa) return { error: 'Mesa no encontrada' };
+
+    const zonaId = Number(mesa.zona_id || 0);
+    if (!zonaId) return { error: 'La mesa no tiene una zona dinámica válida para asignar responsables' };
+
+    const users = await database.all(`
+        SELECT DISTINCT
+            u.id,
+            u.nombre,
+            u.tipo,
+            CASE WHEN mr.usuario_id IS NULL THEN 0 ELSE 1 END AS asignado
+        FROM usuarios u
+        LEFT JOIN usuario_roles_trabajo urt ON urt.usuario_id = u.id
+        LEFT JOIN roles_trabajo rt ON rt.id = urt.rol_trabajo_id AND rt.activo = 1
+        LEFT JOIN rol_trabajo_zonas rtz ON rtz.rol_trabajo_id = rt.id AND rtz.zona_id = ?
+        LEFT JOIN mesa_responsables mr ON mr.usuario_id = u.id AND mr.mesa_id = ?
+        WHERE u.activo = 1
+          AND (
+              u.tipo = 'administrador'
+              OR rtz.zona_id IS NOT NULL
+          )
+        ORDER BY u.tipo = 'administrador' DESC, u.nombre ASC
+    `, [zonaId, mesaId]);
+
+    return {
+        mesa,
+        usuarios: users.map(user => ({
+            id: Number(user.id),
+            nombre: user.nombre,
+            tipo: user.tipo,
+            asignado: Number(user.asignado) === 1
+        }))
+    };
+}
+
+async function replaceMesaResponsibles(mesaId, userIds = [], adminUserId = null) {
+    const normalizedIds = [...new Set(userIds.map(id => Number(id)).filter(id => id > 0))];
+    if (!normalizedIds.length) {
+        return { error: 'Debe quedar al menos un responsable asignado para una mesa/cuenta activa' };
+    }
+
+    const assignable = await getAssignableUsersForMesa(mesaId);
+    if (assignable.error) return assignable;
+
+    const validIds = new Set(assignable.usuarios.map(user => Number(user.id)));
+    const invalidIds = normalizedIds.filter(id => !validIds.has(id));
+    if (invalidIds.length) {
+        return { error: 'Uno o más usuarios seleccionados no pueden ser responsables de esta zona' };
+    }
+
+    await database.run('DELETE FROM mesa_responsables WHERE mesa_id = ?', [mesaId]);
+    for (const userId of normalizedIds) {
+        await database.run(`
+            INSERT INTO mesa_responsables (
+                mesa_id, usuario_id, rol_trabajo_id, asignado_por_usuario_id, fecha_asignacion
+            ) VALUES (?, ?, NULL, ?, ?)
+        `, [mesaId, userId, adminUserId || null, new Date().toISOString()]);
+    }
+
+    return { usuarios_ids: normalizedIds, mesa: assignable.mesa };
+}
+
+function buildTablesSelect(whereClause = '', options = {}) {
+    const currentUserId = Number(options.currentUserId || 0);
+    const isAdmin = Boolean(options.isAdmin);
+
     return `
         SELECT
             m.*,
@@ -264,7 +433,29 @@ function buildTablesSelect(whereClause = '') {
                 WHEN m.aplica_servicio_override IS NOT NULL THEN m.aplica_servicio_override
                 ELSE COALESCE(z.aplica_servicio, 0)
             END AS aplica_servicio,
-            COALESCE(z.porcentaje_servicio, 10) AS porcentaje_servicio
+            COALESCE(z.porcentaje_servicio, 10) AS porcentaje_servicio,
+            (
+                SELECT COUNT(DISTINCT mr.usuario_id)
+                FROM mesa_responsables mr
+                INNER JOIN usuarios uresp ON uresp.id = mr.usuario_id AND uresp.activo = 1
+                WHERE mr.mesa_id = m.id
+            ) AS responsables_total,
+            CASE WHEN ${currentUserId} > 0 AND EXISTS (
+                SELECT 1 FROM mesa_responsables mr_user
+                WHERE mr_user.mesa_id = m.id AND mr_user.usuario_id = ${currentUserId}
+            ) THEN 1 ELSE 0 END AS soy_responsable,
+            CASE
+                WHEN m.estado = 'libre' THEN 1
+                WHEN ${isAdmin ? 1 : 0} = 1 THEN 1
+                WHEN ${currentUserId} > 0 AND EXISTS (
+                    SELECT 1 FROM mesa_responsables mr_user
+                    WHERE mr_user.mesa_id = m.id AND mr_user.usuario_id = ${currentUserId}
+                ) THEN 1
+                ELSE 0
+            END AS puede_operar,
+            CASE WHEN EXISTS (
+                SELECT 1 FROM mesa_responsables mr_any WHERE mr_any.mesa_id = m.id
+            ) THEN 1 ELSE 0 END AS responsable_asignado
         FROM mesas m
         LEFT JOIN zonas z ON z.id = m.zona_id
         LEFT JOIN tipos_puesto tp ON tp.id = m.tipo_puesto_id
@@ -279,7 +470,7 @@ function buildTablesSelect(whereClause = '') {
 // Obtener todas las mesas/puestos con metadata dinámica compatible
 router.get('/', async (req, res) => {
     try {
-        const mesas = await database.all(buildTablesSelect('WHERE COALESCE(m.activo, 1) = 1'));
+        const mesas = await database.all(buildTablesSelect('WHERE COALESCE(m.activo, 1) = 1', { currentUserId: getSessionUserId(req), isAdmin: isAdminSession(req) }));
         res.json({ success: true, data: mesas });
     } catch (error) {
         console.error('Error obteniendo Zonas:', error);
@@ -987,6 +1178,7 @@ router.post('/:id/open', async (req, res) => {
         }
 
         await database.run(query, params);
+        await ensureMesaResponsibility(id, req, estado === 'reservada' ? 'responsable_reserva_asignado' : 'responsable_mesa_asignado');
 
         // Registrar en historial
         await database.run(
@@ -1025,6 +1217,8 @@ router.post('/:id/close', async (req, res) => {
         const tipoNombre = esBanco ? 'banco' : 'mesa';
         const tipoCapitalizado = tipoNombre.charAt(0).toUpperCase() + tipoNombre.slice(1);
 
+        if (!(await requireMesaOperationAccess(req, res, mesa))) return;
+
         // Verificar pedidos pendientes solo si está ocupada
         if (mesa.estado === 'ocupada') {
             const pedidosPendientes = await database.get(
@@ -1045,6 +1239,7 @@ router.post('/:id/close', async (req, res) => {
              WHERE id = ?`,
             ['libre', id]
         );
+        await clearMesaResponsibilities(id);
 
         // Registrar en historial
         await database.run(
@@ -1083,6 +1278,8 @@ router.post('/:id/change-to-occupied', async (req, res) => {
         const tipoNombre = esBanco ? 'banco' : 'mesa';
         const tipoCapitalizado = tipoNombre.charAt(0).toUpperCase() + tipoNombre.slice(1);
 
+        if (!(await requireMesaOperationAccess(req, res, mesa))) return;
+
         if (esBanco) {
             return res.status(400).json({ error: 'Un banco no puede estar reservado ni cambiar a ocupada desde una reserva' });
         }
@@ -1095,6 +1292,7 @@ router.post('/:id/change-to-occupied', async (req, res) => {
             'UPDATE mesas SET estado = ?, fecha_apertura = ? WHERE id = ?',
             ['ocupada', new Date().toISOString(), id]
         );
+        await ensureMesaResponsibility(id, req, 'responsable_mesa_confirmado');
 
         // Registrar en historial
         await database.run(
@@ -1112,6 +1310,78 @@ router.post('/:id/change-to-occupied', async (req, res) => {
     } catch (error) {
         console.error('Error cambiando estado de mesa:', error);
         res.status(500).json({ error: 'Error interno del servidor6' });
+    }
+});
+
+
+// Listar responsables asignables para una mesa/puesto activo.
+router.get('/:id/responsibles', requireAdmin, async (req, res) => {
+    try {
+        const mesaId = toInteger(req.params.id, 0);
+        if (!mesaId) return res.status(400).json({ error: 'Mesa inválida' });
+
+        const data = await getAssignableUsersForMesa(mesaId);
+        if (data.error) return res.status(400).json({ error: data.error });
+
+        res.json({
+            success: true,
+            data: {
+                mesa: data.mesa,
+                usuarios: data.usuarios
+            }
+        });
+    } catch (error) {
+        console.error('Error obteniendo responsables asignables:', error);
+        res.status(500).json({ error: 'Error interno obteniendo responsables' });
+    }
+});
+
+// Reasignar responsables compartidos de una mesa/cuenta activa desde Zonas.
+router.put('/:id/responsibles', requireAdmin, async (req, res) => {
+    try {
+        const mesaId = toInteger(req.params.id, 0);
+        if (!mesaId) return res.status(400).json({ error: 'Mesa inválida' });
+
+        const mesa = await getMesaWithDynamicData(mesaId);
+        if (!mesa) return res.status(404).json({ error: 'Mesa no encontrada' });
+
+        const estado = String(mesa.estado || 'libre').toLowerCase();
+        const pending = await database.get('SELECT COUNT(*) AS count FROM pedidos WHERE mesa_id = ? AND estado = ?', [mesaId, 'pendiente']);
+        if (estado === 'libre' && Number(pending?.count || 0) === 0) {
+            return res.status(409).json({ error: 'Solo se reasignan responsables en mesas/cuentas activas' });
+        }
+
+        const rawIds = req.body?.usuario_ids ?? req.body?.user_ids ?? req.body?.responsables_ids ?? [];
+        const userIds = (Array.isArray(rawIds) ? rawIds : String(rawIds).split(','))
+            .map(id => toInteger(id, 0))
+            .filter(id => id > 0);
+
+        const result = await replaceMesaResponsibles(mesaId, userIds, req.session.userId);
+        if (result.error) return res.status(400).json({ error: result.error });
+
+        const users = await database.all(
+            `SELECT nombre FROM usuarios WHERE id IN (${result.usuarios_ids.map(() => '?').join(',')}) ORDER BY nombre ASC`,
+            result.usuarios_ids
+        );
+        const userNames = users.map(user => user.nombre).join(', ');
+
+        await logHistory(
+            'reasignar_responsables_mesa',
+            req.session.userId,
+            `Responsables de ${getSeatDisplayName(mesa)} actualizados: ${userNames || 'sin usuarios'}`
+        );
+
+        res.json({
+            success: true,
+            message: 'Responsables actualizados correctamente',
+            data: {
+                usuarios_ids: result.usuarios_ids,
+                usuarios_nombres: users.map(user => user.nombre)
+            }
+        });
+    } catch (error) {
+        console.error('Error reasignando responsables:', error);
+        res.status(500).json({ error: 'Error interno reasignando responsables' });
     }
 });
 
@@ -1174,7 +1444,7 @@ router.get('/next-numero', async (req, res) => {
 router.get('/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const mesa = await database.get(buildTablesSelect('WHERE m.id = ?'), [id]);
+        const mesa = await database.get(buildTablesSelect('WHERE m.id = ?', { currentUserId: getSessionUserId(req), isAdmin: isAdminSession(req) }), [id]);
         
         if (!mesa) {
             return res.status(404).json({ error: 'Zona no encontrada' });
