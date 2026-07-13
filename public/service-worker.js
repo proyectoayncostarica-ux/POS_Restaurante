@@ -1,4 +1,4 @@
-const MUNDIPOS_SW_VERSION = 'v2.1.5-fix2-mobile-redirect-recovery';
+const MUNDIPOS_SW_VERSION = 'v2.2.3-fix1-liberar-nuevo-pedido';
 const APP_SHELL_CACHE = `mundipos-shell-${MUNDIPOS_SW_VERSION}`;
 const RUNTIME_CACHE = `mundipos-runtime-${MUNDIPOS_SW_VERSION}`;
 
@@ -9,6 +9,7 @@ const APP_SHELL_URLS = [
   '/POS/manifest.webmanifest',
   '/POS/favicon.ico',
   '/POS/css/style.css',
+  '/POS/css/style.css?v=2.2.3-fix1-liberar-nuevo-pedido',
   '/POS/js/main.js',
   '/POS/js/components/dashboard.js',
   '/POS/js/components/tables.js',
@@ -67,6 +68,11 @@ self.addEventListener('fetch', event => {
     return;
   }
 
+  if (url.pathname.startsWith('/POS/css/') || url.pathname.startsWith('/POS/js/')) {
+    event.respondWith(networkFirstAsset(request));
+    return;
+  }
+
   if (url.pathname.startsWith('/POS/')) {
     event.respondWith(staleWhileRevalidate(request));
   }
@@ -119,6 +125,22 @@ async function navigationHandler(request) {
       statusText: 'Offline',
       headers: { 'Content-Type': 'text/plain; charset=utf-8' }
     });
+  }
+}
+
+
+async function networkFirstAsset(request) {
+  try {
+    const response = await fetch(request, { cache: 'no-store' });
+    if (response && response.ok) {
+      const cache = await caches.open(RUNTIME_CACHE);
+      await cache.put(request, response.clone());
+    }
+    return response;
+  } catch (error) {
+    const cached = await caches.match(request);
+    if (cached) return cached;
+    return caches.match('/POS/offline.html');
   }
 }
 

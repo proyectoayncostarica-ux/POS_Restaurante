@@ -7,9 +7,9 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 2.0
 - **Estado de producto:** versión funcional operativa en proceso de estabilización
-- **Línea de trabajo actual:** v2.1 · Estabilidad
+- **Línea de trabajo actual:** v2.2 · Estabilización de Dashboard
 
-La versión visible para usuarios, configuración pública y metadata base de la app debe mantenerse como **2.0** hasta que se decida publicar una nueva versión funcional mayor. La línea **v2.1** no representa todavía una versión visible para usuarios finales; representa la etapa interna de estabilidad.
+La versión visible para usuarios, configuración pública y metadata base de la app debe mantenerse como **2.0** hasta que se decida publicar una nueva versión funcional mayor. Las líneas internas **v2.1** y **v2.2** no representan todavía una versión visible para usuarios finales; representan etapas trazables de estabilización.
 
 ## Control de versionado del proyecto
 
@@ -21,24 +21,24 @@ Este proyecto se trabajará con versionado trazable por etapa, fase y fix.
 |---|---|---|
 | v1 | Prototipo | Primera versión experimental del POS. |
 | v2.0 | Operativa | Versión funcional con módulos, permisos y operatividad base. |
-| v2.1 | Estabilidad | Etapa actual: estabilización real de módulos, flujos, datos y experiencia de uso. |
+| v2.1 | Estabilidad | Etapa cerrada: estabilidad visual, navegación, PWA y base técnica. |
+| v2.2 | Estabilización de Dashboard | Etapa actual: consolidar el Dashboard como panel operativo real para restaurante/bar. |
 
 ### Fases de estabilidad
 
-Durante la etapa de estabilidad se usará el formato:
+Durante las etapas de estabilidad se usará el formato:
 
 ```text
-v2.1.x
+v2.x.x
 ```
 
 Ejemplos:
 
 ```text
-v2.1.1 Auditoría y estabilización del Dashboard
-v2.1.2 Zonas y mesas
-v2.1.3 Pedidos y productos
-v2.1.4 Pagos y liberación de mesas
-v2.1.5 Créditos y abonos
+v2.1.5 Preparación PWA para PC y móvil
+v2.2.1 Estabilización base del Dashboard
+v2.2.2 Dashboard operativo por zonas
+v2.2.3 Indicadores y acciones rápidas
 ```
 
 ### Fixes derivados
@@ -62,17 +62,155 @@ Cada fix debe indicar:
 
 ## Registro de cambios canónico
 
-### v2.1.5 fix2 · Recuperación móvil por bucle de redirecciones PWA
+### v2.2.3 fix1 · Liberación de mesa/banco desde Nuevo pedido
 
-- **Problema detectado:** después de las pruebas de instalación PWA, algunos navegadores móviles podían quedar con redirecciones/cachés persistentes y mostrar `ERR_TOO_MANY_REDIRECTS` al abrir la app por la IP local.
-- **Causa probable:** el uso de redirección permanente para normalizar `/POS` a `/POS/`, combinado con caché del navegador o registros PWA/Service Worker generados durante pruebas, podía dejar al dispositivo en un estado difícil de recuperar.
-- **Objetivo del fix:** eliminar redirecciones permanentes en las rutas de entrada, servir el shell directamente y limpiar registros PWA antiguos para recuperar el acceso móvil.
-- **Archivos modificados:** `server/app.js`, `public/service-worker.js`, `public/js/main.js` y `README.md`.
-- **Cambios realizados en backend:** `server/app.js` ahora sirve `index.html` directamente en `/`, `/POS`, `/POS/`, `/PC` y `/pc` sin redirección; `express.static` se configuró con `redirect: false`; se agregaron respuestas raíz para `manifest.webmanifest`, `offline.html` y un service worker temporal de limpieza en `/service-worker.js` para desactivar registros antiguos de scope raíz.
-- **Cambios realizados en frontend/PWA:** `main.js` intenta limpiar service workers heredados que no pertenezcan al scope `/POS/`; `service-worker.js` subió versión de caché y evita guardar navegaciones fuera de `/POS`.
-- **Prueba recomendada:** reiniciar el servidor, abrir en móvil exactamente `http://IP_LOCAL:3000/POS/`, borrar datos del sitio si el navegador sigue mostrando el error y comprobar que no haya bucle de redirecciones.
-- **Resultado esperado:** el móvil vuelve a cargar MundiPOS sin `ERR_TOO_MANY_REDIRECTS`, incluso si se abre una ruta vieja o un acceso directo creado durante pruebas PWA.
-- **Pendientes o riesgos:** para instalación PWA real desde móvil por IP local sigue siendo necesario HTTPS confiable; por HTTP/IP local se debe usar la app como web responsive, no como PWA instalable.
+- **Problema detectado:** en el modal `Nuevo Pedido`, cuando una mesa/banco ocupada no tenía pedido activo, el botón `Liberar` no ejecutaba el cierre si el módulo `Zonas` todavía no había cargado su propia lista interna de mesas/bancos.
+- **Causa:** `Tables.cerrarMesa()` dependía de `Tables.data`; al abrir el flujo desde `Pedidos`, esa colección podía estar vacía aunque `Orders.tables` sí tuviera la mesa/banco correcta. Por eso el botón parecía no funcionar hasta abrir primero el modal de zona.
+- **Corrección aplicada:** el cierre operativo ahora busca la mesa/banco en `Tables.data`, luego en `Orders.tables` y, si aún no existe, consulta `/api/tables` antes de mostrar la confirmación.
+- **Nuevo flujo:** el botón `Liberar` del modal `Nuevo Pedido` usa una acción dedicada que reutiliza el modal premium de confirmación y refresca `Pedidos`, `Zonas` y `Dashboard` cuando la liberación termina correctamente.
+- **Compatibilidad:** no cambia la lógica del backend ni permite cerrar mesas/bancos con pedidos pendientes; conserva la validación existente del endpoint `/api/tables/:id/close`.
+- **Cache/PWA:** se actualizó la versión del service worker para forzar la carga de los cambios en móvil/PWA.
+- **Archivos modificados:** `public/js/components/orders.js`, `public/js/components/tables.js`, `public/service-worker.js` y `README.md`.
+- **Prueba recomendada:** abrir una mesa/banco, entrar al módulo `Pedidos`, abrir `Nuevo Pedido` para esa zona sin agregar productos y tocar `Liberar`; debe abrir el modal de confirmación y liberar la zona sin necesidad de visitar primero el módulo `Zonas`.
+
+### v2.2.3 · Modales operativos premium: Abrir zona y Confirmar cierre
+
+- **Objetivo:** profesionalizar los modales operativos de `Abrir Zona` y `Confirmar Cierre de Mesa/Banco` para que mantengan la identidad premium de MundiPOS sin alterar la lógica de apertura, reserva o cierre.
+- **Abrir zona:** el modal ahora incluye encabezado visual compacto con icono, zona, tipo y capacidad; los campos se muestran con menor separación en PC para que el footer quede visible dentro del viewport sin depender del scroll.
+- **Confirmar cierre:** el modal de cierre ahora usa una tarjeta de confirmación con resumen de zona, número y cliente, facilitando la validación visual antes de liberar la mesa/banco.
+- **PC:** se reducen paddings, alturas de campos y espacios verticales únicamente para estos modales operativos, evitando que los botones del footer queden fuera de vista en pantallas estándar.
+- **Móvil:** se conserva el flujo actual, pero con aspecto más moderno: tarjeta premium, mejor jerarquía, iconografía, bordes suaves, fondo degradado y botones cómodos para tap.
+- **Compatibilidad:** `Utils.confirm` acepta opciones opcionales de presentación sin romper las confirmaciones existentes.
+- **Cache/PWA:** se actualizó la versión de `style.css` y del service worker para forzar la carga de los estilos nuevos en móvil.
+- **Archivos modificados:** `public/index.html`, `public/css/style.css`, `public/js/main.js`, `public/js/components/tables.js`, `public/service-worker.js` y `README.md`.
+- **Prueba recomendada:** desde PC abrir una mesa/banco y confirmar que el footer sea visible sin scroll; luego probar en móvil que el modal mantenga el flujo anterior pero con diseño premium. Cerrar una mesa/banco y confirmar que el modal muestre el resumen operativo antes de confirmar.
+
+### v2.2.2 fix3 · Corrección de ventas y cuentas pagadas del día
+
+- **Problema detectado:** `Ventas del día` y `Cuentas pagadas del día` podían mostrarse en cero aunque existieran pagos reales, porque el Dashboard filtraba usando la fecha original del pedido (`pedidos.fecha`) en lugar de la fecha real del pago (`pagos.fecha`).
+- **Corrección aplicada:** el Dashboard ahora calcula ventas, cuentas pagadas recientes y detalle de ventas usando `pagos.fecha`; así una cuenta abierta antes pero pagada hoy se registra correctamente en la operación del día.
+- **Fecha operativa:** se usa el día local de Costa Rica para evitar desfases por UTC cuando el servidor guarda fechas en formato ISO.
+- **Ventas del día:** el total de ventas de contado/tarjeta ahora suma `pagos.monto`, que representa el monto realmente cobrado, en lugar de depender del total base del pedido.
+- **Cuentas pagadas del día:** la lista de actividad reciente se ordena por la fecha real de pago y muestra las últimas cuentas pagadas dentro del día operativo.
+- **Detalle de ventas:** el modal de `Ventas del día` también usa la fecha y monto del pago real.
+- **Alcance:** se modifica únicamente la lógica del backend del Dashboard; no cambia la base de datos ni la presentación visual de las cards.
+- **Archivos modificados:** `server/routes/dashboard.js` y `README.md`.
+- **Prueba recomendada:** pagar una cuenta desde PC o móvil, volver al Dashboard y confirmar que `Ventas del día`, `Cuentas pagadas del día` y el modal de detalle reflejen el pago sin esperar al siguiente día ni depender de la fecha de apertura del pedido.
+
+
+### v2.2.2 fix2 · Mayor visibilidad de mesa/banco en cards ocupadas
+
+- **Objetivo del fix:** mejorar la lectura operativa de mesas/bancos ocupados para que el usuario identifique rápidamente el cliente y el número de ubicación sin perder el estado de la card.
+- **Jerarquía ocupada:** el nombre del cliente se mantiene como título principal. El número de mesa/banco pasa al espacio del badge de estado con fondo negro, borde rojo, texto blanco y mayúscula (`MESA 2` / `BANCO 1`).
+- **Estado operativo:** el texto `OCUPADA` pasa al espacio del detalle donde antes estaba el número de mesa/banco; usa badge transparente, borde rojo y texto negro en mayúscula.
+- **Monto:** el monto consumido aumenta de tamaño para ganar protagonismo sin romper la simetría de la card en PC ni móvil.
+- **Alcance:** solo se modifica la presentación de cards ocupadas en Dashboard. Las cards libres y reservadas mantienen la dinámica definida en `v2.2.2`.
+- **Cache/PWA:** se actualizó la versión de `style.css` y del service worker para forzar la carga del ajuste en móvil.
+- **Archivos modificados:** `public/index.html`, `public/css/style.css`, `public/js/components/dashboard.js`, `public/service-worker.js` y `README.md`.
+- **Prueba recomendada:** abrir Dashboard con una mesa ocupada en PC y móvil; confirmar que el título siga siendo el cliente, que el badge negro muestre `MESA/BANCO #`, que `OCUPADA` aparezca abajo como badge transparente y que el monto tenga más protagonismo.
+
+### v2.2.2 fix1 · Sincronización operativa en tiempo real entre PC y móvil
+
+- **Objetivo del fix:** corregir que los cambios realizados desde una estación/dispositivo no se reflejaran inmediatamente en las demás vistas abiertas, reduciendo el riesgo de operar dos veces sobre la misma mesa/banco.
+- **Sincronización:** se agrega un canal Server-Sent Events en `/api/realtime/events` para avisar a los clientes activos cuando ocurre una mutación operativa en zonas, pedidos, cuentas o créditos.
+- **Frontend:** cada cliente genera un identificador local y lo envía en las peticiones; al recibir un evento operativo, la vista activa se refresca automáticamente. El Dashboard actualiza mesas/bancos, métricas y cuentas pagadas sin esperar al intervalo normal.
+- **Protección adicional:** al crear un pedido se valida si la mesa/banco ya tiene una cuenta pendiente; si existe, se responde con conflicto `409` para evitar doble escritura sobre la misma zona.
+- **Compatibilidad PWA:** el service worker mantiene `/api/*` como `network-only`, por lo que el canal en tiempo real no se sirve desde caché. Se actualizó la versión del service worker para forzar refresco.
+- **Archivos modificados:** `server/app.js`, `server/routes/orders.js`, `server/utils/realtime.js`, `public/js/main.js`, `public/js/components/dashboard.js`, `public/service-worker.js` y `README.md`.
+- **Prueba recomendada:** abrir MundiPOS en PC y móvil con la misma red; ocupar/liberar/reservar una mesa desde un dispositivo y confirmar que el otro actualiza el Dashboard sin recargar manualmente. Luego intentar crear dos pedidos simultáneos para la misma mesa y confirmar que el segundo intento se bloquea.
+- **Pendientes o riesgos:** si el navegador móvil suspende la pestaña/PWA en segundo plano, la actualización llegará al volver al primer plano o con el autorefresco del Dashboard.
+
+### v2.2.2 · Cards de mesas
+
+- **Objetivo:** ajustar la jerarquía visual de las cards de mesas/bancos para que el dato principal cambie según el estado operativo sin alterar el comportamiento actual de apertura, reserva o pedido.
+- **Libre:** se mantiene la dinámica actual: zona/tipo, número de mesa/banco, estado libre y capacidad.
+- **Reservada:** el título principal de la card ahora muestra directamente el nombre del cliente, sin el prefijo `Cliente:`; el número de mesa/banco se traslada al detalle como badge transparente, en mayúscula, negrita y con borde anaranjado coherente con el estado reservado. Hora y personas se mantienen igual.
+- **Ocupada:** el título principal de la card ahora muestra directamente el nombre del cliente, sin el prefijo `Cliente:`; el número de mesa/banco se traslada al detalle como badge transparente, en mayúscula, negrita y con borde rojo coherente con el estado ocupado.
+- **Monto:** el monto consumido en cards ocupadas aumenta ligeramente de tamaño, manteniendo simetría en PC y móvil.
+- **Seguridad visual:** si una mesa/banco ocupada o reservada no tiene cliente registrado, el título usa el nombre de la zona (`Mesa 2`, `Banco 1`) como respaldo para evitar cards sin encabezado.
+- **Cache/PWA:** se actualizó la versión de `style.css` y del service worker para forzar la carga de la nueva jerarquía visual en móvil.
+- **Archivos modificados:** `public/index.html`, `public/css/style.css`, `public/js/components/dashboard.js`, `public/service-worker.js` y `README.md`.
+- **Prueba recomendada:** validar en Dashboard una mesa libre, una reservada y una ocupada en PC y móvil; confirmar que libre no cambia, que reservada/ocupada muestran cliente como título, que el badge `MESA/BANCO #` respeta el color del estado y que el monto no rompe la altura de la card.
+
+### v2.2.1 fix6 · Acciones del Dashboard, header móvil y cuentas pagadas
+
+- **Objetivo del fix:** corregir las acciones rápidas del Dashboard, ajustar nuevamente el header móvil y simplificar el Dashboard eliminando tarjetas redundantes.
+- **Navegación corregida:** el badge `Cuentas pendientes` ahora dirige correctamente al módulo `Cuentas` y la card `Créditos abiertos` dirige al módulo `Créditos`.
+- **Header móvil:** se reincorpora el día y se muestran segundos; la fecha queda arriba y el reloj abajo, centrados verticalmente para aprovechar el espacio disponible.
+- **Cierre diario:** se crea el botón `Cierre diario` en el header. En PC muestra icono y texto; en móvil queda solo como icono entre el usuario y el botón de cierre de sesión. Por ahora no ejecuta lógica funcional.
+- **Dashboard simplificado:** se eliminan las tarjetas redundantes de `Cuentas`, `Ventas` y `Zonas` para mantener protagonismo en mesas/bancos, sticky operativo, créditos abiertos y actividad reciente.
+- **Cuentas pagadas del día:** se reemplaza la tabla simple por cards compactas con mejor jerarquía visual, monto destacado y acceso directo al detalle de la cuenta.
+- **Cache/PWA:** se actualizó la versión de `style.css` y del service worker para forzar estilos nuevos en móvil.
+- **Archivos modificados:** `server/routes/dashboard.js`, `public/index.html`, `public/css/style.css`, `public/js/main.js`, `public/js/components/dashboard.js`, `public/service-worker.js` y `README.md`.
+- **Prueba recomendada:** en móvil validar header con día/fecha/hora con segundos, tocar `Cuentas pendientes`, tocar `Créditos abiertos`, revisar que ya no aparezcan las tarjetas redundantes y confirmar que las cuentas pagadas se vean como cards.
+
+### v2.2.1 fix5 · Header móvil con usuario visible y subheader Dashboard no fijo en PC
+
+- **Objetivo del fix:** ajustar únicamente el comportamiento solicitado para móvil y PC sin tocar la lógica operativa del Dashboard.
+- **Móvil:** el header principal deja de mostrar el día de la semana y conserva solo fecha y hora en formato compacto para liberar espacio.
+- **Usuario en móvil:** se vuelve visible el bloque de usuario junto a la fecha; arriba muestra `Admin` para administradores o `Estándar` para usuarios básicos, y abajo muestra el nombre del usuario centrado.
+- **PC:** el subheader operativo del Dashboard deja de ser sticky y vuelve a desplazarse con el contenido al hacer scroll.
+- **Cache/PWA:** se actualizó la versión de `style.css` y del service worker para evitar que móvil conserve estilos anteriores.
+- **Archivos modificados:** `public/index.html`, `public/css/style.css`, `public/js/main.js`, `public/service-worker.js` y `README.md`.
+- **Prueba recomendada:** en móvil confirmar que el header muestra fecha/hora + tipo/nombre de usuario sin el día; en PC hacer scroll en Dashboard y confirmar que el subheader no queda fijo.
+
+### v2.2.1 fix4 · Sticky operativo y filtros por estado en Dashboard
+
+- **Objetivo del fix:** ajustar el sticky operativo del Dashboard para que `Vista actual`, `Cuentas pendientes` y `Ventas del día` tengan más espacio, especialmente en móvil, y convertir los badges de estado en filtros rápidos.
+- **Sticky:** se retiró `Créditos abiertos` del subheader fijo y se trasladó a una card operativa debajo del bloque de mesas/bancos, evitando que el badge de `Vista actual` se corte en PC y móvil.
+- **Móvil:** el sticky queda pegado al header, usa tres badges más altos y vuelve a mostrar los títulos `Vista actual`, `Cuentas pendientes` y `Ventas del día` dentro de cada badge.
+- **PC:** el texto secundario de `Vista actual` queda en blanco para mantener contraste sobre el degradado oscuro.
+- **Filtros por estado:** los badges `Libres`, `Ocupadas` y `Reservadas` ahora son clicables y filtran las tarjetas visibles según el estado dentro de la zona activa.
+- **Reset inteligente:** si se cambia de zona y el filtro de estado activo no tiene resultados en la nueva zona, el Dashboard limpia automáticamente ese filtro para no dejar la pantalla vacía.
+- **Archivos modificados:** `public/index.html`, `public/css/style.css`, `public/js/components/dashboard.js`, `public/service-worker.js` y `README.md`.
+- **Prueba recomendada:** en Dashboard, seleccionar Salón y tocar `Ocupadas` para ver solo las mesas ocupadas; cambiar a Bar o Barra y confirmar que el filtro se conserva solo si hay coincidencias, o se reinicia si no existen.
+
+### v2.2.1 fix1 · Corrección visual operativa del Dashboard móvil y prioridad de zonas
+
+- **Objetivo del fix:** corregir la primera estabilización del Dashboard para que respete la función real de la pantalla: las zonas, mesas y bancos deben ser el elemento protagonista tanto en PC como en móvil.
+- **Problema detectado:** las tarjetas grandes de resumen (`Vista actual`, `Cuentas pendientes`, `Ventas del día` y `Créditos abiertos`) ocupaban demasiado espacio antes del control de zonas, especialmente en móvil, y algunos estilos nuevos podían competir con los bordes de estado de mesas/bancos.
+- **Cambios visuales:** esos indicadores se transformaron en un subheader compacto y fijo dentro del Dashboard, con estilo de badges operativos, para que no desplacen las cards de zonas.
+- **Prioridad operativa:** las cards de Salón, Bar y Barra quedan como primer bloque funcional visible después del subheader compacto; el encabezado descriptivo se oculta en móvil para reducir ruido.
+- **Estados restaurados:** los bordes de las cards del Dashboard vuelven a depender del estado real de la mesa/banco: verde para libre, rojo para ocupada y amarillo/naranja para reservada; la zona se identifica mediante badge, no mediante el borde principal.
+- **Móvil:** se agregaron estilos específicos para una vista más compacta y elegante: subheader sticky, cards en dos columnas, métricas internas compactas, jerarquía visual reducida y mejor aprovechamiento del espacio vertical.
+- **Archivos modificados:** `public/index.html`, `public/css/style.css` y `README.md`.
+- **Pruebas recomendadas:** revisar Dashboard en PC y celular, validar que los filtros Todos/Salón/Bar/Barra sigan funcionando, confirmar que las cards de mesas/bancos mantengan borde por estado y que al hacer scroll el subheader de indicadores permanezca visible sin tapar la barra inferior móvil.
+- **Resultado esperado:** Dashboard más operativo, más móvil-first y coherente con el uso real del POS durante servicio, sin cambios backend ni persistencia SQLite.
+
+### v2.2.1 fix3 · Micro ajuste móvil del subheader sticky y corrección de métricas del Dashboard
+
+- **Objetivo del fix:** ajustar el Dashboard móvil para que el subheader operativo quede pegado visualmente al header principal y corregir los contadores superiores que podían quedarse en cero aunque existieran mesas/bancos activos.
+- **Problema visual detectado:** al hacer scroll en móvil quedaba una separación entre el header y el subheader sticky, dejando ver contenido pasar por detrás; además los badges de `Libres`, `Ocupadas`, `Reservadas` y `Consumo activo` se percibían planos.
+- **Cambios visuales:** el subheader sticky del Dashboard ahora ocupa el ancho horizontal completo bajo el header móvil, usa fondo sólido y una franja superior de cobertura para evitar transparencias durante el scroll.
+- **Badges operativos:** los indicadores de `Libres`, `Ocupadas`, `Reservadas` y `Consumo activo` ahora tienen icono, profundidad, color contextual y estructura compacta para móvil.
+- **Corrección de datos:** el frontend recalcula el resumen operativo desde `mesasDetalle` como fuente visible de verdad, evitando que `Vista actual`, libres, ocupadas, reservadas y consumo activo muestren cero cuando sí hay mesas/bancos en pantalla.
+- **Backend:** `/api/dashboard` construye `zonasResumen` desde el mismo detalle de mesas/bancos que renderiza el Dashboard y evita duplicar una mesa si existieran varios pedidos pendientes asociados.
+- **PWA/cache:** se actualizó la versión de `style.css` y del service worker para que el celular tome el nuevo CSS/JS.
+- **Archivos modificados:** `server/routes/dashboard.js`, `public/index.html`, `public/css/style.css`, `public/js/components/dashboard.js`, `public/service-worker.js` y `README.md`.
+- **Prueba recomendada:** abrir una mesa/banco, volver al Dashboard en móvil, confirmar que `Vista actual` y los badges inferiores reflejen los datos reales; luego hacer scroll y validar que el subheader quede pegado al header sin dejar ver contenido por detrás.
+
+### v2.2.1 fix2 · Aplicación real de estilos móviles del Dashboard
+
+- **Objetivo del fix:** corregir que los estilos móviles del Dashboard no se reflejaran en celular después de los cambios PWA/cache y de reglas heredadas de `.mesa-card`.
+- **Problema detectado:** el navegador móvil podía conservar `style.css` anterior mediante service worker y, además, reglas antiguas de tarjetas podían ganar prioridad sobre el layout operativo del Dashboard.
+- **Cambios aplicados:** se versionó la carga de `style.css`, se subió la versión del service worker, los assets CSS/JS ahora usan estrategia `network-first` y se agregó un bloque móvil final de alta especificidad para el Dashboard.
+- **Jerarquía visual recuperada:** las zonas/mesas/bancos quedan como contenido principal; los indicadores de Vista actual, Cuentas pendientes, Ventas del día y Créditos abiertos se mantienen como subheader compacto sticky.
+- **Estados visuales conservados:** verde para libre, rojo para ocupada y amarillo/naranja para reservada; la zona Salón/Bar/Barra se muestra como badge y no reemplaza el color del estado.
+- **Archivos modificados:** `public/index.html`, `public/css/style.css`, `public/service-worker.js` y `README.md`.
+- **Prueba recomendada:** abrir en móvil, borrar datos del sitio si aún aparece CSS viejo, entrar a `/POS/`, ir al Dashboard y comprobar que el subheader sea compacto y que las cards de zonas aparezcan en dos columnas con bordes por estado.
+
+### v2.2.1 · Estabilización base del Dashboard operativo
+
+- **Objetivo:** iniciar la etapa v2.2 convirtiendo el Dashboard en un panel operativo real para restaurante/bar: primero zonas/mesas, cuentas activas, ventas del día y estado inmediato de la operación.
+- **Función real del Dashboard:** no debe comportarse como un reporte administrativo pesado; debe funcionar como centro de control rápido para ver Salón, Bar y Barra, abrir zonas libres, continuar pedidos en zonas ocupadas y revisar el pulso del día.
+- **Backend:** `/api/dashboard` ahora devuelve un resumen operativo por filtro (`todos`, `salon`, `bar-mesa`, `bar-banco`), totales separados de mesas y bancos, consumo activo por zona, ventas calculadas desde pagos y últimas cuentas pagadas con información de zona.
+- **Frontend:** se reorganizó el Dashboard con encabezado operativo, tarjetas de comando, panel de control por zona, métricas del filtro activo, estados vacíos/carga/error y actualización de bancos libres/ocupados que antes no se reflejaban.
+- **Interacción:** las tarjetas de zona del Dashboard conservan acciones operativas: abrir zona libre, ver reserva, crear pedido si está ocupada sin pedido y agregar productos si tiene pedido activo.
+- **Autoactualización:** se evita duplicar intervalos de refresco y el Dashboard vuelve a activar autorefresco al entrar con sesión existente, manteniendo actualización periódica mientras el módulo está activo.
+- **Archivos modificados:** `server/routes/dashboard.js`, `public/index.html`, `public/css/style.css`, `public/js/main.js`, `public/js/components/dashboard.js` y `README.md`.
+- **Pruebas recomendadas:** entrar al Dashboard en PC y móvil, cambiar filtros Todos/Salón/Bar/Barra, abrir una zona libre, crear/agregar productos a un pedido, pagar una cuenta y confirmar que los contadores, consumo activo, ventas y últimas cuentas se actualizan.
+- **Resultado esperado:** Dashboard más claro, útil y estable para operación diaria, sin modificar la base de datos ni subir datos locales de prueba.
+- **Pendientes v2.2:** refinar indicadores por hora/turno, acciones rápidas adicionales, alertas operativas y posibles datos semilla versionables para demo sin commitear `data/restaurant.db`.
 
 ### v2.1.5 · Preparación PWA para PC y móvil
 

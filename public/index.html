@@ -14,7 +14,7 @@
     <meta name="msapplication-starturl" content="/POS/">
     <title>MundiPOS</title>
     <link rel="manifest" href="/POS/manifest.webmanifest">
-    <link rel="stylesheet" href="/POS/css/style.css">
+    <link rel="stylesheet" href="/POS/css/style.css?v=2.2.3-modales-operativos">
     <link rel="icon" href="/POS/favicon.ico" type="image/x-icon">
     <link rel="shortcut icon" href="/POS/favicon.ico" type="image/x-icon">
     <link rel="apple-touch-icon" href="/POS/assets/icons/mundipos-icon-180.png">
@@ -72,7 +72,7 @@
                     <div class="app-brand-text">
                         <h1 class="app-title">MundiPOS</h1>
                         <p class="restaurant-name" id="restaurant-name"></p>
-                        <span id="mobile-current-datetime" class="mobile-current-datetime"></span>
+                        <span id="mobile-current-datetime" class="mobile-current-datetime" aria-live="polite"></span>
                     </div>
                 </div>
             </div>
@@ -81,7 +81,11 @@
                     <span id="current-user">Usuario</span>
                     <span id="user-type" class="user-type">Tipo</span>
                     <span id="current-datetime" class="current-datetime"></span>
-                </div>      
+                </div>
+                <button id="daily-close-btn" class="btn btn-secondary daily-close-btn" type="button" aria-label="Cierre diario" title="Cierre diario">
+                    <i class="fas fa-cash-register"></i>
+                    <span class="daily-close-label">Cierre diario</span>
+                </button>
                 <button id="pwa-install-btn" class="btn btn-secondary pwa-install-btn" type="button" hidden aria-label="Instalar MundiPOS" title="Instalar MundiPOS">
                     <i class="fas fa-download"></i>
                     <span class="pwa-install-label">Instalar</span>
@@ -147,10 +151,17 @@
         <main class="main-content">
             <!-- Dashboard Section -->
             <section id="dashboard-section" class="content-section active">
-                <div class="section-header">
-                    <h2 id="greeting-message"></h2>
-                    <p>Vista general del estado del restaurante</p>
+                <div class="section-header dashboard-hero">
+                    <div>
+                        <h2 id="greeting-message"></h2>
+                        <p>Panel operativo para controlar zonas, cuentas y ventas del día.</p>
+                    </div>
+                    <div class="dashboard-live-chip" aria-live="polite">
+                        <i class="fas fa-signal"></i>
+                        <span id="dashboard-status-message">Operación lista</span>
+                    </div>
                 </div>
+
                 <div class="btn-filtro-zonas internal-tabs" aria-label="Filtros del dashboard">
                     <button class="btn btn-zona active" data-tipo="todos" data-subnav-item="todos" onclick="Navigation.selectInternal('dashboard', 'todos')"><i class="fas fa-border-all"></i> Todos</button>
                     <button class="btn btn-zona" data-tipo="salon" data-subnav-item="salon" onclick="Navigation.selectInternal('dashboard', 'salon')"><i class="fas fa-chair"></i> Salón</button>
@@ -158,149 +169,83 @@
                     <button class="btn btn-zona" data-tipo="bar-banco" data-subnav-item="bar-banco" onclick="Navigation.selectInternal('dashboard', 'bar-banco')"><i class="fas fa-grip-lines"></i> Barra</button>
                 </div>
 
-                <!-- Estados de Mesas -->
-                <div class="dashboard-tables">
-                    <h2 class="text-center">Estados de Zonas</h2>
-                    <div id="mesas-grid" class="mesas-grid">
-                        <!-- Las mesas se cargarán dinámicamente -->
+                <div class="dashboard-status-strip dashboard-command-grid" aria-label="Resumen operativo fijo del dashboard">
+                    <article class="dashboard-command-card dashboard-command-primary">
+                        <span class="dashboard-command-icon"><i class="fas fa-layer-group"></i></span>
+                        <div>
+                            <span class="dashboard-command-label">Vista actual</span>
+                            <strong id="dashboard-current-filter">Todos</strong>
+                            <small><span id="dashboard-current-total">0</span> puestos · ocupación <span id="dashboard-occupancy-rate">0%</span></small>
+                        </div>
+                    </article>
+                    <article class="dashboard-command-card clickable-card" data-navigate="orders" role="button" tabindex="0" aria-label="Ir a cuentas pendientes">
+                        <span class="dashboard-command-icon"><i class="fas fa-clock"></i></span>
+                        <div>
+                            <span class="dashboard-command-label">Cuentas pendientes</span>
+                            <strong id="dashboard-pending-orders">0</strong>
+                            <small>Ir a cuentas</small>
+                        </div>
+                    </article>
+                    <article class="dashboard-command-card clickable-card" id="ventas-del-dia-card">
+                        <span class="dashboard-command-icon"><i class="fas fa-cash-register"></i></span>
+                        <div>
+                            <span class="dashboard-command-label">Ventas del día</span>
+                            <strong id="dashboard-sales-total">₡0</strong>
+                            <small>Ver detalle</small>
+                        </div>
+                    </article>
+                </div>
+
+                <div class="dashboard-operation-panel" data-internal-panel="dashboard">
+                    <div class="dashboard-zone-summary">
+                        <div>
+                            <span class="dashboard-eyebrow">Control por zona</span>
+                            <h2 id="dashboard-summary-title">Zonas · Todos</h2>
+                            <p id="dashboard-last-updated">Actualizado</p>
+                        </div>
+                        <div class="dashboard-zone-metrics" aria-label="Indicadores de la zona seleccionada">
+                            <button type="button" class="dashboard-zone-metric metric-free" data-dashboard-state-filter="libre" onclick="Dashboard.filtrarPorEstado('libre')" aria-pressed="false">
+                                <i class="fas fa-check-circle" aria-hidden="true"></i>
+                                <span class="metric-copy"><strong id="dashboard-current-libres">0</strong><small>Libres</small></span>
+                            </button>
+                            <button type="button" class="dashboard-zone-metric metric-busy" data-dashboard-state-filter="ocupada" onclick="Dashboard.filtrarPorEstado('ocupada')" aria-pressed="false">
+                                <i class="fas fa-fire" aria-hidden="true"></i>
+                                <span class="metric-copy"><strong id="dashboard-current-ocupadas">0</strong><small>Ocupadas</small></span>
+                            </button>
+                            <button type="button" class="dashboard-zone-metric metric-reserved" data-dashboard-state-filter="reservada" onclick="Dashboard.filtrarPorEstado('reservada')" aria-pressed="false">
+                                <i class="fas fa-calendar-check" aria-hidden="true"></i>
+                                <span class="metric-copy"><strong id="dashboard-current-reservadas">0</strong><small>Reservadas</small></span>
+                            </button>
+                            <span class="dashboard-zone-metric metric-consumption">
+                                <i class="fas fa-cash-register" aria-hidden="true"></i>
+                                <span class="metric-copy"><strong id="dashboard-current-consumo">₡0</strong><small>Consumo activo</small></span>
+                            </span>
+                        </div>
+                    </div>
+
+                    <div id="mesas-grid" class="mesas-grid dashboard-zones-grid">
+                        <!-- Las zonas se cargarán dinámicamente -->
                     </div>
                 </div>
 
-                <!-- Primera fila de tarjetas: Cuentas y Créditos -->
-                <div class="dashboard-grid-row">
-                    <div class="dashboard-card" data-navigate="orders">
-                        <div class="card-icon">
-                            <i class="fas fa-receipt"></i>
-                        </div>
-                        <div class="card-content">
-                            <h3>Cuentas</h3>
-                            <div class="cuentas-status-grid">
-                                <div class="cuenta-status-item">
-                                    <span class="stat-value" id="cuentas-pendientes"></span>
-                                    <span class="stat-label">Cuentas Pendientes</span>
-                                </div>
-                                <div class="cuenta-status-item">
-                                    <span class="stat-value" id="cuentas-pagadas"></span>
-                                    <span class="stat-label">Cuentas Pagadas</span>
-                                </div>
-                                <div class="cuenta-status-item">
-                                    <span class="stat-value" id="creditos-pagados"></span>
-                                    <span class="stat-label">Créditos Pagados</span>
-                                </div>
-                            </div>
-                        </div>
+                <article class="dashboard-credit-card" data-navigate="accounts" role="button" tabindex="0" aria-label="Ir a créditos abiertos">
+                    <span class="dashboard-credit-icon"><i class="fas fa-file-invoice-dollar"></i></span>
+                    <div class="dashboard-credit-copy">
+                        <span class="dashboard-eyebrow">Créditos abiertos</span>
+                        <strong id="creditos-disponibles">0</strong>
+                        <small>Total pendiente: <span id="monto-total-creditos">₡0</span></small>
                     </div>
-
-                    <div class="dashboard-card" data-navigate="accounts">
-                        <div class="card-icon">
-                            <i class="fas fa-file-invoice-dollar" style="color: #8B4513;"></i>
-                        </div>
-                        <div class="card-content">
-                            <h3>Créditos</h3>
-                            <div class="card-stats">
-                                <span class="stat-value-large" id="monto-total-creditos">₡0</span>
-                                <span class="stat-label">Disponibles</span>
-                                <div class="creditos-count">
-                                    <span class="stat-value-small" id="creditos-disponibles">0</span>
-                                    <span class="stat-label-small">Créditos</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Segunda fila de tarjetas: Ventas del Día y Mesas -->
-                <div class="dashboard-grid-row">
-                    <div class="dashboard-card clickable-card" id="ventas-del-dia-card">
-                        <div class="card-icon">
-                            <i class="fas fa-dollar-sign"></i>
-                        </div>
-                        <div class="card-content">
-                            <h3>Ventas del día</h3>
-                            <div class="card-stats">
-                                <div class="venta-detalle-item">
-                                    <span class="stat-value" id="ventas-contado"></span>
-                                    <span class="stat-label">Pago Contado</span>
-                                </div>
-                                <div class="venta-detalle-item">
-                                    <span class="stat-value" id="ventas-credito"></span>
-                                    <span class="stat-label">Pago Crédito</span>
-                                </div>
-                                <div class="venta-total-item">
-                                    <span class="stat-value-large" id="ventas-hoy"></span>
-                                    <span class="stat-label">Total</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="dashboard-card" data-navigate="tables">
-  <div class="card-icon">
-    <i class="fas fa-table"></i>
-  </div>
-
-  <!--Validación Pago Crédito-->
-    <div class="card-content">
-    <h2 class="text-center">Zonas</h2>
-    <div class="zonas-status-grid">
-    <div id="modalAdminPass" class="modal" style="display:none;">
-    <div class="modal-content">
-        <h3>Autorización requerida</h3>
-        <p>Ingrese la contraseña del administrador para confirmar el pago a crédito.</p>
-        <input type="password" id="inputAdminPass" class="form-control" placeholder="Contraseña de administrador">
-        <div style="margin-top: 1rem; text-align: right;">
-        <button onclick="cerrarModalAdmin()" class="btn btn-secondary">Cancelar</button>
-        <button onclick="confirmarContrasenaAdmin()" class="btn btn-primary">Confirmar</button>
-        </div>
-    </div>
-    </div> 
-
-    <!-- MESAS -->
-    <div class="mesa-status-group">
-      <i class="fas fa-chair"></i> Mesas:
-      <div class="estado-inline">
-        <div class="estado-box">
-          <i class="fas fa-circle" style="color: green;"></i>
-          <span class="zona-label">Libres</span>
-          <span id="mesas-libres" class="zona-count">0</span>
-        </div>
-        <div class="estado-box">
-          <i class="fas fa-circle" style="color: red;"></i>
-          <span class="zona-label">Ocupadas</span>
-          <span id="mesas-ocupadas" class="zona-count">0</span>
-        </div>
-        <div class="estado-box">
-          <i class="fas fa-circle" style="color: orange;"></i>
-          <span class="zona-label">Reservadas</span>
-          <span id="mesas-reservadas" class="zona-count">0</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- BANCOS -->
-    <div class="mesa-status-group">
-      <i class="fas fa-couch"></i> Bancos:
-      <div class="estado-inline">
-        <div class="estado-box">
-          <i class="fas fa-circle" style="color: green;"></i>
-          <span class="zona-label">Libres</span>
-          <span id="bancos-libres" class="zona-count">0</span>
-        </div>
-        <div class="estado-box">
-          <i class="fas fa-circle" style="color: red;"></i>
-          <span class="zona-label">Ocupados</span>
-          <span id="bancos-ocupados" class="zona-count">0</span>
-        </div>
-      </div>
-    </div>
-
-  </div>
-</div>
-                </div>
+                    <span class="dashboard-credit-action">Ver créditos <i class="fas fa-arrow-right"></i></span>
+                </article>
 
                 <div class="dashboard-recent">
-                    <H2 class="text-center">Cuentas Pagadas del Día</H2>
-                    <h4 class="text-center">(Últimas 5)</h4>
+                    <div class="dashboard-recent-header">
+                        <div>
+                            <span class="dashboard-eyebrow">Actividad reciente</span>
+                            <h2>Cuentas pagadas del día</h2>
+                        </div>
+                        <span>Últimas 5</span>
+                    </div>
                     <div id="cuentas-pagadas-recientes" class="recent-accounts">
                         <!-- Las cuentas se cargarán dinámicamente -->
                     </div>

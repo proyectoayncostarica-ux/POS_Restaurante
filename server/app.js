@@ -10,6 +10,7 @@ const bodyParser = require('body-parser');
 const session = require('express-session');
 const database = require('./db/database');
 const { APP_NAME, APP_VERSION } = require('./config/appInfo');
+const realtime = require('./utils/realtime');
 
 // Importar rutas
 const authRoutes = require('./routes/auth');
@@ -214,6 +215,8 @@ const requireAuth = (req, res, next) => {
 
 // Rutas de la API
 app.use('/api/auth', authRoutes);
+app.get('/api/realtime/events', requireAuth, realtime.eventsHandler);
+app.use('/api', requireAuth, realtime.operationMutationNotifier);
 app.use('/api/dashboard', requireAuth, dashboardRoutes);
 app.use('/api/tables', requireAuth, tablesRoutes);
 app.use('/api/menu', requireAuth, menuRoutes);

@@ -39,6 +39,7 @@ const INTERNAL_SUBNAV = {
 
 // API Base URL
 const API_BASE = '/api';
+const MUNDIPOS_CLIENT_ID = getOrCreateClientId();
 
 // Utilidades
 const Utils = {
@@ -57,6 +58,7 @@ const Utils = {
                 headers['Content-Type'] = 'application/json';
             }
 
+            headers['X-MundiPOS-Client'] = MUNDIPOS_CLIENT_ID;
             fetchOptions.headers = headers;
 
             const response = await fetch(API_BASE + url, fetchOptions);
@@ -158,20 +160,27 @@ const Utils = {
     },
 
     // Confirmar acción
-    async confirm(message, title = 'Confirmar') {
+    async confirm(message, title = 'Confirmar', options = {}) {
         return new Promise((resolve) => {
-            Utils.showModal(title, `<p>${message}</p>`, [
+            const opts = (typeof options === 'string')
+                ? { modalClass: options }
+                : (options || {});
+
+            const body = opts.html ? message : `<p>${message}</p>`;
+
+            Utils.showModal(title, body, [
                 {
-                    text: 'Cancelar',
-                    class: 'btn-light',
+                    text: opts.cancelText || 'Cancelar',
+                    class: opts.cancelClass || 'btn-light',
                     onclick: 'Utils.hideModal(); window.confirmResolve(false);'
                 },
                 {
-                    text: 'Confirmar',
-                    class: 'btn-primary',
+                    text: opts.confirmText || 'Confirmar',
+                    class: opts.confirmClass || 'btn-primary',
+                    align: 'right',
                     onclick: 'Utils.hideModal(); window.confirmResolve(true);'
                 }
-            ]);
+            ], opts.modalClass || '');
             
             window.confirmResolve = resolve;
         });
@@ -267,6 +276,7 @@ const Auth = {
                 // Cargar datos del dashboard y activar autorefresco
                 Dashboard.refreshData();
                 Dashboard.startAutoRefresh();
+                Realtime.connect();
 
                 return true;
             }
@@ -285,6 +295,7 @@ const Auth = {
             currentUser = null;
 
             Dashboard.stopAutoRefresh();
+            Realtime.disconnect();
             this.showLogin();
 
             Utils.showNotification('Sesión cerrada correctamente', 'info');
@@ -294,6 +305,7 @@ const Auth = {
             // Forzar logout local
             currentUser = null;
             Dashboard.stopAutoRefresh();
+            Realtime.disconnect();
             this.showLogin();
         }
     },
@@ -304,6 +316,7 @@ const Auth = {
         const mainApp = document.getElementById('main-app');
 
         stopHeaderClock();
+        Realtime.disconnect();
         document.body.classList.remove('has-mobile-subnav');
         document.getElementById('mobile-subnav')?.classList.remove('is-visible');
         resetLoginForm();
@@ -338,6 +351,7 @@ const Auth = {
         Navigation.showSection('dashboard');
         loadRestaurantName();
         startHeaderClock();
+        Realtime.connect();
         updateGreeting();
     },
 
@@ -363,6 +377,7 @@ const Auth = {
         this.updateUserInfo();
         Navigation.showSection('dashboard');
         startHeaderClock();
+        Realtime.connect();
         updateGreeting();
 
         await wait(650);
@@ -377,10 +392,12 @@ const Auth = {
         const usuarioActualElement = document.getElementById('usuario-actual');
         const tipoUsuarioElement = document.getElementById('tipo-usuario');
 
+        const userTypeLabel = formatUserTypeLabel(currentUser.tipo);
+
         if (currentUserElement) currentUserElement.textContent = currentUser.nombre;
-        if (userTypeElement) userTypeElement.textContent = currentUser.tipo;
+        if (userTypeElement) userTypeElement.textContent = userTypeLabel;
         if (usuarioActualElement) usuarioActualElement.textContent = currentUser.nombre;
-        if (tipoUsuarioElement) tipoUsuarioElement.textContent = currentUser.tipo;
+        if (tipoUsuarioElement) tipoUsuarioElement.textContent = userTypeLabel;
     }
 };
 
@@ -712,6 +729,143 @@ const Navigation = {
 
 
 
+// Sincronización en tiempo real entre estaciones/dispositivos
+const Realtime = {
+    source: null,
+    reconnectTimer: null,
+    refreshTimer: null,
+    isConnected: false,
+    lastEventId: 0,
+
+    connect() {
+        if (!currentUser || typeof EventSource === 'undefined') return;
+        if (this.source && this.source.readyState !== EventSource.CLOSED) return;
+
+        this.disconnect(false);
+
+        const url = `${API_BASE}/realtime/events?clientId=${encodeURIComponent(MUNDIPOS_CLIENT_ID)}`;
+        this.source = new EventSource(url, { withCredentials: true });
+
+        this.source.addEventListener('connected', (event) => {
+            this.isConnected = true;
+            this.handleServerEvent(event, false);
+        });
+
+        this.source.addEventListener('heartbeat', (event) => {
+            this.handleServerEvent(event, false);
+        });
+
+        this.source.addEventListener('operation-change', (event) => {
+            this.handleServerEvent(event, true);
+        });
+
+        this.source.onerror = () => {
+            this.isConnected = false;
+            this.scheduleReconnect();
+        };
+    },
+
+    disconnect(clearReconnect = true) {
+        if (clearReconnect && this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
+
+        if (this.refreshTimer) {
+            clearTimeout(this.refreshTimer);
+            this.refreshTimer = null;
+        }
+
+        if (this.source) {
+            this.source.close();
+            this.source = null;
+        }
+
+        this.isConnected = false;
+    },
+
+    scheduleReconnect() {
+        if (!currentUser || this.reconnectTimer) return;
+
+        this.reconnectTimer = setTimeout(() => {
+            this.reconnectTimer = null;
+            this.disconnect(false);
+            this.connect();
+        }, 3500);
+    },
+
+    handleServerEvent(event, shouldRefresh) {
+        const payload = this.parseEvent(event);
+        if (!payload) return;
+
+        if (payload.id && payload.id <= this.lastEventId) return;
+        if (payload.id) this.lastEventId = payload.id;
+
+        if (shouldRefresh) {
+            this.scheduleOperationalRefresh(payload);
+        }
+    },
+
+    parseEvent(event) {
+        try {
+            return JSON.parse(event.data || '{}');
+        } catch (error) {
+            console.warn('MundiPOS realtime: evento inválido', error);
+            return null;
+        }
+    },
+
+    scheduleOperationalRefresh(payload = {}) {
+        if (!currentUser) return;
+
+        if (this.refreshTimer) {
+            clearTimeout(this.refreshTimer);
+        }
+
+        this.refreshTimer = setTimeout(() => {
+            this.refreshTimer = null;
+            this.refreshVisibleOperation(payload);
+        }, 250);
+    },
+
+    async refreshVisibleOperation(payload = {}) {
+        const scope = payload.scope || 'operacion';
+
+        try {
+            if (typeof Dashboard !== 'undefined') {
+                if (currentSection === 'dashboard') {
+                    await Dashboard.refreshData({ source: 'realtime', silent: true });
+                } else if (typeof Dashboard.markStale === 'function') {
+                    Dashboard.markStale();
+                }
+            }
+
+            if (currentSection === 'tables' && typeof Tables !== 'undefined') {
+                await Tables.load();
+                return;
+            }
+
+            if (currentSection === 'orders' && typeof Orders !== 'undefined') {
+                await Orders.load();
+                return;
+            }
+
+            if (currentSection === 'accounts' && typeof Accounts !== 'undefined') {
+                await Accounts.load();
+                return;
+            }
+
+            if (currentSection === 'menu' && scope === 'menu' && typeof Menu !== 'undefined') {
+                await Menu.load();
+            }
+        } catch (error) {
+            console.warn('MundiPOS realtime: no se pudo refrescar la vista activa', error);
+        }
+    }
+};
+
+
+
 // PWA
 const PWA = {
     deferredPrompt: null,
@@ -793,8 +947,6 @@ const PWA = {
         }
 
         try {
-            await this.cleanupLegacyServiceWorkers();
-
             const registration = await navigator.serviceWorker.register('/POS/service-worker.js', { scope: '/POS/' });
             this.registration = registration;
 
@@ -812,21 +964,6 @@ const PWA = {
             this.updateInstallButtonVisibility();
         } catch (error) {
             console.warn('No se pudo registrar el service worker de MundiPOS:', error);
-        }
-    },
-
-    async cleanupLegacyServiceWorkers() {
-        if (!navigator.serviceWorker.getRegistrations) return;
-
-        try {
-            const registrations = await navigator.serviceWorker.getRegistrations();
-            await Promise.all(
-                registrations
-                    .filter(registration => registration.scope && !registration.scope.endsWith('/POS/'))
-                    .map(registration => registration.unregister())
-            );
-        } catch (error) {
-            console.warn('No se pudieron limpiar service workers antiguos de MundiPOS:', error);
         }
     },
 
@@ -974,16 +1111,29 @@ document.addEventListener('DOMContentLoaded', async function() {
         Navigation.closeSidebar();
     });
 
-    // Dashboard cards navigation
+    // Dashboard quick navigation cards/badges
     document.addEventListener('click', function(e) {
-        const card = e.target.closest('.dashboard-card[data-navigate]');
-        if (card) {
-            const section = card.getAttribute('data-navigate');
-            if (window.innerWidth <= 768) {
-                Navigation.closeSidebar();
-            }
-            Navigation.showSection(section);
+        const target = e.target.closest('#dashboard-section [data-navigate]');
+        if (!target) return;
+
+        const section = target.getAttribute('data-navigate');
+        if (!section) return;
+
+        if (window.innerWidth <= 768) {
+            Navigation.closeSidebar();
         }
+
+        Navigation.showSection(section);
+    });
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+
+        const target = e.target.closest?.('#dashboard-section [data-navigate]');
+        if (!target) return;
+
+        e.preventDefault();
+        target.click();
     });
 
     // Modal overlay click
@@ -1018,22 +1168,82 @@ window.Utils = Utils;
 window.Auth = Auth;
 window.Navigation = Navigation;
 window.PWA = PWA;
+window.Realtime = Realtime;
 
 
 
-function formatHeaderDateTime(now, compact = false) {
-    const options = compact
-        ? { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }
-        : { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true };
+function getOrCreateClientId() {
+    const storageKey = 'mundiposClientId';
 
-    return now.toLocaleString('es-CR', options).replace(',', ' ·');
+    try {
+        const existing = localStorage.getItem(storageKey);
+        if (existing) return existing;
+
+        const generated = (window.crypto && typeof window.crypto.randomUUID === 'function')
+            ? window.crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+        localStorage.setItem(storageKey, generated);
+        return generated;
+    } catch (error) {
+        return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
+}
+
+
+
+function formatUserTypeLabel(tipo) {
+    const normalizedType = String(tipo || '').trim().toLowerCase();
+
+    if (normalizedType === 'administrador' || normalizedType === 'admin') {
+        return 'Admin';
+    }
+
+    if (normalizedType === 'usuario' || normalizedType === 'estandar' || normalizedType === 'estándar') {
+        return 'Estándar';
+    }
+
+    return tipo || 'Usuario';
+}
+
+function formatHeaderDateTime(now) {
+    return now.toLocaleString('es-CR', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true
+    }).replace(',', ' ·');
+}
+
+function formatMobileHeaderDateTime(now) {
+    const dateLine = now.toLocaleDateString('es-CR', {
+        weekday: 'short',
+        day: '2-digit',
+        month: 'short'
+    }).replace('.', '').replace(',', '');
+
+    const timeLine = now.toLocaleTimeString('es-CR', {
+        hour: 'numeric',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true
+    });
+
+    return `
+        <span class="mobile-date-line">${dateLine}</span>
+        <span class="mobile-time-line">${timeLine}</span>
+    `;
 }
 
 // Función para actualizar la fecha y hora del header activo
 function updateDateTime() {
     const now = new Date();
     const desktopDateTime = formatHeaderDateTime(now);
-    const mobileDateTime = formatHeaderDateTime(now, true);
+    const mobileDateTime = formatMobileHeaderDateTime(now);
     const desktopNode = document.getElementById('current-datetime');
     const mobileNode = document.getElementById('mobile-current-datetime');
 
@@ -1043,7 +1253,7 @@ function updateDateTime() {
     }
 
     if (mobileNode && mobileDateTime !== lastMobileDateTime) {
-        mobileNode.textContent = mobileDateTime;
+        mobileNode.innerHTML = mobileDateTime;
         lastMobileDateTime = mobileDateTime;
     }
 }

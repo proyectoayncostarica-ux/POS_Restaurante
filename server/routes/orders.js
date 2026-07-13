@@ -112,6 +112,18 @@ router.post("/", async (req, res) => {
       });
     }
 
+    const pedidoPendienteExistente = await database.get(
+      "SELECT id FROM pedidos WHERE mesa_id = ? AND estado = ? LIMIT 1",
+      [mesa_id, "pendiente"]
+    );
+
+    if (pedidoPendienteExistente) {
+      return res.status(409).json({
+        error: `El ${nombreZona} ya tiene una cuenta pendiente abierta. Actualiza la vista antes de continuar.`,
+        pedido_id: pedidoPendienteExistente.id
+      });
+    }
+
     const userId = req.session?.userId || null;
 
     // Calcular total

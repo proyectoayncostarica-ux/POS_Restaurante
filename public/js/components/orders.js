@@ -329,7 +329,7 @@ const Orders = {
                         text: '<i class="fas fa-chair"></i> Liberar',
                         class: 'btn-danger',
                         align: 'left',
-                        onclick: () => Tables.cerrarMesa(mesaId)
+                        onclick: () => Orders.liberarMesaSinPedido(mesaId)
                     });
                 }
             }
@@ -351,6 +351,37 @@ const Orders = {
         this.updateOrderTotal();
         Orders.refreshCreateOrderModalUI(); 
     });
+    },
+
+    // Liberar mesa/banco desde el modal Nuevo Pedido cuando no hay pedido activo
+    async liberarMesaSinPedido(mesaId) {
+        const numericMesaId = parseInt(mesaId, 10);
+        if (!Number.isFinite(numericMesaId)) {
+            Utils.showNotification('No se pudo identificar la mesa/banco para liberar', 'warning');
+            return;
+        }
+
+        if (typeof Tables === 'undefined' || typeof Tables.cerrarMesa !== 'function') {
+            Utils.showNotification('No se pudo cargar la acción para liberar la zona', 'error');
+            return;
+        }
+
+        const mesaDesdePedido = Array.isArray(this.tables)
+            ? this.tables.find(t => parseInt(t.id, 10) === numericMesaId)
+            : null;
+
+        if (mesaDesdePedido && (!Array.isArray(Tables.data) || !Tables.data.some(t => parseInt(t.id, 10) === numericMesaId))) {
+            Tables.data = Array.isArray(Tables.data) && Tables.data.length > 0
+                ? [...Tables.data, mesaDesdePedido]
+                : [...this.tables];
+        }
+
+        const liberada = await Tables.cerrarMesa(numericMesaId);
+        if (liberada) {
+            this.selectedProducts = {};
+            this.mesaIdActual = null;
+            await this.load();
+        }
     },
 
     // Agregar fila de producto

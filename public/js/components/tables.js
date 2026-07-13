@@ -581,49 +581,57 @@ const Tables = {
             ${esBanco ? 'readonly' : ''} required>
     `;
 
-    Utils.showModal(`Abrir Zona (${nombreZona} ${mesa.numero})`, `
-        <form id="abrir-mesa-form">
-            <div class="form-group">
-                <label>${nombreZona}: ${mesa.numero}</label>
-                <p>
-                    Tipo: <span class="badge badge-info">${tipoTexto}</span><br>
-                    Capacidad: ${mesa.capacidad} personas
-                </p>
-            </div>
+    Utils.showModal(`Abrir Zona`, `
+        <div class="open-zone-modal">
+            <section class="open-zone-hero">
+                <div class="open-zone-icon">
+                    <i class="fas fa-door-open"></i>
+                </div>
+                <div class="open-zone-headline">
+                    <span class="open-zone-eyebrow">Preparar atención</span>
+                    <strong>${nombreZona} ${mesa.numero}</strong>
+                    <div class="open-zone-meta">
+                        <span><i class="fas fa-map-marker-alt"></i> ${tipoTexto}</span>
+                        <span><i class="fas fa-users"></i> ${mesa.capacidad} personas</span>
+                    </div>
+                </div>
+            </section>
 
-            <div class="form-group">
-                <label for="estado-mesa">Estado del ${nombreZona} *</label>
-                <select id="estado-mesa" name="estado" required onchange="Tables.toggleClienteFields()">
-                    ${estadoOptions}
-                </select>
-            </div>
+            <form id="abrir-mesa-form" class="open-zone-form">
+                <div class="form-group compact-field">
+                    <label for="estado-mesa">Estado del ${nombreZona} *</label>
+                    <select id="estado-mesa" name="estado" required onchange="Tables.toggleClienteFields()">
+                        ${estadoOptions}
+                    </select>
+                </div>
 
-            <div class="form-group">
-                <label for="cantidad-personas">Cantidad de Personas *</label>
-                ${capacidadInput}
-            </div>
+                <div class="form-group compact-field">
+                    <label for="cantidad-personas">Cantidad de personas *</label>
+                    ${capacidadInput}
+                </div>
 
-            <div class="form-group" id="cliente-nombre-group">
-                <label for="cliente-nombre">Nombre del Cliente *</label>
-                <input type="text" id="cliente-nombre" name="cliente_nombre" required>
-            </div>
+                <div class="form-group compact-field" id="cliente-nombre-group">
+                    <label for="cliente-nombre">Nombre del cliente *</label>
+                    <input type="text" id="cliente-nombre" name="cliente_nombre" autocomplete="off" required>
+                </div>
 
-            <div class="form-group" id="hora-estimada-group" style="display: none;">
-                <label for="hora-estimada">Hora Estimada de Llegada</label>
-                <input type="time" id="hora-estimada" name="hora_estimada">
-            </div>
-        </form>
+                <div class="form-group compact-field" id="hora-estimada-group" style="display: none;">
+                    <label for="hora-estimada">Hora estimada de llegada</label>
+                    <input type="time" id="hora-estimada" name="hora_estimada">
+                </div>
+            </form>
+        </div>
     `, [
         {
             text: 'Cancelar',
             class: 'btn-light'
         },
         {
-            text: 'Abrir Zona',
+            text: '<i class="fas fa-play"></i> Abrir Zona',
             class: 'btn-success',
             onclick: `Tables.abrirMesa(${mesaId})`
         }
-    ]);
+    ], 'modal-zone-open');
 },
 
     // Alternar campos según el estado seleccionado
@@ -821,6 +829,37 @@ const Tables = {
     }
 },
 
+    // Obtener mesa/banco para acciones operativas, aunque el módulo Zonas no esté cargado
+    async getMesaForAction(mesaId) {
+        const numericMesaId = parseInt(mesaId, 10);
+        if (!Number.isFinite(numericMesaId)) return null;
+
+        let mesa = Array.isArray(this.data)
+            ? this.data.find(m => parseInt(m.id, 10) === numericMesaId)
+            : null;
+
+        if (mesa) return mesa;
+
+        if (typeof Orders !== 'undefined' && Array.isArray(Orders.tables)) {
+            mesa = Orders.tables.find(m => parseInt(m.id, 10) === numericMesaId);
+            if (mesa) {
+                if (!Array.isArray(this.data) || this.data.length === 0) {
+                    this.data = Orders.tables;
+                }
+                return mesa;
+            }
+        }
+
+        try {
+            const response = await Utils.request('/tables');
+            this.data = Array.isArray(response.data) ? response.data : [];
+            return this.data.find(m => parseInt(m.id, 10) === numericMesaId) || null;
+        } catch (error) {
+            console.error('Error obteniendo zona para acción operativa:', error);
+            return null;
+        }
+    },
+
     // Mostrar modal para mesa ocupada
     showMesaOcupadaModal(mesaId) {
     const mesa = this.data.find(m => m.id === mesaId);
@@ -853,18 +892,56 @@ const Tables = {
 
     // Cerrar mesa
 async cerrarMesa(mesaId) {
-    const mesa = this.data.find(m => m.id === mesaId);
-    if (!mesa) return;
+    const mesa = await this.getMesaForAction(mesaId);
+    if (!mesa) {
+        Utils.showNotification('No se pudo encontrar la mesa/banco para liberar. Actualice la vista e intente de nuevo.', 'warning');
+        return false;
+    }
 
     const esBanco = mesa.zona?.toLowerCase() === 'bar' && mesa.tipo_asiento?.toLowerCase() === 'banco';
     const tipoNombre = esBanco ? 'Banco' : 'Mesa';
 
+    const clienteNombre = mesa.cliente_nombre || 'Sin cliente registrado';
+    const zonaTexto = mesa.zona ? mesa.zona.charAt(0).toUpperCase() + mesa.zona.slice(1) : 'Zona';
+
     const confirmed = await Utils.confirm(
-        `¿Está seguro de cerrar el/la ${tipoNombre} ${mesa.numero}? Asegúrese de que no tenga pedidos pendientes.`,
-        `Confirmar Cierre de ${tipoNombre}`
+        `
+            <div class="close-zone-confirm">
+                <div class="close-zone-icon">
+                    <i class="fas fa-cash-register"></i>
+                </div>
+                <div class="close-zone-copy">
+                    <span class="close-zone-eyebrow">Confirmación operativa</span>
+                    <strong>¿Cerrar ${tipoNombre} ${mesa.numero}?</strong>
+                    <p>Asegúrese de que no tenga pedidos pendientes antes de liberar esta zona.</p>
+                </div>
+                <div class="close-zone-summary">
+                    <div>
+                        <span>Zona</span>
+                        <strong>${zonaTexto}</strong>
+                    </div>
+                    <div>
+                        <span>${tipoNombre}</span>
+                        <strong>${mesa.numero}</strong>
+                    </div>
+                    <div>
+                        <span>Cliente</span>
+                        <strong>${clienteNombre}</strong>
+                    </div>
+                </div>
+            </div>
+        `,
+        `Confirmar Cierre de ${tipoNombre}`,
+        {
+            html: true,
+            modalClass: 'modal-confirm-close',
+            cancelText: 'Cancelar',
+            confirmText: '<i class="fas fa-lock"></i> Confirmar cierre',
+            confirmClass: 'btn-warning'
+        }
     );
 
-    if (!confirmed) return;
+    if (!confirmed) return false;
 
     try {
         await Utils.request(`/tables/${mesaId}/close`, {
@@ -874,11 +951,16 @@ async cerrarMesa(mesaId) {
         Utils.hideModal();
         Utils.showNotification(`${tipoNombre} cerrada exitosamente`, 'success');
         this.load();
+        if (typeof Orders !== 'undefined' && typeof Orders.load === 'function') {
+            Orders.load();
+        }
         if (typeof Dashboard?.refreshData === 'function') {
             Dashboard.refreshData();
         };
+        return true;
     } catch (error) {
         Utils.showNotification(error.message, 'error');
+        return false;
     }
 },
 
