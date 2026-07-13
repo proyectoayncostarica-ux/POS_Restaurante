@@ -38,14 +38,24 @@ async function getDynamicZoneAndTypeIds({ zona, tipo_asiento }) {
     const zonaSlug = legacyZoneSlugForSeat({ zona, tipo_asiento });
     const tipoSlug = legacySeatTypeSlug({ tipo_asiento });
 
-    const [zonaRow, tipoRow] = await Promise.all([
+    let [zonaRow, tipoRow] = await Promise.all([
         database.get('SELECT id FROM zonas WHERE slug = ? AND activa = 1', [zonaSlug]),
         database.get('SELECT id FROM tipos_puesto WHERE slug = ? AND activo = 1', [tipoSlug])
     ]);
 
+    if (!zonaRow?.id || !tipoRow?.id) {
+        await database.ensureDynamicModelConsistency();
+        [zonaRow, tipoRow] = await Promise.all([
+            database.get('SELECT id FROM zonas WHERE slug = ? AND activa = 1', [zonaSlug]),
+            database.get('SELECT id FROM tipos_puesto WHERE slug = ? AND activo = 1', [tipoSlug])
+        ]);
+    }
+
     return {
         zona_id: zonaRow?.id || null,
-        tipo_puesto_id: tipoRow?.id || null
+        tipo_puesto_id: tipoRow?.id || null,
+        zona_slug: zonaSlug,
+        tipo_puesto_slug: tipoSlug
     };
 }
 
@@ -124,15 +134,30 @@ router.get('/structure', async (req, res) => {
             ORDER BY tp.orden ASC, tp.nombre ASC
         `);
 
+        const compatibilidad = await database.getDynamicModelCompatibilityReport();
+
         res.json({
             success: true,
             data: {
                 zonas,
-                tipos_puesto: tiposPuesto
+                tipos_puesto: tiposPuesto,
+                compatibilidad
             }
         });
     } catch (error) {
         console.error('Error obteniendo estructura dinámica de zonas:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// Validar compatibilidad entre datos legacy y modelo dinámico.
+// No escribe datos: sirve para auditoría operativa antes de activar zonas 100% dinámicas.
+router.get('/structure/compatibility', async (req, res) => {
+    try {
+        const report = await database.getDynamicModelCompatibilityReport();
+        res.json({ success: true, data: report });
+    } catch (error) {
+        console.error('Error validando compatibilidad dinámica de zonas:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -186,6 +211,12 @@ router.post('/', async (req, res) => {
             zona: tipo_zona,
             tipo_asiento
         });
+
+        if (!dynamicLinks.zona_id || !dynamicLinks.tipo_puesto_id) {
+            return res.status(409).json({
+                error: 'La estructura dinámica de zonas/puestos no está lista. Reinicie la app o revise la compatibilidad del modelo.'
+            });
+        }
 
         const result = await database.run(
             `INSERT INTO mesas (

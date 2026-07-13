@@ -486,3 +486,16 @@ En Windows también puedes usar `Inicio_Servidor.bat`. En Linux/macOS puedes usa
 - En PC se mantiene el campo nativo de hora que ya funcionaba correctamente.
 - Se actualizó el versionado de `style.css` y `service-worker.js` para invalidar caché móvil/PWA.
 
+
+### v2.2.4.4 · Migración compatible de datos actuales
+
+- **Objetivo:** endurecer la compatibilidad entre la estructura histórica de `mesas` y el nuevo modelo base de zonas dinámicas y tipos de puesto sin romper la operación actual.
+- **Compatibilidad garantizada:** `salon` continúa resolviendo a la zona dinámica **Salón**, `bar + mesa` a **Bar** y `bar + banco` a **Barra**. Los tipos históricos `mesa` y `banco` continúan resolviendo a los tipos dinámicos **Mesa** y **Banco**.
+- **Normalización defensiva:** durante la inicialización se corrigen valores heredados compatibles, incluyendo registros antiguos de `barra` para que sigan funcionando con la lógica actual como `bar + banco`, manteniendo `zona_id` apuntando a la zona dinámica **Barra**.
+- **Validación de enlaces:** cada puesto histórico debe quedar vinculado a `zona_id` y `tipo_puesto_id`. Si existen referencias incompletas o inválidas, el sistema genera un reporte de compatibilidad para detectarlas antes de activar futuras restricciones.
+- **Nuevo endpoint de auditoría:** `GET /api/tables/structure/compatibility` permite revisar el estado de compatibilidad entre datos legacy y modelo dinámico sin escribir datos.
+- **Endpoint ampliado:** `GET /api/tables/structure` ahora incluye un bloque `compatibilidad` junto con zonas y tipos de puesto.
+- **Creación segura de puestos:** al crear una mesa/banco, el backend verifica que existan los enlaces dinámicos necesarios. Si no existen, intenta reparar la consistencia y evita crear registros sin `zona_id` o `tipo_puesto_id`.
+- **Alcance controlado:** no se activan todavía roles de trabajo, usuarios por zona, Dashboard dinámico, navegación móvil dinámica ni servicio 10% aplicado a cuentas.
+- **Archivos modificados:** `server/db/database.js`, `server/routes/tables.js` y `README.md`.
+- **Validación recomendada:** iniciar la app, revisar Dashboard/Zonas/Pedidos, abrir/reservar/liberar una mesa, crear un banco/mesa desde Zonas y consultar `/api/tables/structure/compatibility` confirmando `ok: true`.

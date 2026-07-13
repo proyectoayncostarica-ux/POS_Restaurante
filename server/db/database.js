@@ -355,7 +355,55 @@ class Database {
         await this.run(`UPDATE mesas SET tipo_asiento = COALESCE(NULLIF(tipo_asiento, ''), 'mesa')`);
         await this.run(`UPDATE mesas SET estado = 'libre' WHERE estado IS NULL OR estado NOT IN ('libre', 'ocupada', 'reservada')`);
         await this.run(`UPDATE mesas SET activo = 1 WHERE activo IS NULL`);
+        await this.normalizeLegacySeatCompatibilityValues();
         await this.run(`UPDATE mesas SET capacidad = 1 WHERE zona = 'bar' AND tipo_asiento = 'banco' AND (capacidad IS NULL OR capacidad < 1)`);
+    }
+
+    async normalizeLegacySeatCompatibilityValues() {
+        const rows = await this.all('SELECT id, zona, tipo_asiento, capacidad FROM mesas');
+
+        for (const row of rows) {
+            const currentZona = String(row.zona || 'salon').trim();
+            const currentTipo = String(row.tipo_asiento || 'mesa').trim();
+            const zonaSlug = this.normalizeDynamicSlug(currentZona, 'salon');
+            const tipoSlug = this.normalizeDynamicSlug(currentTipo, 'mesa');
+
+            let nextZona = currentZona;
+            let nextTipo = currentTipo;
+            let nextCapacidad = row.capacidad;
+
+            if (zonaSlug === 'barra') {
+                // Compatibilidad histórica: la Barra se operaba como bar + banco.
+                // El modelo dinámico la separa como zona_id=Barra, pero los campos legacy
+                // se mantienen compatibles para no romper pantallas actuales.
+                nextZona = 'bar';
+                nextTipo = 'banco';
+                nextCapacidad = 1;
+            } else if (zonaSlug === 'salon') {
+                nextZona = 'salon';
+                nextTipo = 'mesa';
+            } else if (zonaSlug === 'bar') {
+                nextZona = 'bar';
+                nextTipo = tipoSlug === 'banco' ? 'banco' : 'mesa';
+                if (nextTipo === 'banco') {
+                    nextCapacidad = 1;
+                }
+            } else {
+                // Zonas personalizadas heredadas se conservan como texto original,
+                // pero el tipo de puesto se normaliza solo si corresponde a los tipos base.
+                nextTipo = ['mesa', 'banco'].includes(tipoSlug) ? tipoSlug : currentTipo;
+                if (nextTipo === 'banco') {
+                    nextCapacidad = 1;
+                }
+            }
+
+            if (nextZona !== currentZona || nextTipo !== currentTipo || nextCapacidad !== row.capacidad) {
+                await this.run(
+                    'UPDATE mesas SET zona = ?, tipo_asiento = ?, capacidad = ? WHERE id = ?',
+                    [nextZona, nextTipo, nextCapacidad || 1, row.id]
+                );
+            }
+        }
     }
 
     async rebuildLegacyForeignKeys() {
@@ -706,6 +754,93 @@ class Database {
         await this.ensureZonesFromLegacySeats();
         await this.ensureSeatTypesFromLegacySeats();
         await this.backfillDynamicSeatLinks();
+
+        const report = await this.getDynamicModelCompatibilityReport();
+        if (!report.ok) {
+            console.warn('Advertencia: compatibilidad de zonas/puestos requiere revisión:', report.summary);
+        }
+    }
+
+    async getDynamicModelCompatibilityReport() {
+        const summary = await this.get(`
+            SELECT
+                COUNT(*) AS total_puestos,
+                SUM(CASE WHEN m.zona_id IS NULL THEN 1 ELSE 0 END) AS sin_zona_id,
+                SUM(CASE WHEN m.tipo_puesto_id IS NULL THEN 1 ELSE 0 END) AS sin_tipo_puesto_id,
+                SUM(CASE WHEN m.zona_id IS NOT NULL AND z.id IS NULL THEN 1 ELSE 0 END) AS zona_id_inexistente,
+                SUM(CASE WHEN m.tipo_puesto_id IS NOT NULL AND tp.id IS NULL THEN 1 ELSE 0 END) AS tipo_puesto_id_inexistente,
+                SUM(CASE WHEN COALESCE(m.activo, 1) = 1 THEN 1 ELSE 0 END) AS puestos_activos
+            FROM mesas m
+            LEFT JOIN zonas z ON z.id = m.zona_id
+            LEFT JOIN tipos_puesto tp ON tp.id = m.tipo_puesto_id
+        `);
+
+        const zonas = await this.all(`
+            SELECT
+                z.id,
+                z.nombre,
+                z.slug,
+                z.activa,
+                COUNT(m.id) AS puestos_total
+            FROM zonas z
+            LEFT JOIN mesas m ON m.zona_id = z.id
+            GROUP BY z.id
+            ORDER BY z.orden ASC, z.nombre ASC
+        `);
+
+        const tiposPuesto = await this.all(`
+            SELECT
+                tp.id,
+                tp.nombre,
+                tp.slug,
+                tp.activo,
+                COUNT(m.id) AS puestos_total
+            FROM tipos_puesto tp
+            LEFT JOIN mesas m ON m.tipo_puesto_id = tp.id
+            GROUP BY tp.id
+            ORDER BY tp.orden ASC, tp.nombre ASC
+        `);
+
+        const sampleIssues = await this.all(`
+            SELECT
+                m.id,
+                m.numero,
+                m.zona,
+                m.tipo_asiento,
+                m.zona_id,
+                m.tipo_puesto_id
+            FROM mesas m
+            LEFT JOIN zonas z ON z.id = m.zona_id
+            LEFT JOIN tipos_puesto tp ON tp.id = m.tipo_puesto_id
+            WHERE m.zona_id IS NULL
+               OR m.tipo_puesto_id IS NULL
+               OR (m.zona_id IS NOT NULL AND z.id IS NULL)
+               OR (m.tipo_puesto_id IS NOT NULL AND tp.id IS NULL)
+            ORDER BY m.id ASC
+            LIMIT 20
+        `);
+
+        const normalizedSummary = {
+            total_puestos: Number(summary?.total_puestos || 0),
+            puestos_activos: Number(summary?.puestos_activos || 0),
+            sin_zona_id: Number(summary?.sin_zona_id || 0),
+            sin_tipo_puesto_id: Number(summary?.sin_tipo_puesto_id || 0),
+            zona_id_inexistente: Number(summary?.zona_id_inexistente || 0),
+            tipo_puesto_id_inexistente: Number(summary?.tipo_puesto_id_inexistente || 0)
+        };
+
+        const ok = normalizedSummary.sin_zona_id === 0
+            && normalizedSummary.sin_tipo_puesto_id === 0
+            && normalizedSummary.zona_id_inexistente === 0
+            && normalizedSummary.tipo_puesto_id_inexistente === 0;
+
+        return {
+            ok,
+            summary: normalizedSummary,
+            zonas,
+            tipos_puesto: tiposPuesto,
+            sample_issues: sampleIssues
+        };
     }
 
     async insertInitialData() {
