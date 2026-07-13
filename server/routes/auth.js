@@ -53,6 +53,29 @@ async function getActiveAdminCount() {
     return Number(result?.count || 0);
 }
 
+
+async function getUserWorkRoles(userId) {
+    if (!userId) return [];
+
+    return database.all(`
+        SELECT
+            rt.id,
+            rt.nombre,
+            rt.slug,
+            rt.descripcion,
+            rt.activo,
+            COUNT(rtz.zona_id) AS zonas_total,
+            SUM(CASE WHEN z.activa = 1 THEN 1 ELSE 0 END) AS zonas_activas
+        FROM usuario_roles_trabajo urt
+        INNER JOIN roles_trabajo rt ON rt.id = urt.rol_trabajo_id
+        LEFT JOIN rol_trabajo_zonas rtz ON rtz.rol_trabajo_id = rt.id
+        LEFT JOIN zonas z ON z.id = rtz.zona_id
+        WHERE urt.usuario_id = ?
+        GROUP BY rt.id
+        ORDER BY rt.activo DESC, rt.nombre ASC
+    `, [userId]);
+}
+
 function validateBootstrapAdminPayload({ nombre, password, confirmPassword }) {
     const cleanName = sanitizeUserName(nombre);
     const cleanPassword = String(password || '');
@@ -133,7 +156,8 @@ router.post('/bootstrap-admin', async (req, res) => {
             user: {
                 id: req.session.userId,
                 nombre: payload.nombre,
-                tipo: 'administrador'
+                tipo: 'administrador',
+                roles_trabajo: []
             }
         });
     } catch (error) {
@@ -170,6 +194,8 @@ router.post('/login', async (req, res) => {
         req.session.userNombre = user.nombre; // compatibilidad con código viejo
         req.session.userType = user.tipo;
 
+        const rolesTrabajo = await getUserWorkRoles(user.id);
+
         await database.run(
             'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
             ['login', user.id, `Usuario ${user.nombre} inició sesión`, new Date().toISOString()]
@@ -180,7 +206,8 @@ router.post('/login', async (req, res) => {
             user: {
                 id: user.id,
                 nombre: user.nombre,
-                tipo: user.tipo
+                tipo: user.tipo,
+                roles_trabajo: rolesTrabajo
             }
         });
     } catch (error) {
@@ -213,18 +240,25 @@ router.post('/logout', async (req, res) => {
 });
 
 // Verificar sesión
-router.get('/verify', (req, res) => {
-    if (req.session && req.session.userId) {
-        res.json({
-            authenticated: true,
-            user: {
-                id: req.session.userId,
-                nombre: req.session.userName,
-                tipo: req.session.userType
-            }
-        });
-    } else {
-        res.json({ authenticated: false });
+router.get('/verify', async (req, res) => {
+    try {
+        if (req.session && req.session.userId) {
+            const rolesTrabajo = await getUserWorkRoles(req.session.userId);
+            res.json({
+                authenticated: true,
+                user: {
+                    id: req.session.userId,
+                    nombre: req.session.userName,
+                    tipo: req.session.userType,
+                    roles_trabajo: rolesTrabajo
+                }
+            });
+        } else {
+            res.json({ authenticated: false });
+        }
+    } catch (error) {
+        console.error('Error verificando sesión:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 

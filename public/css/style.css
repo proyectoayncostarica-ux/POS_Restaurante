@@ -6460,3 +6460,340 @@ body {
     }
 }
 
+
+/* v2.2.4.7 · Usuarios con rol de sistema y roles de trabajo */
+.users-premium-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.users-header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.55rem;
+}
+
+.users-summary {
+    margin-bottom: 0.8rem;
+}
+
+.users-summary-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+}
+
+.users-workrole-note {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin: 0 0 1rem;
+    padding: 0.75rem 0.9rem;
+    border-radius: 18px;
+    font-size: 0.86rem;
+    font-weight: 800;
+    line-height: 1.35;
+}
+
+.users-workrole-note.ok {
+    color: #1f7a4c;
+    background: rgba(46, 204, 113, 0.12);
+    border: 1px solid rgba(46, 204, 113, 0.18);
+}
+
+.users-workrole-note.warning {
+    color: #8a5a00;
+    background: rgba(243, 156, 18, 0.14);
+    border: 1px solid rgba(243, 156, 18, 0.22);
+}
+
+.users-workrole-note.compact {
+    margin-bottom: 0;
+    padding: 0.65rem 0.75rem;
+}
+
+.users-table-container {
+    overflow-x: auto;
+}
+
+.users-table td {
+    vertical-align: middle;
+}
+
+.user-work-role-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.32rem;
+    max-width: 26rem;
+}
+
+.user-work-role-chip,
+.user-role-empty {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.32rem;
+    padding: 0.24rem 0.48rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 850;
+    white-space: nowrap;
+}
+
+.user-work-role-chip {
+    color: #203247;
+    background: rgba(52, 152, 219, 0.1);
+    border: 1px solid rgba(52, 152, 219, 0.15);
+}
+
+.user-work-role-chip.is-warning {
+    color: #8a5a00;
+    background: rgba(243, 156, 18, 0.13);
+    border-color: rgba(243, 156, 18, 0.2);
+}
+
+.user-role-empty {
+    color: rgba(44, 62, 80, 0.62);
+    background: rgba(44, 62, 80, 0.06);
+    border: 1px solid rgba(44, 62, 80, 0.08);
+}
+
+.users-action-buttons {
+    white-space: nowrap;
+}
+
+.modal-content.modal-user-roles {
+    width: min(92vw, 620px);
+}
+
+.user-work-role-picker {
+    margin: 0.8rem 0;
+    padding: 0.85rem;
+    border: 1px solid rgba(52, 152, 219, 0.13);
+    border-radius: 20px;
+    background:
+        radial-gradient(circle at 98% 0%, rgba(52, 152, 219, 0.1), transparent 30%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 251, 253, 0.96));
+}
+
+.user-work-role-picker.empty {
+    padding: 0;
+    border: none;
+    background: transparent;
+}
+
+.user-work-role-picker-title {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.85rem;
+    margin-bottom: 0.7rem;
+}
+
+.user-work-role-picker-title strong {
+    color: #203247;
+    font-size: 0.9rem;
+    font-weight: 950;
+}
+
+.user-work-role-picker-title span {
+    color: rgba(44, 62, 80, 0.58);
+    font-size: 0.74rem;
+    font-weight: 800;
+    text-align: right;
+}
+
+.user-work-role-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.55rem;
+    max-height: 260px;
+    overflow-y: auto;
+    padding-right: 0.1rem;
+}
+
+.user-work-role-option {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.62rem;
+    border: 1px solid rgba(44, 62, 80, 0.08);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.84);
+    cursor: pointer;
+}
+
+.user-work-role-option input {
+    width: 1.05rem;
+    height: 1.05rem;
+    accent-color: #3498db;
+}
+
+.user-work-role-option strong,
+.user-work-role-option small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.user-work-role-option strong {
+    color: #203247;
+    font-size: 0.84rem;
+    font-weight: 950;
+}
+
+.user-work-role-option small {
+    margin-top: 0.08rem;
+    color: rgba(44, 62, 80, 0.58);
+    font-size: 0.7rem;
+    font-weight: 780;
+}
+
+.user-work-role-option.is-disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.text-danger {
+    color: var(--danger-color, #e74c3c) !important;
+}
+
+@media (max-width: 768px) {
+    .users-premium-header {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 0.78rem;
+    }
+
+    .users-header-actions {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+        gap: 0.42rem;
+        justify-content: stretch;
+    }
+
+    .users-header-actions .btn {
+        min-width: 0;
+        width: 100%;
+        justify-content: center;
+        padding-right: 0.55rem;
+        padding-left: 0.55rem;
+        white-space: nowrap;
+    }
+
+    .users-summary-grid {
+        gap: 0.38rem;
+    }
+
+    .users-workrole-note {
+        align-items: flex-start;
+        font-size: 0.78rem;
+        padding: 0.68rem 0.78rem;
+        border-radius: 16px;
+    }
+
+    .users-table-container {
+        margin-right: -0.25rem;
+        margin-left: -0.25rem;
+    }
+
+    .users-table {
+        min-width: 760px;
+    }
+
+    .modal-content.modal-user-roles {
+        width: calc(100vw - 1.1rem);
+        max-height: calc(92vh - env(safe-area-inset-bottom, 0px));
+        display: flex;
+        flex-direction: column;
+        border-radius: 24px;
+    }
+
+    .modal-content.modal-user-roles .modal-body {
+        overflow-y: auto;
+    }
+
+    .user-work-role-picker {
+        padding: 0.72rem;
+        border-radius: 18px;
+    }
+
+    .user-work-role-picker-title {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 0.2rem;
+    }
+
+    .user-work-role-picker-title span {
+        text-align: left;
+    }
+
+    .user-work-role-options {
+        grid-template-columns: 1fr;
+        max-height: 220px;
+    }
+}
+
+@media (max-width: 390px) {
+    .users-header-actions {
+        grid-template-columns: 1fr;
+    }
+}
+
+
+/* v2.2.4.7 fix1 · Footer visible en modal Nuevo Rol de trabajo */
+.modal-content.modal-zone-structure {
+    max-height: min(92vh, 760px);
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-content.modal-zone-structure .modal-header,
+.modal-content.modal-zone-structure .modal-footer {
+    flex: 0 0 auto;
+}
+
+.modal-content.modal-zone-structure .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.modal-content.modal-zone-structure .modal-footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+}
+
+@media (min-width: 769px) {
+    .modal-content.modal-zone-structure {
+        width: min(92vw, 600px);
+    }
+
+    .modal-content.modal-zone-structure .modal-body {
+        max-height: calc(92vh - 10.5rem);
+    }
+
+    .modal-content.modal-zone-structure .modal-footer {
+        box-shadow: 0 -12px 24px rgba(15, 23, 42, 0.06);
+    }
+
+    .modal-content.modal-zone-structure .work-role-zone-list {
+        max-height: min(34vh, 220px);
+    }
+}
+
+@media (max-width: 768px) {
+    .modal-content.modal-zone-structure {
+        max-height: calc(92vh - env(safe-area-inset-bottom, 0px));
+    }
+
+    .modal-content.modal-zone-structure .modal-body {
+        max-height: none;
+    }
+}
+

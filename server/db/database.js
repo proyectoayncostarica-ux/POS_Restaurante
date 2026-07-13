@@ -110,6 +110,16 @@ class Database {
                 FOREIGN KEY (zona_id) REFERENCES zonas (id) ON DELETE CASCADE
             )`,
 
+
+            `CREATE TABLE IF NOT EXISTS usuario_roles_trabajo (
+                usuario_id INTEGER NOT NULL,
+                rol_trabajo_id INTEGER NOT NULL,
+                creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (usuario_id, rol_trabajo_id),
+                FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE CASCADE,
+                FOREIGN KEY (rol_trabajo_id) REFERENCES roles_trabajo (id) ON DELETE CASCADE
+            )`,
+
             `CREATE TABLE IF NOT EXISTS mesas (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 numero INTEGER NOT NULL,
@@ -298,6 +308,8 @@ class Database {
             'CREATE INDEX IF NOT EXISTS idx_tipos_puesto_slug ON tipos_puesto(slug)',
             'CREATE INDEX IF NOT EXISTS idx_roles_trabajo_slug ON roles_trabajo(slug)',
             'CREATE INDEX IF NOT EXISTS idx_rol_trabajo_zonas_zona ON rol_trabajo_zonas(zona_id)',
+            'CREATE INDEX IF NOT EXISTS idx_usuario_roles_trabajo_usuario ON usuario_roles_trabajo(usuario_id)',
+            'CREATE INDEX IF NOT EXISTS idx_usuario_roles_trabajo_rol ON usuario_roles_trabajo(rol_trabajo_id)',
             'CREATE INDEX IF NOT EXISTS idx_cuentas_credito_fecha ON cuentas_credito(fecha)',
             'CREATE INDEX IF NOT EXISTS idx_historial_fecha ON historial_transacciones(fecha)'
         ];
@@ -544,6 +556,8 @@ class Database {
         await this.run(`UPDATE creditos SET cuenta_id = NULL WHERE cuenta_id IS NOT NULL AND cuenta_id NOT IN (SELECT id FROM cuentas_credito)`);
         await this.run(`UPDATE cuentas_credito SET pedido_id = NULL WHERE pedido_id IS NOT NULL AND pedido_id NOT IN (SELECT id FROM pedidos)`);
         await this.run(`UPDATE historial_transacciones SET usuario_id = NULL WHERE usuario_id IS NOT NULL AND usuario_id NOT IN (SELECT id FROM usuarios)`);
+        await this.run(`DELETE FROM usuario_roles_trabajo WHERE usuario_id NOT IN (SELECT id FROM usuarios)`);
+        await this.run(`DELETE FROM usuario_roles_trabajo WHERE rol_trabajo_id NOT IN (SELECT id FROM roles_trabajo)`);
     }
 
     shouldSeedDemoUser() {

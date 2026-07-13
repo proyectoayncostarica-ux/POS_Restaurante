@@ -1,4 +1,4 @@
-const MUNDIPOS_SW_VERSION = 'v2.2.4.6-fix1-admin-zones-visual';
+const MUNDIPOS_SW_VERSION = 'v2.2.4.7-fix1-work-role-modal-footer';
 const APP_SHELL_CACHE = `mundipos-shell-${MUNDIPOS_SW_VERSION}`;
 const RUNTIME_CACHE = `mundipos-runtime-${MUNDIPOS_SW_VERSION}`;
 
@@ -9,7 +9,7 @@ const APP_SHELL_URLS = [
   '/POS/manifest.webmanifest',
   '/POS/favicon.ico',
   '/POS/css/style.css',
-  '/POS/css/style.css?v=2.2.4.6-fix1-admin-zones-visual',
+  '/POS/css/style.css?v=2.2.4.7-fix1-work-role-modal-footer',
   '/POS/js/main.js',
   '/POS/js/components/dashboard.js',
   '/POS/js/components/tables.js',
@@ -17,6 +17,7 @@ const APP_SHELL_URLS = [
   '/POS/js/components/orders.js',
   '/POS/js/components/accounts.js',
   '/POS/js/components/users.js',
+  '/POS/js/components/users.js?v=2.2.4.7-user-work-roles',
   '/POS/js/components/settings.js',
   '/POS/assets/brand/mundipos-mark.png',
   '/POS/assets/icons/mundipos-icon-192.png',

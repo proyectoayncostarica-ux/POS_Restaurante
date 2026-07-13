@@ -520,3 +520,25 @@ En Windows también puedes usar `Inicio_Servidor.bat`. En Linux/macOS puedes usa
 - **PC:** los botones administrativos quedan alineados de forma uniforme y las tres columnas mantienen un layout ordenado.
 - **Móvil:** se evita la superposición de columnas, se reduce el tamaño de tarjetas/badges y se mantiene la operación sin cambios.
 - **Alcance:** ajuste visual únicamente; no cambia endpoints, base de datos, permisos ni lógica operativa.
+
+### v2.2.4.7 · Usuarios con rol de sistema y roles de trabajo
+
+- Se agrega el vínculo entre usuarios y roles de trabajo mediante la tabla `usuario_roles_trabajo`.
+- El rol de sistema sigue usando el campo compatible `usuarios.tipo`:
+  - `administrador` para acceso administrativo completo.
+  - `basico` como usuario estándar operativo.
+- El módulo **Usuarios** ahora permite asignar uno o varios roles de trabajo existentes a cada usuario.
+- Los usuarios estándar deben tener al menos un rol de trabajo activo con zonas activas.
+- Los administradores pueden existir sin roles de trabajo, manteniendo el bootstrap inicial y la administración general del sistema.
+- Los endpoints de usuarios devuelven `roles_trabajo` asociados a cada usuario.
+- `POST /api/users` y `PUT /api/users/:id` aceptan `roles_trabajo_ids`.
+- Nuevo endpoint administrativo: `GET /api/users/work-roles` para listar roles disponibles para asignación.
+- `GET /api/auth/login` y `GET /api/auth/verify` ahora incluyen los roles de trabajo asignados en el usuario autenticado.
+- No se activa todavía selección de rol activo al iniciar sesión, filtro operativo por rol, Dashboard dinámico ni restricciones backend por zona. Eso queda para las siguientes subfases.
+
+### v2.2.4.7 fix1 · Footer visible en modal Nuevo Rol de trabajo
+
+- **Problema detectado:** en PC, el modal **Nuevo Rol de trabajo** podía superar el alto visible de la pantalla y dejar fuera del viewport los botones **Cancelar** y **Crear rol**.
+- **Corrección aplicada:** los modales de estructura ahora usan layout vertical con alto máximo, cuerpo desplazable y footer fijo dentro del modal.
+- **Resultado esperado:** los botones del footer permanecen visibles en PC y móvil, incluso cuando hay varias zonas disponibles para seleccionar.
+- **Alcance:** corrección visual únicamente; no cambia base de datos, endpoints, validaciones ni permisos.
