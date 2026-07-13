@@ -1,12 +1,18 @@
 // Tables Component
 const Tables = {
     data: [],
+    structure: { zonas: [], tipos_puesto: [], compatibilidad: null },
 
     // Cargar datos de mesas
     async load() {
         try {
-            const response = await Utils.request('/tables');
-            this.data = response.data;
+            const [tablesResponse, structureResponse] = await Promise.all([
+                Utils.request('/tables'),
+                Utils.request('/tables/structure')
+            ]);
+
+            this.data = tablesResponse.data || [];
+            this.structure = structureResponse.data || { zonas: [], tipos_puesto: [], compatibilidad: null };
             this.render();
         } catch (error) {
             console.error('Error cargando zonas:', error);
@@ -14,12 +20,45 @@ const Tables = {
         }
     },
 
+    isAdmin() {
+        return currentUser?.tipo === 'administrador';
+    },
+
+    escapeHtml(value = '') {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    },
+
+    activeZones() {
+        return (this.structure?.zonas || []).filter(zone => Number(zone.activa) === 1);
+    },
+
+    activeSeatTypes() {
+        return (this.structure?.tipos_puesto || []).filter(type => Number(type.activo) === 1);
+    },
+
+    getZoneById(id) {
+        return (this.structure?.zonas || []).find(zone => Number(zone.id) === Number(id));
+    },
+
+    getSeatTypeById(id) {
+        return (this.structure?.tipos_puesto || []).find(type => Number(type.id) === Number(id));
+    },
+
+    formatBooleanLabel(value, trueLabel = 'Sí', falseLabel = 'No') {
+        return Number(value) === 1 ? trueLabel : falseLabel;
+    },
+
     // Renderizar sección de mesas
     render() {
     const section = document.getElementById('tables-section');
     this.filtroTipo = this.filtroTipo || 'todos';
 
-    // Filtros y etiquetas
+    // Filtros legacy conservados hasta activar navegación dinámica completa en fases posteriores.
     const filtros = ['todos', 'salon', 'bar-mesa', 'bar-banco'];
     const iconos = {
         'todos': 'fa-border-all',
@@ -50,24 +89,28 @@ const Tables = {
     section.innerHTML = `
         <div class="section-header">
             <h2>Gestión de Zonas</h2>
-            <p>Administra las zonas del restaurante</p>
+            <p>Administra la estructura física y operativa del local</p>
         </div>
+
+        ${this.renderStructureAdminPanel()}
 
         <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-3">
             <div class="d-flex gap-2">
-                <button class="btn btn-success" onclick="Tables.showCreateModal()">
-                    <i class="fas fa-plus"></i> Nueva Zona
-                </button>
+                ${this.isAdmin() ? `
+                    <button class="btn btn-success" onclick="Tables.showCreateModal()">
+                        <i class="fas fa-plus"></i> Nuevo puesto
+                    </button>
+                ` : ''}
             </div>
 
             ${botonesFiltro}
         </div>
 
         <div class="internal-view-panel" data-internal-panel="tables">
-            <div class="d-flex gap-2">
-                <span class="badge badge-success">Libres: ${this.data.filter(m => m.estado === 'libre').length}</span>
-                <span class="badge badge-danger">Ocupadas: ${this.data.filter(m => m.estado === 'ocupada').length}</span>
-                <span class="badge badge-warning">Reservadas: ${this.data.filter(m => m.estado === 'reservada').length}</span>
+            <div class="d-flex gap-2 flex-wrap mb-3">
+                <span class="badge badge-success">Libres: ${this.getFilteredSeats().filter(m => m.estado === 'libre').length}</span>
+                <span class="badge badge-danger">Ocupadas: ${this.getFilteredSeats().filter(m => m.estado === 'ocupada').length}</span>
+                <span class="badge badge-warning">Reservadas: ${this.getFilteredSeats().filter(m => m.estado === 'reservada').length}</span>
             </div>
 
             <div class="mesas-grid">
@@ -76,6 +119,137 @@ const Tables = {
         </div>
     `;
 },
+
+    renderStructureAdminPanel() {
+    if (!this.isAdmin()) {
+        return `
+            <div class="zones-structure-note">
+                <i class="fas fa-lock"></i>
+                <span>Vista operativa: puedes trabajar con los puestos disponibles. La estructura del local la administra un usuario administrador.</span>
+            </div>
+        `;
+    }
+
+    const zonas = this.structure?.zonas || [];
+    const tipos = this.structure?.tipos_puesto || [];
+    const compatibility = this.structure?.compatibilidad;
+
+    return `
+        <section class="zones-admin-shell">
+            <div class="zones-admin-header">
+                <div>
+                    <span class="zones-admin-eyebrow">Estructura del local</span>
+                    <h3>Zonas y tipos de puesto</h3>
+                    <p>Configura locaciones como Salón, Terraza o Barra y tipos como Mesa, Banco o Sillón.</p>
+                </div>
+                <div class="zones-admin-actions">
+                    <button class="btn btn-primary" onclick="Tables.showZoneFormModal()">
+                        <i class="fas fa-map-location-dot"></i> Nueva zona
+                    </button>
+                    <button class="btn btn-light" onclick="Tables.showSeatTypeFormModal()">
+                        <i class="fas fa-couch"></i> Nuevo tipo
+                    </button>
+                </div>
+            </div>
+
+            <div class="zones-admin-grid">
+                <div class="zones-admin-column">
+                    <div class="zones-admin-column-title">
+                        <strong>Zonas</strong>
+                        <span>${zonas.length}</span>
+                    </div>
+                    <div class="zones-admin-list">
+                        ${zonas.length ? zonas.map(zone => this.renderZoneAdminCard(zone)).join('') : '<p class="zones-empty-admin">No hay zonas configuradas.</p>'}
+                    </div>
+                </div>
+
+                <div class="zones-admin-column">
+                    <div class="zones-admin-column-title">
+                        <strong>Tipos de puesto</strong>
+                        <span>${tipos.length}</span>
+                    </div>
+                    <div class="zones-admin-list">
+                        ${tipos.length ? tipos.map(type => this.renderSeatTypeAdminCard(type)).join('') : '<p class="zones-empty-admin">No hay tipos de puesto configurados.</p>'}
+                    </div>
+                </div>
+            </div>
+
+            ${compatibility ? `
+                <div class="zones-compatibility ${compatibility.ok ? 'ok' : 'warning'}">
+                    <i class="fas ${compatibility.ok ? 'fa-circle-check' : 'fa-triangle-exclamation'}"></i>
+                    <span>${compatibility.ok ? 'Modelo dinámico compatible' : 'Compatibilidad requiere revisión'} · ${Number(compatibility.summary?.puestos_activos || 0)} puestos activos</span>
+                </div>
+            ` : ''}
+        </section>
+    `;
+},
+
+    renderZoneAdminCard(zone) {
+    const zoneName = this.escapeHtml(zone.nombre);
+    return `
+        <article class="zone-admin-card ${Number(zone.activa) === 1 ? '' : 'is-inactive'}">
+            <div class="zone-admin-icon" style="--zone-color:${this.escapeHtml(zone.color || '#3498db')}">
+                <i class="fas ${this.escapeHtml(zone.icono || 'fa-location-dot')}"></i>
+            </div>
+            <div class="zone-admin-info">
+                <strong>${zoneName}</strong>
+                <small>${Number(zone.puestos_total || 0)} puestos · orden ${Number(zone.orden || 0)}</small>
+                <div class="zone-admin-badges">
+                    <span>${this.formatBooleanLabel(zone.acepta_reservas, 'Reserva', 'Sin reserva')}</span>
+                    <span>${this.formatBooleanLabel(zone.aplica_servicio, `${Number(zone.porcentaje_servicio || 10)}% servicio`, 'Sin servicio')}</span>
+                    <span>${this.formatBooleanLabel(zone.visible_dashboard, 'Dashboard', 'Oculta')}</span>
+                    <span>${this.formatBooleanLabel(zone.activa, 'Activa', 'Inactiva')}</span>
+                </div>
+            </div>
+            <button class="btn btn-light btn-sm" onclick="Tables.showZoneFormModal(${Number(zone.id)})">
+                <i class="fas fa-pen"></i>
+            </button>
+        </article>
+    `;
+},
+
+    renderSeatTypeAdminCard(type) {
+    return `
+        <article class="zone-admin-card ${Number(type.activo) === 1 ? '' : 'is-inactive'}">
+            <div class="zone-admin-icon type-icon">
+                <i class="fas ${this.escapeHtml(type.icono || 'fa-chair')}"></i>
+            </div>
+            <div class="zone-admin-info">
+                <strong>${this.escapeHtml(type.nombre)}</strong>
+                <small>${Number(type.puestos_total || 0)} puestos · orden ${Number(type.orden || 0)}</small>
+                <div class="zone-admin-badges">
+                    <span>${this.formatBooleanLabel(type.activo, 'Activo', 'Inactivo')}</span>
+                    <span>${this.escapeHtml(type.slug || '')}</span>
+                </div>
+            </div>
+            <button class="btn btn-light btn-sm" onclick="Tables.showSeatTypeFormModal(${Number(type.id)})">
+                <i class="fas fa-pen"></i>
+            </button>
+        </article>
+    `;
+},
+
+    getFilteredSeats() {
+    const filtro = this.filtroTipo || 'todos';
+    let seats = [...this.data];
+
+    if (filtro === 'salon') {
+        seats = seats.filter(m => (m.zona || '').toLowerCase() === 'salon');
+    } else if (filtro === 'bar-mesa') {
+        seats = seats.filter(m =>
+            (m.zona || '').toLowerCase() === 'bar' &&
+            (m.tipo_asiento || '').toLowerCase() === 'mesa'
+        );
+    } else if (filtro === 'bar-banco') {
+        seats = seats.filter(m =>
+            ((m.zona_slug || '').toLowerCase() === 'barra') ||
+            ((m.zona || '').toLowerCase() === 'bar' && (m.tipo_asiento || '').toLowerCase() === 'banco')
+        );
+    }
+
+    return seats;
+},
+
 
     //Filtrar por Zona
     filtrarPorZona(zonaSeleccionada) {
@@ -94,59 +268,53 @@ const Tables = {
     Navigation.syncInternalSubnav('tables');
 },
 
-    // Renderizar grid de mesas
+    // Renderizar grid de puestos
     renderMesasGrid() {
     if (this.data.length === 0) {
-        return '<p class="text-center">No hay zonas configuradas</p>';
+        return '<p class="text-center">No hay puestos configurados</p>';
     }
 
-    // Filtro actual o valor por defecto
-    const filtro = this.filtroTipo || 'todos';
+    const puestos = this.getFilteredSeats();
 
-    // Separar mesas y bancos
-    let mesas = this.data.filter(m => (m.tipo_asiento || '').toLowerCase() === 'mesa');
-    let bancos = this.data.filter(m => (m.tipo_asiento || '').toLowerCase() === 'banco');
-
-    // Aplicar filtros
-    if (filtro === 'salon') {
-        mesas = mesas.filter(m => (m.zona || '').toLowerCase() === 'salon');
-        bancos = [];
-    } else if (filtro === 'bar-mesa') {
-        mesas = mesas.filter(m =>
-            (m.zona || '').toLowerCase() === 'bar' &&
-            (m.tipo_asiento || '').toLowerCase() === 'mesa'
-        );
-        bancos = [];
-    } else if (filtro === 'bar-banco') {
-        mesas = [];
-        bancos = bancos.filter(m =>
-            (m.zona || '').toLowerCase() === 'bar' &&
-            (m.tipo_asiento || '').toLowerCase() === 'banco'
-        );
+    if (puestos.length === 0) {
+        return '<p class="text-center">No hay puestos para este filtro</p>';
     }
 
-    // Renderizar tarjeta individual
     const renderCard = (mesa) => {
-        const tipoClase = (mesa.zona?.toLowerCase() === 'salon')
-            ? 'tipo-salon'
-            : (mesa.tipo_asiento?.toLowerCase() === 'mesa' ? 'tipo-bar-mesa' : 'tipo-bar-banco');
+        const tipoSlug = (mesa.tipo_puesto_slug || mesa.tipo_asiento || 'mesa').toLowerCase();
+        const zonaSlug = (mesa.zona_slug || mesa.zona || 'salon').toLowerCase();
+        const tipoNombre = mesa.tipo_puesto_nombre || (tipoSlug === 'banco' ? 'Banco' : 'Mesa');
+        const zonaNombre = mesa.zona_nombre || (zonaSlug === 'barra' ? 'Barra' : zonaSlug === 'bar' ? 'Bar' : 'Salón');
+        const tipoClase = tipoSlug === 'banco'
+            ? 'tipo-bar-banco'
+            : zonaSlug === 'salon'
+                ? 'tipo-salon'
+                : 'tipo-bar-mesa';
 
         const estadoClase = mesa.estado === 'reservada' ? 'reservada' : mesa.estado;
+        const estadoTexto = String(mesa.estado || '').toUpperCase();
+        const puestoTitulo = mesa.nombre_visible || `${tipoNombre} ${mesa.numero}`;
 
         return `
         <div class="mesa-card ${estadoClase} ${tipoClase}" onclick="Tables.handleMesaClick(${mesa.id})">
-            <div class="mesa-numero">
-                ${(mesa.zona?.toLowerCase() === 'bar' && mesa.tipo_asiento?.toLowerCase() === 'banco') ? 'Banco' : 'Mesa'} ${mesa.numero}
+            <div class="mesa-zone-badge">
+                <i class="fas ${this.escapeHtml(mesa.zona_icono || 'fa-location-dot')}"></i>
+                ${this.escapeHtml(zonaNombre)} / ${this.escapeHtml(tipoNombre)}
             </div>
-            <div class="mesa-estado ${mesa.estado}">${mesa.estado}</div>
+            <div class="mesa-numero">
+                ${this.escapeHtml(puestoTitulo)}
+            </div>
+            <div class="mesa-estado ${mesa.estado}">${this.escapeHtml(estadoTexto)}</div>
             <div class="mesa-info">
                 <small>Capacidad: ${mesa.capacidad}</small>
-                ${mesa.cliente_nombre ? `<br><small>Cliente: ${mesa.cliente_nombre}</small>` : ''}
+                ${Number(mesa.acepta_reservas) === 1 ? `<br><small>Reservas: Sí</small>` : `<br><small>Reservas: No</small>`}
+                ${Number(mesa.aplica_servicio) === 1 ? `<br><small>Servicio: ${Number(mesa.porcentaje_servicio || 10)}%</small>` : `<br><small>Servicio: No</small>`}
+                ${mesa.cliente_nombre ? `<br><small>Cliente: ${this.escapeHtml(mesa.cliente_nombre)}</small>` : ''}
                 ${mesa.fecha_apertura ? `<br><small>Desde: ${new Date(mesa.fecha_apertura).toLocaleTimeString()}</small>` : ''}
             </div>
             <div class="mesa-actions mt-2">
-                ${mesa.estado === 'libre' ? `
-                    ${!(mesa.zona?.toLowerCase() === 'bar' && mesa.tipo_asiento?.toLowerCase() === 'banco') ? `
+                ${this.isAdmin() && mesa.estado === 'libre' ? `
+                    ${tipoSlug !== 'banco' ? `
                         <button class="btn btn-light btn-sm" onclick="event.stopPropagation(); Tables.showEditModal(${mesa.id})">
                             <i class="fas fa-edit"></i>
                         </button>
@@ -160,9 +328,9 @@ const Tables = {
         `;
     };
 
-    // Renderizar todas
-    return [...mesas.map(renderCard), ...bancos.map(renderCard)].join('');
+    return puestos.map(renderCard).join('');
 },
+
 
     // Renderizar tabla de mesas
     renderMesasTable() {
@@ -245,150 +413,271 @@ const Tables = {
     }
 },
 
-    // Mostrar modal para crear mesa
-    showCreateModal() {
-    Utils.showModal('Nueva Zona', `
-        <form id="create-mesa-form">
-            <div class="form-group">
-                <label for="tipo-zona">Tipo de Zona *</label>
-                <select id="tipo-zona" name="tipo_zona" required>
-                    <option value="">Seleccione un tipo</option>
-                    <option value="salon">Salón</option>
-                    <option value="bar">Bar</option>
-                </select>
-            </div>
+    showZoneFormModal(zoneId = null) {
+    if (!this.isAdmin()) {
+        Utils.showNotification('Solo un administrador puede modificar zonas', 'warning');
+        return;
+    }
 
-            <div class="form-group" id="tipo-asiento-group" style="display: none;">
-                <label for="tipo-asiento">Tipo de Asiento *</label>
-                <select id="tipo-asiento" name="tipo_asiento">
-                    <option value="mesa">Mesa</option>
-                    <option value="banco">Banco</option>
-                </select>
-            </div>
+    const zone = zoneId ? this.getZoneById(zoneId) : null;
+    const isEdit = Boolean(zone);
 
+    Utils.showModal(isEdit ? 'Editar zona' : 'Nueva zona', `
+        <form id="zone-form" class="zone-structure-form">
+            <input type="hidden" id="zone-id" value="${zone?.id || ''}">
             <div class="form-group">
-                <label for="numero">Número *</label>
-                <input type="number" id="numero" name="numero" readonly required>
+                <label for="zone-name">Nombre de la zona *</label>
+                <input type="text" id="zone-name" name="nombre" maxlength="40" value="${this.escapeHtml(zone?.nombre || '')}" placeholder="Ej: Terraza, VIP, Patio" required>
             </div>
-
-            <div class="form-group">
-                <label for="capacidad">Capacidad (personas) *</label>
-                <input type="number" id="capacidad" name="capacidad" min="1" max="20" required>
+            <div class="structure-form-row">
+                <div class="form-group">
+                    <label for="zone-icon">Icono Font Awesome</label>
+                    <input type="text" id="zone-icon" name="icono" value="${this.escapeHtml(zone?.icono || 'fa-location-dot')}" placeholder="fa-location-dot">
+                </div>
+                <div class="form-group">
+                    <label for="zone-color">Color/acento</label>
+                    <input type="color" id="zone-color" name="color" value="${this.escapeHtml(zone?.color || '#3498db')}">
+                </div>
+            </div>
+            <div class="structure-form-row">
+                <div class="form-group">
+                    <label for="zone-order">Orden</label>
+                    <input type="number" id="zone-order" name="orden" min="0" value="${Number(zone?.orden || 0)}">
+                </div>
+                <div class="form-group">
+                    <label for="zone-service-percent">% servicio</label>
+                    <input type="number" id="zone-service-percent" name="porcentaje_servicio" min="0" max="100" value="${Number(zone?.porcentaje_servicio || 10)}">
+                </div>
+            </div>
+            <div class="structure-switch-grid">
+                ${this.renderSwitch('zone-reservations', 'acepta_reservas', 'Acepta reservaciones', zone ? Number(zone.acepta_reservas) === 1 : true)}
+                ${this.renderSwitch('zone-service', 'aplica_servicio', 'Aplica servicio', zone ? Number(zone.aplica_servicio) === 1 : true)}
+                ${this.renderSwitch('zone-dashboard', 'visible_dashboard', 'Visible en Dashboard', zone ? Number(zone.visible_dashboard) === 1 : true)}
+                ${this.renderSwitch('zone-active', 'activa', 'Zona activa', zone ? Number(zone.activa) === 1 : true)}
             </div>
         </form>
     `, [
         { text: 'Cancelar', class: 'btn-light' },
-        { text: 'Crear Zona', class: 'btn-success', onclick: 'Tables.createMesa()' }
-    ]);
+        { text: `<i class="fas fa-save"></i> ${isEdit ? 'Guardar' : 'Crear zona'}`, class: 'btn-success', onclick: 'Tables.saveZone()' }
+    ], 'modal-zone-structure');
+},
 
-    const tipoZona = document.getElementById('tipo-zona');
-    const tipoAsientoGroup = document.getElementById('tipo-asiento-group');
-    const tipoAsiento = document.getElementById('tipo-asiento');
-    const numeroInput = document.getElementById('numero');
+    showSeatTypeFormModal(typeId = null) {
+    if (!this.isAdmin()) {
+        Utils.showNotification('Solo un administrador puede modificar tipos de puesto', 'warning');
+        return;
+    }
+
+    const type = typeId ? this.getSeatTypeById(typeId) : null;
+    const isEdit = Boolean(type);
+
+    Utils.showModal(isEdit ? 'Editar tipo de puesto' : 'Nuevo tipo de puesto', `
+        <form id="seat-type-form" class="zone-structure-form">
+            <input type="hidden" id="seat-type-id" value="${type?.id || ''}">
+            <div class="form-group">
+                <label for="seat-type-name">Nombre del tipo *</label>
+                <input type="text" id="seat-type-name" name="nombre" maxlength="40" value="${this.escapeHtml(type?.nombre || '')}" placeholder="Ej: Mesa, Banco, Sillón, Cabina" required>
+            </div>
+            <div class="structure-form-row">
+                <div class="form-group">
+                    <label for="seat-type-icon">Icono Font Awesome</label>
+                    <input type="text" id="seat-type-icon" name="icono" value="${this.escapeHtml(type?.icono || 'fa-chair')}" placeholder="fa-chair">
+                </div>
+                <div class="form-group">
+                    <label for="seat-type-order">Orden</label>
+                    <input type="number" id="seat-type-order" name="orden" min="0" value="${Number(type?.orden || 0)}">
+                </div>
+            </div>
+            <div class="structure-switch-grid one-column">
+                ${this.renderSwitch('seat-type-active', 'activo', 'Tipo activo', type ? Number(type.activo) === 1 : true)}
+            </div>
+        </form>
+    `, [
+        { text: 'Cancelar', class: 'btn-light' },
+        { text: `<i class="fas fa-save"></i> ${isEdit ? 'Guardar' : 'Crear tipo'}`, class: 'btn-success', onclick: 'Tables.saveSeatType()' }
+    ], 'modal-zone-structure');
+},
+
+    renderSwitch(id, name, label, checked = true) {
+    return `
+        <label class="structure-switch" for="${id}">
+            <input type="checkbox" id="${id}" name="${name}" ${checked ? 'checked' : ''}>
+            <span></span>
+            <strong>${label}</strong>
+        </label>
+    `;
+},
+
+    async saveZone() {
+    const form = document.getElementById('zone-form');
+    if (!Utils.validateForm(form)) return;
+
+    const zoneId = document.getElementById('zone-id')?.value;
+    const formData = new FormData(form);
+    const data = {
+        nombre: formData.get('nombre'),
+        icono: formData.get('icono'),
+        color: formData.get('color'),
+        orden: Number(formData.get('orden') || 0),
+        acepta_reservas: formData.get('acepta_reservas') === 'on',
+        aplica_servicio: formData.get('aplica_servicio') === 'on',
+        porcentaje_servicio: Number(formData.get('porcentaje_servicio') || 10),
+        visible_dashboard: formData.get('visible_dashboard') === 'on',
+        activa: formData.get('activa') === 'on'
+    };
+
+    try {
+        await Utils.request(zoneId ? `/tables/zones/${zoneId}` : '/tables/zones', {
+            method: zoneId ? 'PUT' : 'POST',
+            body: JSON.stringify(data)
+        });
+
+        Utils.hideModal();
+        Utils.showNotification(zoneId ? 'Zona actualizada correctamente' : 'Zona creada correctamente', 'success');
+        await this.load();
+    } catch (error) {
+        Utils.showNotification(error.message || 'Error guardando zona', 'error');
+    }
+},
+
+    async saveSeatType() {
+    const form = document.getElementById('seat-type-form');
+    if (!Utils.validateForm(form)) return;
+
+    const typeId = document.getElementById('seat-type-id')?.value;
+    const formData = new FormData(form);
+    const data = {
+        nombre: formData.get('nombre'),
+        icono: formData.get('icono'),
+        orden: Number(formData.get('orden') || 0),
+        activo: formData.get('activo') === 'on'
+    };
+
+    try {
+        await Utils.request(typeId ? `/tables/seat-types/${typeId}` : '/tables/seat-types', {
+            method: typeId ? 'PUT' : 'POST',
+            body: JSON.stringify(data)
+        });
+
+        Utils.hideModal();
+        Utils.showNotification(typeId ? 'Tipo actualizado correctamente' : 'Tipo de puesto creado correctamente', 'success');
+        await this.load();
+    } catch (error) {
+        Utils.showNotification(error.message || 'Error guardando tipo de puesto', 'error');
+    }
+},
+
+    // Mostrar modal para crear puesto
+    showCreateModal() {
+    const zonas = this.activeZones();
+    const tipos = this.activeSeatTypes();
+
+    if (!zonas.length || !tipos.length) {
+        Utils.showNotification('Antes de crear puestos debe existir al menos una zona activa y un tipo de puesto activo', 'warning');
+        return;
+    }
+
+    Utils.showModal('Nuevo puesto', `
+        <form id="create-mesa-form" class="zone-structure-form">
+            <div class="structure-form-row">
+                <div class="form-group">
+                    <label for="zona-id">Zona *</label>
+                    <select id="zona-id" name="zona_id" required>
+                        <option value="">Seleccione una zona</option>
+                        ${zonas.map(zone => `<option value="${Number(zone.id)}">${this.escapeHtml(zone.nombre)}</option>`).join('')}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="tipo-puesto-id">Tipo de puesto *</label>
+                    <select id="tipo-puesto-id" name="tipo_puesto_id" required>
+                        <option value="">Seleccione un tipo</option>
+                        ${tipos.map(type => `<option value="${Number(type.id)}">${this.escapeHtml(type.nombre)}</option>`).join('')}
+                    </select>
+                </div>
+            </div>
+
+            <div class="structure-form-row">
+                <div class="form-group">
+                    <label for="numero">Número *</label>
+                    <input type="number" id="numero" name="numero" readonly required>
+                </div>
+
+                <div class="form-group">
+                    <label for="capacidad">Capacidad *</label>
+                    <input type="number" id="capacidad" name="capacidad" min="1" max="99" required>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="nombre-visible">Nombre visible opcional</label>
+                <input type="text" id="nombre-visible" name="nombre_visible" maxlength="40" placeholder="Ej: Mesa alta ventana, Cabina VIP">
+            </div>
+
+            <div class="structure-form-row">
+                <div class="form-group">
+                    <label for="acepta-reservas-override">Reservaciones</label>
+                    <select id="acepta-reservas-override" name="acepta_reservas_override">
+                        <option value="heredar">Heredar de zona</option>
+                        <option value="1">Sí acepta</option>
+                        <option value="0">No acepta</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="aplica-servicio-override">Servicio 10%</label>
+                    <select id="aplica-servicio-override" name="aplica_servicio_override">
+                        <option value="heredar">Heredar de zona</option>
+                        <option value="1">Sí aplica</option>
+                        <option value="0">No aplica</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="zone-create-hint" id="zone-create-hint">
+                Seleccione zona y tipo para generar el siguiente número disponible.
+            </div>
+        </form>
+    `, [
+        { text: 'Cancelar', class: 'btn-light' },
+        { text: '<i class="fas fa-plus"></i> Crear puesto', class: 'btn-success', onclick: 'Tables.createMesa()' }
+    ], 'modal-zone-structure');
+
+    const zonaSelect = document.getElementById('zona-id');
+    const typeSelect = document.getElementById('tipo-puesto-id');
     const capacidadInput = document.getElementById('capacidad');
 
-    // Función auxiliar para actualizar número automáticamente
-    const actualizarNumero = async () => {
-        const zona = tipoZona.value;
-        const tipo = zona === 'bar' ? tipoAsiento.value : null;
+    const refreshNumber = async () => {
+        const zoneId = zonaSelect.value;
+        const typeId = typeSelect.value;
+        const numeroInput = document.getElementById('numero');
+        const hint = document.getElementById('zone-create-hint');
+        const type = this.getSeatTypeById(typeId);
+        const zone = this.getZoneById(zoneId);
 
-        if (!zona || (zona === 'bar' && !tipo)) {
+        if (!zoneId || !typeId) {
             numeroInput.value = '';
             return;
         }
 
-        const numero = await Tables.obtenerSiguienteNumero(zona, tipo);
-        numeroInput.value = numero;
+        if ((type?.slug || '').toLowerCase() === 'banco') {
+            capacidadInput.value = 1;
+            capacidadInput.setAttribute('readonly', 'readonly');
+        } else {
+            capacidadInput.removeAttribute('readonly');
+            if (!capacidadInput.value || Number(capacidadInput.value) < 1) capacidadInput.value = '';
+        }
+
+        numeroInput.value = await Tables.obtenerSiguienteNumeroDinamico(zoneId, typeId);
+        if (hint && zone && type) {
+            hint.innerHTML = `Configuración heredada: <strong>${this.escapeHtml(zone.nombre)}</strong> · ${Number(zone.acepta_reservas) === 1 ? 'acepta reservas' : 'sin reservas'} · ${Number(zone.aplica_servicio) === 1 ? `${Number(zone.porcentaje_servicio || 10)}% servicio` : 'sin servicio'} · tipo <strong>${this.escapeHtml(type.nombre)}</strong>.`;
+        }
     };
 
-    // Evento al cambiar tipo de zona
-    tipoZona.addEventListener('change', async function () {
-        const esBar = this.value === 'bar';
-        tipoAsientoGroup.style.display = esBar ? 'block' : 'none';
-
-        if (!esBar) {
-            tipoAsiento.value = 'mesa';
-            capacidadInput.removeAttribute('readonly');
-            capacidadInput.removeAttribute('disabled');
-            capacidadInput.value = '';
-            await actualizarNumero();
-        } else {
-            tipoAsiento.value = '';
-            numeroInput.value = '';
-        }
-    });
-
-    // Evento al cambiar tipo de asiento
-    tipoAsiento.addEventListener('change', async function () {
-        const isBanco = this.value === 'banco';
-
-        if (isBanco) {
-            capacidadInput.value = 1;
-            capacidadInput.setAttribute('readonly', 'readonly');
-            capacidadInput.setAttribute('disabled', 'disabled');
-        } else {
-            capacidadInput.removeAttribute('readonly');
-            capacidadInput.removeAttribute('disabled');
-            capacidadInput.value = '';
-        }
-
-        await actualizarNumero();
-    });
+    zonaSelect.addEventListener('change', refreshNumber);
+    typeSelect.addEventListener('change', refreshNumber);
 },
 
-    // Actualizar capacidad según el tipo de mesa
-    updateCapacidadByTipo() {
-    const tipoZona = document.getElementById('tipo-zona');
-    const tipoAsientoGroup = document.getElementById('tipo-asiento-group');
-    const tipoAsiento = document.getElementById('tipo-asiento');
-    const capacidadInput = document.getElementById('capacidad');
-    const numeroInput = document.getElementById('numero');
-
-    tipoZona.addEventListener('change', async () => {
-        const zona = tipoZona.value;
-        const esBar = zona === 'bar';
-
-        tipoAsientoGroup.style.display = esBar ? 'block' : 'none';
-
-        if (!esBar) {
-            tipoAsiento.value = '';
-            numeroInput.readOnly = true;
-            const numero = await Tables.obtenerSiguienteNumero(zona);
-            numeroInput.value = numero;
-
-            capacidadInput.removeAttribute('readonly');
-            capacidadInput.removeAttribute('disabled');
-            capacidadInput.value = '';
-        } else {
-            numeroInput.value = '';
-            numeroInput.readOnly = true;
-        }
-    });
-
-    tipoAsiento.addEventListener('change', async () => {
-        const zona = tipoZona.value;
-        const tipo = tipoAsiento.value;
-
-        if (zona === 'bar' && tipo) {
-            const numero = await Tables.obtenerSiguienteNumero(zona, tipo);
-            numeroInput.value = numero;
-            numeroInput.readOnly = true;
-        }
-
-        if (tipo === 'banco') {
-            capacidadInput.value = 1;
-            capacidadInput.setAttribute('readonly', 'readonly');
-            capacidadInput.setAttribute('disabled', 'disabled');
-        } else {
-            capacidadInput.removeAttribute('readonly');
-            capacidadInput.removeAttribute('disabled');
-            capacidadInput.value = '';
-        }
-    });
-
-},
-
-    // Crear mesa
+    // Crear puesto
    async createMesa() {
     const form = document.getElementById('create-mesa-form');
     if (!Utils.validateForm(form)) {
@@ -397,46 +686,48 @@ const Tables = {
     }
 
     const formData = new FormData(form);
-
-    const tipo_zona = formData.get('tipo_zona');
-    const tipo_asiento = formData.get('tipo_asiento') || null;
+    const zona_id = Number(formData.get('zona_id'));
+    const tipo_puesto_id = Number(formData.get('tipo_puesto_id'));
+    const tipo = this.getSeatTypeById(tipo_puesto_id);
     const numero = parseInt(formData.get('numero'), 10);
     let capacidad = parseInt(formData.get('capacidad'), 10);
 
-    // Forzar capacidad si es banco
-    if (tipo_zona === 'bar' && tipo_asiento === 'banco') {
+    if ((tipo?.slug || '').toLowerCase() === 'banco') {
         capacidad = 1;
     }
 
     const data = {
-        tipo_zona,
-        tipo_asiento: tipo_zona === 'bar' ? tipo_asiento : null,
+        zona_id,
+        tipo_puesto_id,
         numero,
-        capacidad
+        capacidad,
+        nombre_visible: formData.get('nombre_visible') || '',
+        acepta_reservas_override: formData.get('acepta_reservas_override'),
+        aplica_servicio_override: formData.get('aplica_servicio_override')
     };
 
     try {
-        
         await Utils.request('/tables', {
             method: 'POST',
             body: JSON.stringify(data)
         });
 
         Utils.hideModal();
-        Utils.showNotification('Zona creada exitosamente', 'success');
+        Utils.showNotification('Puesto creado exitosamente', 'success');
 
         if (typeof this.load === 'function') {
-            this.load();
+            await this.load();
         }
 
         if (typeof Dashboard?.refreshData === 'function') {
             Dashboard.refreshData();
         }
     } catch (error) {
-        console.error('❌ Error creando zona:', error);
-        Utils.showNotification(error.message || 'Error al crear zona', 'error');
+        console.error('❌ Error creando puesto:', error);
+        Utils.showNotification(error.message || 'Error al crear puesto', 'error');
     }
 },
+
 
     // Mostrar modal para editar mesa
     showEditModal(mesaId) {
@@ -1299,6 +1590,21 @@ async obtenerSiguienteNumero(zona, tipoAsiento) {
         return response.numero;
     } catch (error) {
         console.error('❌ Error obteniendo número automático:', error);
+        Utils.showNotification('Error al obtener número automático', 'error');
+        return '';
+    }
+},
+
+async obtenerSiguienteNumeroDinamico(zonaId, tipoPuestoId) {
+    try {
+        const params = new URLSearchParams();
+        params.append('zona_id', zonaId);
+        params.append('tipo_puesto_id', tipoPuestoId);
+
+        const response = await Utils.request(`/tables/next-numero?${params.toString()}`);
+        return response.numero;
+    } catch (error) {
+        console.error('❌ Error obteniendo número dinámico:', error);
         Utils.showNotification('Error al obtener número automático', 'error');
         return '';
     }

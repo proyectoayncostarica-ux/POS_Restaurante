@@ -487,15 +487,15 @@ En Windows también puedes usar `Inicio_Servidor.bat`. En Linux/macOS puedes usa
 - Se actualizó el versionado de `style.css` y `service-worker.js` para invalidar caché móvil/PWA.
 
 
-### v2.2.4.4 · Migración compatible de datos actuales
+### v2.2.4.5 · Administración de zonas y tipos de puesto
 
-- **Objetivo:** endurecer la compatibilidad entre la estructura histórica de `mesas` y el nuevo modelo base de zonas dinámicas y tipos de puesto sin romper la operación actual.
-- **Compatibilidad garantizada:** `salon` continúa resolviendo a la zona dinámica **Salón**, `bar + mesa` a **Bar** y `bar + banco` a **Barra**. Los tipos históricos `mesa` y `banco` continúan resolviendo a los tipos dinámicos **Mesa** y **Banco**.
-- **Normalización defensiva:** durante la inicialización se corrigen valores heredados compatibles, incluyendo registros antiguos de `barra` para que sigan funcionando con la lógica actual como `bar + banco`, manteniendo `zona_id` apuntando a la zona dinámica **Barra**.
-- **Validación de enlaces:** cada puesto histórico debe quedar vinculado a `zona_id` y `tipo_puesto_id`. Si existen referencias incompletas o inválidas, el sistema genera un reporte de compatibilidad para detectarlas antes de activar futuras restricciones.
-- **Nuevo endpoint de auditoría:** `GET /api/tables/structure/compatibility` permite revisar el estado de compatibilidad entre datos legacy y modelo dinámico sin escribir datos.
-- **Endpoint ampliado:** `GET /api/tables/structure` ahora incluye un bloque `compatibilidad` junto con zonas y tipos de puesto.
-- **Creación segura de puestos:** al crear una mesa/banco, el backend verifica que existan los enlaces dinámicos necesarios. Si no existen, intenta reparar la consistencia y evita crear registros sin `zona_id` o `tipo_puesto_id`.
-- **Alcance controlado:** no se activan todavía roles de trabajo, usuarios por zona, Dashboard dinámico, navegación móvil dinámica ni servicio 10% aplicado a cuentas.
-- **Archivos modificados:** `server/db/database.js`, `server/routes/tables.js` y `README.md`.
-- **Validación recomendada:** iniciar la app, revisar Dashboard/Zonas/Pedidos, abrir/reservar/liberar una mesa, crear un banco/mesa desde Zonas y consultar `/api/tables/structure/compatibility` confirmando `ok: true`.
+- **Objetivo:** iniciar la administración real de la estructura dinámica del local sin romper la operación actual ni activar aún roles de trabajo, permisos por acción o Dashboard dinámico.
+- **Backend:** se agregaron endpoints administrativos para crear/actualizar zonas dinámicas y tipos de puesto: `POST /api/tables/zones`, `PUT /api/tables/zones/:id`, `POST /api/tables/seat-types` y `PUT /api/tables/seat-types/:id`.
+- **Restricción temporal:** estos endpoints requieren usuario administrador; los usuarios estándar mantienen la vista operativa sin herramientas de administración estructural.
+- **Puestos dinámicos:** el endpoint `POST /api/tables` ahora acepta `zona_id` y `tipo_puesto_id`, manteniendo compatibilidad con `tipo_zona` y `tipo_asiento` legacy.
+- **Numeración:** `GET /api/tables/next-numero` ahora soporta numeración dinámica por `zona_id` + `tipo_puesto_id`, conservando compatibilidad con la numeración legacy.
+- **Frontend Zonas:** el módulo muestra un panel administrativo para zonas y tipos de puesto, además de un modal dinámico para crear nuevos puestos seleccionando zona/tipo reales.
+- **Reglas operativas:** no se permite desactivar una zona con puestos ocupados/reservados ni desactivar un tipo de puesto que aún tenga puestos activos.
+- **Compatibilidad:** Salón, Bar, Barra, Mesa y Banco siguen funcionando como antes; las nuevas zonas/tipos personalizados quedan visibles al menos en la vista “Todos” hasta que se active navegación dinámica en fases posteriores.
+- **PWA/cache:** se actualizó el versionado de `style.css` y `service-worker.js` para evitar estilos o JS antiguos en móvil.
+- **Pendiente:** roles de trabajo, asignación de zonas a usuarios, navegación inferior dinámica y Dashboard dinámico se mantienen para subfases posteriores según roadmap.
