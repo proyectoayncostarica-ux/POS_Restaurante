@@ -84,35 +84,6 @@ No se continúa con la siguiente subfase hasta que la subfase actual esté compr
 
 ## Registro de cambios canónico
 
-### v2.2.4.3 · Modelo base de zonas dinámicas y puestos dinámicos
-
-- **Objetivo:** preparar la estructura de datos para que `Zonas` deje de depender únicamente de valores rígidos (`salon`, `bar`, `bar-banco`) y pueda evolucionar hacia locaciones y puestos configurables por cada local.
-- **Nueva base dinámica:** se agregan las tablas `zonas` y `tipos_puesto` como modelo inicial para locaciones físicas del negocio y tipos de puesto operativos.
-- **Compatibilidad:** la tabla actual `mesas` se mantiene para no romper Dashboard, Zonas, Pedidos, Cuentas ni realtime; se agregan columnas de enlace (`zona_id`, `tipo_puesto_id`) y configuración futura (`nombre_visible`, overrides de reservas/servicio y `activo`).
-- **Migración compatible:** los datos actuales se enlazan automáticamente al modelo dinámico: `salon` → `Salón`, `bar` + `mesa` → `Bar`, `bar` + `banco` → `Barra`, `mesa` → `Mesa` y `banco` → `Banco`.
-- **Servicio 10% preparado:** las zonas ya pueden almacenar `aplica_servicio` y `porcentaje_servicio`; los puestos pueden sobrescribir esa regla en fases posteriores. Esta subfase todavía no modifica cálculos de pedidos ni cuentas.
-- **Reservaciones preparadas:** las zonas ya pueden indicar si aceptan reservas y los puestos podrán heredar o sobrescribir la regla en fases posteriores. Esta subfase no cambia todavía los modales ni restricciones operativas.
-- **Endpoint de lectura:** se agrega `GET /api/tables/structure` para consultar la estructura dinámica base de zonas y tipos de puesto sin alterar la operación actual.
-- **Respuesta enriquecida:** `GET /api/tables` mantiene los campos antiguos, pero ahora incluye metadata dinámica (`zona_nombre`, `zona_slug`, `tipo_puesto_nombre`, `acepta_reservas`, `aplica_servicio`, etc.) para futuras fases.
-- **Alcance:** no se rediseña el módulo Zonas, no se activan permisos, no se filtra Dashboard por roles de trabajo y no se renombra la tabla `mesas`.
-- **Archivos modificados:** `server/db/database.js`, `server/routes/tables.js` y `README.md`.
-- **Prueba recomendada:** iniciar con una base existente y confirmar que la app arranca, que `Zonas` muestra mesas/bancos como antes, que crear una nueva mesa/banco funciona y que `/api/tables/structure` devuelve `Salón`, `Bar`, `Barra`, `Mesa` y `Banco`.
-- **Siguiente subfase:** avanzar solo después de validar esta migración y hacer commit/push seguro.
-
-### v2.2.4.2 · Bootstrap de administrador inicial
-
-- **Objetivo:** preparar MundiPOS para instalaciones nuevas de producción donde todavía no existe ningún administrador activo.
-- **Nueva regla de arranque:** si existe al menos un administrador activo, la app muestra el login normal; si no existe ningún administrador activo, muestra el registro inicial del administrador principal.
-- **Backend:** se agrega `GET /api/public/bootstrap-status` para consultar si el sistema requiere configuración inicial y `POST /api/auth/bootstrap-admin` para crear el primer administrador.
-- **Seguridad:** el endpoint de registro inicial valida nuevamente en backend que no exista ningún administrador activo antes de crear el usuario; si el sistema ya fue inicializado, responde con conflicto y no permite crear otro administrador por esta vía.
-- **Demo/desarrollo:** el usuario demo `admin / admin123` deja de crearse automáticamente salvo que `SEED_DEMO_USER=true`. Esto permite que producción use el flujo real de primer registro.
-- **Frontend:** el login detecta el estado de bootstrap; cuando el sistema no tiene admin, reemplaza el formulario de login por un formulario premium de creación del administrador inicial.
-- **Compatibilidad:** no se modifican Zonas, Dashboard, Pedidos, Cuentas, roles de trabajo, permisos avanzados ni base operativa actual.
-- **Cache/PWA:** se actualiza la versión de `style.css` y del service worker para evitar que móvil/PWA mantenga el formulario viejo.
-- **Archivos modificados:** `server/app.js`, `server/routes/auth.js`, `server/db/database.js`, `public/index.html`, `public/css/style.css`, `public/js/main.js`, `public/service-worker.js`, `.env.example` y `README.md`.
-- **Prueba recomendada:** con una base que no tenga administradores activos y `SEED_DEMO_USER=false`, iniciar la app y confirmar que aparece el registro inicial; crear el admin, validar entrada a la app y confirmar que posteriores cargas muestran login normal.
-- **Siguiente subfase:** continuar únicamente después de validar este flujo y hacer commit/push seguro.
-
 ### v2.2.4.1 · Auditoría técnica y mapa de impacto
 
 - **Objetivo:** estudiar el código actual antes de implementar la arquitectura de zonas dinámicas, roles de trabajo, permisos por acción, sesión operativa activa y servicio 10% configurable.
@@ -422,10 +393,11 @@ http://localhost:3000/POS
 Usuario inicial cuando la base está vacía:
 
 ```text
-Si no existe ningún administrador activo, MundiPOS muestra el registro inicial para crear el primer administrador.
+Usuario: admin
+Contraseña: admin123
 ```
 
-Para desarrollo se puede activar el usuario demo automático con `SEED_DEMO_USER=true`, lo que crea `admin / admin123` solo si la tabla de usuarios está vacía. En producción debe mantenerse `SEED_DEMO_USER=false`.
+Cambia esa contraseña desde la sección de usuarios/configuración antes de usar el sistema en producción.
 
 ## Variables de entorno
 
@@ -438,12 +410,9 @@ DB_PATH=./data/restaurant.db
 CORS_ORIGINS=
 NODE_ENV=development
 COOKIE_SECURE=false
-SEED_DEMO_USER=false
 ```
 
 `CORS_ORIGINS` puede quedar vacío para uso local. Si se publica la API detrás de un dominio, agregar los orígenes separados por coma.
-
-`SEED_DEMO_USER=false` activa el flujo recomendado para producción: una base nueva sin administradores muestra el registro inicial del primer administrador. Usar `SEED_DEMO_USER=true` solo en desarrollo si se desea recrear automáticamente el usuario demo `admin / admin123`.
 
 ## Base de datos
 
@@ -503,3 +472,17 @@ En Windows también puedes usar `Inicio_Servidor.bat`. En Linux/macOS puedes usa
 - No subir archivos temporales de SQLite: `*.db-wal`, `*.db-shm`, `*.db-journal`.
 - Mantener `data/backups/` fuera del repositorio si contiene datos reales.
 - La app actual es web local; para PC puede empaquetarse después con Electron/Tauri y para móvil conviene evolucionarla primero como PWA/responsive.
+
+## Registro de cambios reciente
+
+### v2.2.4.3 fix2 · Selector de hora móvil para reservas
+- Se reemplazó el uso problemático del reloj nativo en móvil dentro del modal **Abrir Zona** por un selector de hora móvil propio, evitando recortes visuales dentro del modal de reserva.
+- En PC se mantiene el campo de hora nativo, que ya funcionaba correctamente.
+- Se actualizó el versionado de `style.css` y `service-worker.js` para invalidar caché móvil/PWA.
+
+### v2.2.4.3 fix3 · Visibilidad del selector de hora en móvil
+- Se corrigió la prioridad CSS que mantenía oculto el selector premium de hora en móvil dentro del modal **Abrir Zona**.
+- El control móvil de hora queda forzado al final del stylesheet para no ser sobrescrito por reglas previas.
+- En PC se mantiene el campo nativo de hora que ya funcionaba correctamente.
+- Se actualizó el versionado de `style.css` y `service-worker.js` para invalidar caché móvil/PWA.
+

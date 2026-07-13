@@ -615,9 +615,21 @@ const Tables = {
                     <input type="text" id="cliente-nombre" name="cliente_nombre" autocomplete="off" required>
                 </div>
 
-                <div class="form-group compact-field" id="hora-estimada-group" style="display: none;">
-                    <label for="hora-estimada">Hora estimada de llegada</label>
-                    <input type="time" id="hora-estimada" name="hora_estimada">
+                <div class="form-group compact-field premium-time-field" id="hora-estimada-group" style="display: none;">
+                    <label for="hora-estimada-desktop"><i class="fas fa-clock"></i> Hora estimada de llegada</label>
+                    <div class="premium-time-control premium-time-control-desktop">
+                        <i class="fas fa-clock"></i>
+                        <input type="time" id="hora-estimada-desktop" aria-label="Hora estimada de llegada">
+                    </div>
+                    <button type="button" class="premium-time-mobile-trigger" id="hora-estimada-trigger" onclick="Tables.openMobileTimePicker()" aria-label="Seleccionar hora estimada de llegada">
+                        <span class="premium-time-mobile-icon"><i class="fas fa-clock"></i></span>
+                        <span class="premium-time-mobile-copy">
+                            <small>Hora estimada</small>
+                            <strong id="hora-estimada-display" class="is-empty">Seleccionar hora</strong>
+                        </span>
+                        <i class="fas fa-chevron-right premium-time-mobile-arrow"></i>
+                    </button>
+                    <input type="hidden" id="hora-estimada" name="hora_estimada">
                 </div>
             </form>
         </div>
@@ -632,6 +644,8 @@ const Tables = {
             onclick: `Tables.abrirMesa(${mesaId})`
         }
     ], 'modal-zone-open');
+
+    this.initializeReservationTimeControl();
 },
 
     // Alternar campos según el estado seleccionado
@@ -659,6 +673,211 @@ const Tables = {
         horaGroup.style.display = 'none';
         clienteInput.placeholder = '';
     }
+},
+
+    initializeReservationTimeControl() {
+    const hiddenInput = document.getElementById('hora-estimada');
+    const desktopInput = document.getElementById('hora-estimada-desktop');
+    const trigger = document.getElementById('hora-estimada-trigger');
+
+    if (!hiddenInput) return;
+
+    const syncValue = (value, options = {}) => {
+        this.setHoraEstimadaValue(value, options);
+    };
+
+    if (desktopInput) {
+        desktopInput.addEventListener('input', (event) => {
+            syncValue(event.target.value, { syncDesktop: false });
+        });
+
+        desktopInput.addEventListener('change', (event) => {
+            syncValue(event.target.value, { syncDesktop: false });
+        });
+    }
+
+    if (trigger) {
+        trigger.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                this.openMobileTimePicker();
+            }
+        });
+    }
+
+    syncValue(hiddenInput.value || desktopInput?.value || '');
+},
+
+    setHoraEstimadaValue(value, options = {}) {
+    const normalizedValue = typeof value === 'string' ? value.trim().slice(0, 5) : '';
+    const hiddenInput = document.getElementById('hora-estimada');
+    const desktopInput = document.getElementById('hora-estimada-desktop');
+    const display = document.getElementById('hora-estimada-display');
+
+    if (hiddenInput) {
+        hiddenInput.value = normalizedValue;
+    }
+
+    if (desktopInput && options.syncDesktop !== false) {
+        desktopInput.value = normalizedValue;
+    }
+
+    if (display) {
+        display.textContent = normalizedValue
+            ? this.formatHoraEstimada(normalizedValue)
+            : 'Seleccionar hora';
+        display.classList.toggle('is-empty', !normalizedValue);
+    }
+},
+
+    formatHoraEstimada(timeValue) {
+    if (!timeValue || !timeValue.includes(':')) return 'Seleccionar hora';
+
+    const [hourRaw, minuteRaw] = timeValue.split(':');
+    const hour24 = parseInt(hourRaw, 10);
+    const minute = String(minuteRaw || '00').padStart(2, '0');
+
+    if (Number.isNaN(hour24)) return 'Seleccionar hora';
+
+    const suffix = hour24 >= 12 ? 'p. m.' : 'a. m.';
+    const hour12 = ((hour24 + 11) % 12) + 1;
+
+    return `${hour12}:${minute} ${suffix}`;
+},
+
+    openMobileTimePicker() {
+    const desktopInput = document.getElementById('hora-estimada-desktop');
+    const hiddenInput = document.getElementById('hora-estimada');
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+
+    if (!isMobile) {
+        if (desktopInput?.showPicker) {
+            desktopInput.showPicker();
+        } else {
+            desktopInput?.focus();
+        }
+        return;
+    }
+
+    this.closeMobileTimePicker();
+
+    const initialValue = hiddenInput?.value || desktopInput?.value || '18:00';
+    const [initialHourRaw, initialMinuteRaw] = initialValue.includes(':') ? initialValue.split(':') : ['18', '00'];
+    const initialHour24 = Math.min(Math.max(parseInt(initialHourRaw, 10) || 18, 0), 23);
+    const initialMinute = Math.min(Math.max(parseInt(initialMinuteRaw, 10) || 0, 0), 59);
+    const initialMeridiem = initialHour24 >= 12 ? 'pm' : 'am';
+    const initialHour12 = ((initialHour24 + 11) % 12) + 1;
+
+    const hourOptions = Array.from({ length: 12 }, (_, index) => {
+        const hour = index + 1;
+        const selected = hour === initialHour12 ? 'selected' : '';
+        return `<option value="${hour}" ${selected}>${String(hour).padStart(2, '0')}</option>`;
+    }).join('');
+
+    const minuteOptions = Array.from({ length: 60 }, (_, index) => {
+        const selected = index === initialMinute ? 'selected' : '';
+        return `<option value="${String(index).padStart(2, '0')}" ${selected}>${String(index).padStart(2, '0')}</option>`;
+    }).join('');
+
+    const overlay = document.createElement('div');
+    overlay.id = 'mobile-time-picker-overlay';
+    overlay.className = 'mobile-time-picker-overlay';
+    overlay.innerHTML = `
+        <div class="mobile-time-picker-sheet" role="dialog" aria-modal="true" aria-labelledby="mobile-time-picker-title">
+            <div class="mobile-time-picker-header">
+                <div>
+                    <span class="mobile-time-picker-eyebrow">Reserva</span>
+                    <h3 id="mobile-time-picker-title">Hora estimada de llegada</h3>
+                </div>
+                <button type="button" class="mobile-time-picker-close" aria-label="Cerrar selector de hora">&times;</button>
+            </div>
+            <div class="mobile-time-picker-body">
+                <div class="mobile-time-picker-preview" id="mobile-time-picker-preview">${this.formatHoraEstimada(initialValue)}</div>
+                <div class="mobile-time-picker-grid">
+                    <div class="mobile-time-picker-field">
+                        <label for="mobile-time-picker-hour">Hora</label>
+                        <select id="mobile-time-picker-hour">${hourOptions}</select>
+                    </div>
+                    <div class="mobile-time-picker-field">
+                        <label for="mobile-time-picker-minute">Minuto</label>
+                        <select id="mobile-time-picker-minute">${minuteOptions}</select>
+                    </div>
+                </div>
+                <div class="mobile-time-picker-meridiem" role="group" aria-label="Seleccionar formato horario">
+                    <button type="button" class="mobile-time-picker-meridiem-btn ${initialMeridiem === 'am' ? 'is-active' : ''}" data-meridiem="am">A. M.</button>
+                    <button type="button" class="mobile-time-picker-meridiem-btn ${initialMeridiem === 'pm' ? 'is-active' : ''}" data-meridiem="pm">P. M.</button>
+                </div>
+            </div>
+            <div class="mobile-time-picker-footer">
+                <button type="button" class="btn btn-light mobile-time-picker-clear">Limpiar</button>
+                <button type="button" class="btn btn-success mobile-time-picker-apply">Aplicar hora</button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+    document.body.classList.add('mobile-time-picker-open');
+
+    const hourSelect = overlay.querySelector('#mobile-time-picker-hour');
+    const minuteSelect = overlay.querySelector('#mobile-time-picker-minute');
+    const preview = overlay.querySelector('#mobile-time-picker-preview');
+
+    const updatePreview = () => {
+        const activeMeridiem = overlay.querySelector('.mobile-time-picker-meridiem-btn.is-active')?.dataset?.meridiem || 'am';
+        let previewHour = parseInt(hourSelect.value, 10) || 12;
+        if (activeMeridiem === 'pm' && previewHour < 12) {
+            previewHour += 12;
+        } else if (activeMeridiem === 'am' && previewHour === 12) {
+            previewHour = 0;
+        }
+        preview.textContent = this.formatHoraEstimada(`${String(previewHour).padStart(2, '0')}:${minuteSelect.value}`);
+    };
+
+    overlay.addEventListener('click', (event) => {
+        if (event.target === overlay) {
+            this.closeMobileTimePicker();
+        }
+    });
+
+    overlay.querySelector('.mobile-time-picker-close').addEventListener('click', () => this.closeMobileTimePicker());
+    overlay.querySelector('.mobile-time-picker-clear').addEventListener('click', () => {
+        this.setHoraEstimadaValue('');
+        this.closeMobileTimePicker();
+    });
+    overlay.querySelector('.mobile-time-picker-apply').addEventListener('click', () => this.confirmMobileTimePicker());
+
+    overlay.querySelectorAll('.mobile-time-picker-meridiem-btn').forEach((button) => {
+        button.addEventListener('click', () => {
+            overlay.querySelectorAll('.mobile-time-picker-meridiem-btn').forEach(btn => btn.classList.remove('is-active'));
+            button.classList.add('is-active');
+            updatePreview();
+        });
+    });
+
+    hourSelect.addEventListener('change', updatePreview);
+    minuteSelect.addEventListener('change', updatePreview);
+},
+
+    confirmMobileTimePicker() {
+    const overlay = document.getElementById('mobile-time-picker-overlay');
+    if (!overlay) return;
+
+    const hourValue = parseInt(overlay.querySelector('#mobile-time-picker-hour')?.value || '12', 10);
+    const minuteValue = overlay.querySelector('#mobile-time-picker-minute')?.value || '00';
+    const meridiem = overlay.querySelector('.mobile-time-picker-meridiem-btn.is-active')?.dataset?.meridiem || 'am';
+
+    let hour24 = hourValue % 12;
+    if (meridiem === 'pm') {
+        hour24 += 12;
+    }
+
+    this.setHoraEstimadaValue(`${String(hour24).padStart(2, '0')}:${minuteValue}`);
+    this.closeMobileTimePicker();
+},
+
+    closeMobileTimePicker() {
+    document.getElementById('mobile-time-picker-overlay')?.remove();
+    document.body.classList.remove('mobile-time-picker-open');
 },
 
     // Abrir mesa
@@ -730,16 +949,47 @@ const Tables = {
         return;
     }
 
+    const clienteNombre = mesa.cliente_nombre || mesa.nombre_reserva || 'Cliente sin nombre';
+    const horaEstimada = mesa.hora_estimada || 'No especificada';
+    const cantidadPersonas = mesa.cantidad_personas || 'No especificada';
+
     Utils.showModal(`${tipoNombre} ${mesa.numero} - Reservada`, `
-        <div class="mesa-info">
-            <p><strong>Reservado por:</strong> ${mesa.cliente_nombre || mesa.nombre_reserva}</p>
-            <p><strong>Hora estimada:</strong> ${mesa.hora_estimada || 'No especificada'}</p>
-            <p><strong>Capacidad:</strong> ${mesa.capacidad} personas</p>
-            <p><strong>Cantidad de personas:</strong> ${mesa.cantidad_personas || 'No especificada'}</p>
-        </div>
-        <div class="alert alert-warning mt-3">
-            <i class="fas fa-question-circle"></i>
-            ¿Qué desea hacer con esta mesa reservada?
+        <div class="reservation-status-modal">
+            <section class="reservation-status-hero">
+                <div class="reservation-status-icon">
+                    <i class="fas fa-calendar-check"></i>
+                </div>
+                <div class="reservation-status-copy">
+                    <span class="reservation-eyebrow">Reserva activa</span>
+                    <strong>${clienteNombre}</strong>
+                    <div class="reservation-status-badge">
+                        <i class="fas fa-chair"></i> ${tipoNombre.toUpperCase()} ${mesa.numero}
+                    </div>
+                </div>
+            </section>
+
+            <div class="reservation-status-grid">
+                <div class="reservation-status-item highlight-time">
+                    <i class="fas fa-clock"></i>
+                    <span>Hora estimada</span>
+                    <strong>${horaEstimada}</strong>
+                </div>
+                <div class="reservation-status-item">
+                    <i class="fas fa-user-group"></i>
+                    <span>Personas</span>
+                    <strong>${cantidadPersonas}</strong>
+                </div>
+                <div class="reservation-status-item">
+                    <i class="fas fa-users"></i>
+                    <span>Capacidad</span>
+                    <strong>${mesa.capacidad} personas</strong>
+                </div>
+            </div>
+
+            <div class="reservation-action-note">
+                <i class="fas fa-circle-question"></i>
+                <span>Seleccione si la reserva llegó al local o si debe liberarse para volver a quedar disponible.</span>
+            </div>
         </div>
     `, [
         {
@@ -747,16 +997,17 @@ const Tables = {
             class: 'btn-light'
         },
         {
-            text: 'Cambiar a OCUPADA',
+            text: '<i class="fas fa-user-check"></i> Cambiar a ocupada',
             class: 'btn-success',
             onclick: `Tables.cambiarReservaAOcupada(${mesaId})`
         },
         {
-            text: 'Liberar Mesa',
+            text: '<i class="fas fa-door-open"></i> Liberar mesa',
             class: 'btn-warning',
+            align: 'right',
             onclick: `Tables.liberarMesaReservada(${mesaId})`
         }
-    ]);
+    ], 'modal-reservation-status');
 },
 
     // Cambiar mesa reservada a ocupada
@@ -806,9 +1057,42 @@ const Tables = {
         return;
     }
 
+    const clienteNombre = mesa.cliente_nombre || mesa.nombre_reserva || 'Cliente sin nombre';
     const confirmed = await Utils.confirm(
-        `¿Está seguro de liberar el ${tipoNombre} ${mesa.numero}? Se cancelará la reserva.`,
-        'Confirmar Liberación'
+        `
+            <div class="release-reservation-confirm">
+                <div class="release-reservation-icon">
+                    <i class="fas fa-calendar-xmark"></i>
+                </div>
+                <div class="release-reservation-copy">
+                    <span class="release-reservation-eyebrow">Liberación de reserva</span>
+                    <strong>¿Liberar ${tipoNombre} ${mesa.numero}?</strong>
+                    <p>Se cancelará la reserva de <b>${clienteNombre}</b> y el puesto volverá a quedar disponible.</p>
+                </div>
+                <div class="release-reservation-summary">
+                    <div>
+                        <span>Puesto</span>
+                        <strong>${tipoNombre.toUpperCase()} ${mesa.numero}</strong>
+                    </div>
+                    <div>
+                        <span>Cliente</span>
+                        <strong>${clienteNombre}</strong>
+                    </div>
+                    <div>
+                        <span>Hora</span>
+                        <strong>${mesa.hora_estimada || 'No especificada'}</strong>
+                    </div>
+                </div>
+            </div>
+        `,
+        'Confirmar Liberación',
+        {
+            html: true,
+            modalClass: 'modal-release-confirm',
+            cancelText: 'Cancelar',
+            confirmText: '<i class="fas fa-unlock"></i> Liberar mesa',
+            confirmClass: 'btn-warning'
+        }
     );
 
     if (!confirmed) return;
@@ -868,26 +1152,64 @@ const Tables = {
     const esBanco = mesa.zona?.toLowerCase() === 'bar' && mesa.tipo_asiento?.toLowerCase() === 'banco';
     const tipoNombre = esBanco ? 'Banco' : 'Mesa';
 
+    const clienteNombre = mesa.cliente_nombre || 'Cliente sin nombre';
+    const desdeTexto = mesa.fecha_apertura ? Utils.formatDate(mesa.fecha_apertura) : 'No especificado';
+
     Utils.showModal(`${tipoNombre} ${mesa.numero} - Ocupado`, `
-        <div class="mesa-info">
-            <p><strong>Cliente:</strong> ${mesa.cliente_nombre}</p>
-            <p><strong>Desde:</strong> ${Utils.formatDate(mesa.fecha_apertura)}</p>
-            <p><strong>Capacidad:</strong> ${mesa.capacidad} personas</p>
-        </div>
-        <div class="mesa-actions mt-3">
-            <button class="btn btn-primary" onclick="Utils.hideModal(); Navigation.showSection('orders');">
-                <i class="fas fa-receipt"></i> Ver Pedidos
-            </button>
-            <button class="btn btn-warning" onclick="Tables.cerrarMesa(${mesaId})">
-                <i class="fas fa-stop"></i> Cerrar ${tipoNombre}
-            </button>
+        <div class="occupied-zone-modal">
+            <section class="occupied-zone-hero">
+                <div class="occupied-zone-icon">
+                    <i class="fas fa-utensils"></i>
+                </div>
+                <div class="occupied-zone-copy">
+                    <span class="occupied-zone-eyebrow">Atención activa</span>
+                    <strong>${clienteNombre}</strong>
+                    <div class="occupied-zone-badge">
+                        <i class="fas fa-location-dot"></i> ${tipoNombre.toUpperCase()} ${mesa.numero}
+                    </div>
+                </div>
+            </section>
+
+            <div class="occupied-zone-grid">
+                <div class="occupied-zone-item">
+                    <i class="fas fa-clock"></i>
+                    <span>Desde</span>
+                    <strong>${desdeTexto}</strong>
+                </div>
+                <div class="occupied-zone-item">
+                    <i class="fas fa-users"></i>
+                    <span>Capacidad</span>
+                    <strong>${mesa.capacidad} personas</strong>
+                </div>
+                <div class="occupied-zone-item status-active">
+                    <i class="fas fa-circle-check"></i>
+                    <span>Estado</span>
+                    <strong>OCUPADO</strong>
+                </div>
+            </div>
+
+            <div class="occupied-zone-note">
+                <i class="fas fa-receipt"></i>
+                <span>Revise los pedidos asociados o cierre el puesto cuando no tenga cuentas pendientes.</span>
+            </div>
         </div>
     `, [
         {
             text: 'Cerrar',
             class: 'btn-light'
+        },
+        {
+            text: '<i class="fas fa-receipt"></i> Ver pedidos',
+            class: 'btn-primary',
+            onclick: `Utils.hideModal(); Navigation.showSection('orders');`
+        },
+        {
+            text: `<i class="fas fa-stop"></i> Cerrar ${tipoNombre}`,
+            class: 'btn-warning',
+            align: 'right',
+            onclick: `Tables.cerrarMesa(${mesaId})`
         }
-    ]);
+    ], 'modal-zone-occupied');
 },
 
     // Cerrar mesa

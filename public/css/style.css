@@ -4849,6 +4849,10 @@ body {
         border-radius: 25px;
     }
 
+    .modal-content.modal-zone-open {
+        overflow: visible;
+    }
+
     .modal-content.modal-zone-open .modal-header,
     .modal-content.modal-confirm-close .modal-header {
         padding: 1rem 1rem 0.82rem;
@@ -4897,6 +4901,18 @@ body {
     .open-zone-form .compact-field input,
     .open-zone-form .compact-field select {
         min-height: 2.85rem;
+    }
+
+    .open-zone-form .compact-field .premium-time-control-desktop {
+        display: none;
+    }
+
+    .premium-time-mobile-trigger {
+        display: flex;
+    }
+
+    .modal-content.modal-zone-open .modal-body {
+        overflow: visible;
     }
 
     .close-zone-summary {
@@ -4978,5 +4994,713 @@ body {
     .bootstrap-admin-notice {
         font-size: 0.82rem;
         padding: 0.75rem;
+    }
+}
+
+/* v2.2.4.3 fix1 · Modales operativos pendientes y reloj de reserva premium */
+.modal-content.modal-reservation-status,
+.modal-content.modal-release-confirm,
+.modal-content.modal-zone-occupied {
+    width: min(92vw, 540px);
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.68);
+    border-radius: 24px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 251, 253, 0.98));
+    box-shadow:
+        0 28px 70px rgba(15, 23, 42, 0.28),
+        0 1px 0 rgba(255, 255, 255, 0.85) inset;
+    max-height: calc(100vh - 2.25rem);
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-content.modal-reservation-status .modal-header,
+.modal-content.modal-release-confirm .modal-header,
+.modal-content.modal-zone-occupied .modal-header {
+    margin: 0;
+    padding: 1.05rem 1.2rem 0.9rem;
+    border-bottom: 1px solid rgba(44, 62, 80, 0.1);
+    background:
+        radial-gradient(circle at 92% 0%, rgba(243, 156, 18, 0.2), transparent 34%),
+        linear-gradient(135deg, rgba(17, 31, 48, 0.98), rgba(35, 68, 90, 0.96));
+}
+
+.modal-content.modal-reservation-status .modal-header h3,
+.modal-content.modal-release-confirm .modal-header h3,
+.modal-content.modal-zone-occupied .modal-header h3 {
+    color: #fff;
+    font-size: 1.08rem;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+}
+
+.modal-content.modal-reservation-status .modal-close,
+.modal-content.modal-release-confirm .modal-close,
+.modal-content.modal-zone-occupied .modal-close {
+    width: 2.15rem;
+    height: 2.15rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.92);
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+    font-size: 1.35rem;
+    line-height: 1;
+    transition: transform 160ms ease, background-color 160ms ease;
+}
+
+.modal-content.modal-reservation-status .modal-close:hover,
+.modal-content.modal-release-confirm .modal-close:hover,
+.modal-content.modal-zone-occupied .modal-close:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: rotate(90deg);
+}
+
+.modal-content.modal-reservation-status .modal-body,
+.modal-content.modal-release-confirm .modal-body,
+.modal-content.modal-zone-occupied .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 1rem 1.2rem 0.85rem;
+    overflow-y: auto;
+}
+
+.modal-content.modal-reservation-status .modal-footer,
+.modal-content.modal-release-confirm .modal-footer,
+.modal-content.modal-zone-occupied .modal-footer {
+    margin: 0;
+    padding: 0.85rem 1.2rem 1.05rem;
+    border-top: 1px solid rgba(44, 62, 80, 0.08);
+    background: rgba(255, 255, 255, 0.88);
+    box-shadow: 0 -10px 26px rgba(15, 23, 42, 0.06);
+}
+
+.premium-time-field label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.premium-time-control {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.premium-time-control > i {
+    position: absolute;
+    left: 0.78rem;
+    z-index: 1;
+    color: rgba(243, 156, 18, 0.96);
+    pointer-events: none;
+}
+
+.premium-time-control-desktop {
+    display: flex;
+}
+
+.open-zone-form .compact-field .premium-time-control input[type="time"] {
+    width: 100%;
+    padding-left: 2.35rem;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+    color: #203247;
+    border-color: rgba(243, 156, 18, 0.28);
+    background:
+        radial-gradient(circle at 94% 18%, rgba(243, 156, 18, 0.12), transparent 30%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(255, 248, 237, 0.96));
+}
+
+.open-zone-form .compact-field .premium-time-control input[type="time"]::-webkit-calendar-picker-indicator {
+    width: 1.35rem;
+    height: 1.35rem;
+    padding: 0.22rem;
+    border-radius: 999px;
+    background-color: rgba(243, 156, 18, 0.14);
+    cursor: pointer;
+}
+
+.premium-time-mobile-trigger {
+    display: none;
+    width: 100%;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.72rem 0.88rem;
+    border: 1px solid rgba(243, 156, 18, 0.22);
+    border-radius: 18px;
+    background:
+        radial-gradient(circle at 92% 18%, rgba(243, 156, 18, 0.12), transparent 30%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(255, 248, 237, 0.96));
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
+    text-align: left;
+}
+
+.premium-time-mobile-trigger:focus-visible {
+    outline: none;
+    border-color: rgba(52, 152, 219, 0.72);
+    box-shadow:
+        0 0 0 3px rgba(52, 152, 219, 0.14),
+        0 10px 22px rgba(15, 23, 42, 0.08);
+}
+
+.premium-time-mobile-icon {
+    width: 2.4rem;
+    height: 2.4rem;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 16px;
+    color: #fff;
+    background: linear-gradient(135deg, #f39c12, #d97706);
+    box-shadow: 0 12px 24px rgba(243, 156, 18, 0.22);
+}
+
+.premium-time-mobile-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    flex: 1 1 auto;
+}
+
+.premium-time-mobile-copy small {
+    color: rgba(44, 62, 80, 0.54);
+    font-size: 0.72rem;
+    font-weight: 900;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+}
+
+.premium-time-mobile-copy strong {
+    color: #203247;
+    font-size: 0.98rem;
+    font-weight: 950;
+    letter-spacing: -0.02em;
+}
+
+.premium-time-mobile-copy strong.is-empty {
+    color: rgba(44, 62, 80, 0.62);
+}
+
+.premium-time-mobile-arrow {
+    color: rgba(44, 62, 80, 0.42);
+    font-size: 0.95rem;
+}
+
+.mobile-time-picker-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2600;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding: 1rem;
+    background: rgba(9, 15, 23, 0.48);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.mobile-time-picker-sheet {
+    width: min(100%, 420px);
+    border-radius: 26px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background:
+        radial-gradient(circle at 94% 4%, rgba(243, 156, 18, 0.16), transparent 28%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 250, 253, 0.98));
+    box-shadow: 0 30px 70px rgba(15, 23, 42, 0.34);
+}
+
+.mobile-time-picker-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1rem 0.9rem;
+    color: #fff;
+    background:
+        radial-gradient(circle at 92% 0%, rgba(243, 156, 18, 0.2), transparent 34%),
+        linear-gradient(135deg, rgba(17, 31, 48, 0.98), rgba(35, 68, 90, 0.96));
+}
+
+.mobile-time-picker-eyebrow {
+    display: block;
+    margin-bottom: 0.18rem;
+    color: rgba(255, 255, 255, 0.68);
+    font-size: 0.7rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.mobile-time-picker-header h3 {
+    margin: 0;
+    color: #fff;
+    font-size: 1.08rem;
+    font-weight: 950;
+    letter-spacing: -0.02em;
+}
+
+.mobile-time-picker-close {
+    width: 2.25rem;
+    height: 2.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.92);
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 999px;
+    font-size: 1.4rem;
+    line-height: 1;
+}
+
+.mobile-time-picker-body {
+    padding: 1rem;
+}
+
+.mobile-time-picker-preview {
+    margin-bottom: 0.9rem;
+    padding: 0.95rem 1rem;
+    border-radius: 18px;
+    color: #203247;
+    background:
+        linear-gradient(135deg, rgba(235, 247, 255, 0.96), rgba(255, 255, 255, 0.98));
+    border: 1px solid rgba(52, 152, 219, 0.14);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    text-align: center;
+    font-size: 1.2rem;
+    font-weight: 950;
+    letter-spacing: -0.02em;
+}
+
+.mobile-time-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.mobile-time-picker-field label {
+    display: block;
+    margin-bottom: 0.35rem;
+    color: rgba(44, 62, 80, 0.68);
+    font-size: 0.78rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+}
+
+.mobile-time-picker-field select {
+    width: 100%;
+    min-height: 3rem;
+    padding: 0.7rem 0.85rem;
+    border: 1px solid rgba(44, 62, 80, 0.12);
+    border-radius: 16px;
+    color: #203247;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 247, 250, 0.98));
+    font-size: 1rem;
+    font-weight: 900;
+}
+
+.mobile-time-picker-meridiem {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.65rem;
+    margin-top: 0.85rem;
+}
+
+.mobile-time-picker-meridiem-btn {
+    min-height: 2.8rem;
+    border: 1px solid rgba(44, 62, 80, 0.12);
+    border-radius: 16px;
+    color: rgba(44, 62, 80, 0.82);
+    background: rgba(255, 255, 255, 0.96);
+    font-size: 0.98rem;
+    font-weight: 900;
+    letter-spacing: 0.03em;
+}
+
+.mobile-time-picker-meridiem-btn.is-active {
+    color: #fff;
+    border-color: transparent;
+    background: linear-gradient(135deg, #203247, #3498db);
+    box-shadow: 0 14px 28px rgba(52, 152, 219, 0.22);
+}
+
+.mobile-time-picker-footer {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
+}
+
+.mobile-time-picker-footer .btn {
+    flex: 1 1 0;
+    justify-content: center;
+    min-height: 2.9rem;
+}
+
+.reservation-status-modal,
+.release-reservation-confirm,
+.occupied-zone-modal {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+}
+
+.reservation-status-hero,
+.occupied-zone-hero {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.85rem;
+    align-items: center;
+    padding: 0.92rem;
+    border-radius: 20px;
+    border: 1px solid rgba(243, 156, 18, 0.2);
+    background:
+        radial-gradient(circle at 96% 16%, rgba(243, 156, 18, 0.16), transparent 36%),
+        linear-gradient(135deg, rgba(255, 250, 241, 0.98), rgba(255, 255, 255, 0.98));
+    box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+}
+
+.occupied-zone-hero {
+    border-color: rgba(231, 76, 60, 0.2);
+    background:
+        radial-gradient(circle at 96% 16%, rgba(231, 76, 60, 0.13), transparent 36%),
+        linear-gradient(135deg, rgba(255, 247, 245, 0.98), rgba(255, 255, 255, 0.98));
+}
+
+.reservation-status-icon,
+.occupied-zone-icon,
+.release-reservation-icon {
+    width: 3.15rem;
+    height: 3.15rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #203247, #f39c12);
+    box-shadow: 0 14px 28px rgba(243, 156, 18, 0.22);
+}
+
+.occupied-zone-icon {
+    background: linear-gradient(135deg, #203247, #e74c3c);
+    box-shadow: 0 14px 28px rgba(231, 76, 60, 0.22);
+}
+
+.reservation-status-copy,
+.occupied-zone-copy {
+    min-width: 0;
+}
+
+.reservation-eyebrow,
+.occupied-zone-eyebrow,
+.release-reservation-eyebrow {
+    display: block;
+    margin-bottom: 0.15rem;
+    color: rgba(44, 62, 80, 0.62);
+    font-size: 0.72rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.reservation-status-copy strong,
+.occupied-zone-copy strong,
+.release-reservation-copy strong {
+    display: block;
+    color: #203247;
+    font-size: 1.28rem;
+    font-weight: 950;
+    letter-spacing: -0.03em;
+    line-height: 1.08;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.reservation-status-badge,
+.occupied-zone-badge {
+    width: fit-content;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.36rem;
+    margin-top: 0.5rem;
+    padding: 0.35rem 0.62rem;
+    border-radius: 999px;
+    border: 1px solid rgba(243, 156, 18, 0.38);
+    color: #203247;
+    background: rgba(255, 255, 255, 0.86);
+    font-size: 0.75rem;
+    font-weight: 950;
+    letter-spacing: 0.06em;
+}
+
+.occupied-zone-badge {
+    border-color: rgba(231, 76, 60, 0.42);
+}
+
+.reservation-status-grid,
+.occupied-zone-grid,
+.release-reservation-summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.55rem;
+}
+
+.reservation-status-item,
+.occupied-zone-item,
+.release-reservation-summary div {
+    min-width: 0;
+    padding: 0.72rem 0.65rem;
+    border-radius: 18px;
+    border: 1px solid rgba(44, 62, 80, 0.08);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 250, 252, 0.96));
+    box-shadow: 0 10px 20px rgba(15, 23, 42, 0.055);
+}
+
+.reservation-status-item i,
+.occupied-zone-item i {
+    display: inline-flex;
+    margin-bottom: 0.4rem;
+    color: rgba(243, 156, 18, 0.94);
+}
+
+.occupied-zone-item i {
+    color: rgba(231, 76, 60, 0.88);
+}
+
+.reservation-status-item span,
+.occupied-zone-item span,
+.release-reservation-summary span {
+    display: block;
+    color: rgba(44, 62, 80, 0.56);
+    font-size: 0.68rem;
+    font-weight: 900;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+}
+
+.reservation-status-item strong,
+.occupied-zone-item strong,
+.release-reservation-summary strong {
+    display: block;
+    margin-top: 0.14rem;
+    color: #203247;
+    font-size: 0.92rem;
+    font-weight: 950;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.reservation-status-item.highlight-time {
+    border-color: rgba(243, 156, 18, 0.24);
+    background:
+        radial-gradient(circle at 90% 18%, rgba(243, 156, 18, 0.14), transparent 36%),
+        linear-gradient(180deg, rgba(255, 252, 246, 0.99), rgba(255, 255, 255, 0.98));
+}
+
+.occupied-zone-item.status-active {
+    border-color: rgba(231, 76, 60, 0.2);
+}
+
+.reservation-action-note,
+.occupied-zone-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+    padding: 0.72rem 0.82rem;
+    border-radius: 17px;
+    border: 1px solid rgba(52, 152, 219, 0.13);
+    color: rgba(44, 62, 80, 0.72);
+    background: rgba(235, 247, 255, 0.7);
+    font-size: 0.88rem;
+    line-height: 1.42;
+}
+
+.release-reservation-confirm {
+    align-items: center;
+    text-align: center;
+}
+
+.release-reservation-icon {
+    width: 3.35rem;
+    height: 3.35rem;
+    background: linear-gradient(135deg, #203247, #f39c12);
+}
+
+.release-reservation-copy p {
+    max-width: 28rem;
+    margin: 0.45rem auto 0;
+    color: rgba(44, 62, 80, 0.72);
+    font-size: 0.92rem;
+    line-height: 1.45;
+}
+
+.release-reservation-copy b {
+    color: #203247;
+    font-weight: 950;
+}
+
+@media (min-width: 769px) {
+    .modal-content.modal-reservation-status,
+    .modal-content.modal-release-confirm,
+    .modal-content.modal-zone-occupied {
+        width: min(88vw, 500px);
+        max-height: calc(100vh - 2rem);
+    }
+
+    .modal-content.modal-reservation-status .modal-header,
+    .modal-content.modal-release-confirm .modal-header,
+    .modal-content.modal-zone-occupied .modal-header {
+        padding: 0.85rem 1.05rem 0.72rem;
+    }
+
+    .modal-content.modal-reservation-status .modal-body,
+    .modal-content.modal-release-confirm .modal-body,
+    .modal-content.modal-zone-occupied .modal-body {
+        padding: 0.82rem 1.05rem 0.72rem;
+    }
+
+    .modal-content.modal-reservation-status .modal-footer,
+    .modal-content.modal-release-confirm .modal-footer,
+    .modal-content.modal-zone-occupied .modal-footer {
+        padding: 0.72rem 1.05rem 0.88rem;
+    }
+
+    .reservation-status-modal,
+    .release-reservation-confirm,
+    .occupied-zone-modal {
+        gap: 0.68rem;
+    }
+
+    .reservation-status-hero,
+    .occupied-zone-hero {
+        padding: 0.72rem;
+        border-radius: 17px;
+    }
+
+    .reservation-status-icon,
+    .occupied-zone-icon,
+    .release-reservation-icon {
+        width: 2.75rem;
+        height: 2.75rem;
+        border-radius: 15px;
+    }
+
+    .reservation-status-copy strong,
+    .occupied-zone-copy strong,
+    .release-reservation-copy strong {
+        font-size: 1.12rem;
+    }
+
+    .reservation-status-item,
+    .occupied-zone-item,
+    .release-reservation-summary div {
+        padding: 0.58rem 0.55rem;
+        border-radius: 15px;
+    }
+}
+
+@media (max-width: 768px) {
+    .modal-content.modal-reservation-status,
+    .modal-content.modal-release-confirm,
+    .modal-content.modal-zone-occupied {
+        width: calc(100vw - 1.1rem);
+        max-height: calc(92vh - env(safe-area-inset-bottom, 0px));
+        border-radius: 25px;
+    }
+
+    .modal-content.modal-reservation-status .modal-header,
+    .modal-content.modal-release-confirm .modal-header,
+    .modal-content.modal-zone-occupied .modal-header {
+        padding: 1rem 1rem 0.82rem;
+    }
+
+    .modal-content.modal-reservation-status .modal-body,
+    .modal-content.modal-release-confirm .modal-body,
+    .modal-content.modal-zone-occupied .modal-body {
+        padding: 0.92rem 1rem 0.72rem;
+    }
+
+    .modal-content.modal-reservation-status .modal-footer,
+    .modal-content.modal-release-confirm .modal-footer,
+    .modal-content.modal-zone-occupied .modal-footer {
+        padding: 0.72rem 1rem calc(0.85rem + env(safe-area-inset-bottom, 0px));
+        gap: 0.65rem;
+    }
+
+    .modal-content.modal-reservation-status .modal-footer .left-buttons,
+    .modal-content.modal-reservation-status .modal-footer .right-buttons,
+    .modal-content.modal-release-confirm .modal-footer .left-buttons,
+    .modal-content.modal-release-confirm .modal-footer .right-buttons,
+    .modal-content.modal-zone-occupied .modal-footer .left-buttons,
+    .modal-content.modal-zone-occupied .modal-footer .right-buttons {
+        flex: 1 1 auto;
+    }
+
+    .modal-content.modal-reservation-status .modal-footer .btn,
+    .modal-content.modal-release-confirm .modal-footer .btn,
+    .modal-content.modal-zone-occupied .modal-footer .btn {
+        width: 100%;
+        justify-content: center;
+        min-height: 2.85rem;
+    }
+
+    .reservation-status-hero,
+    .occupied-zone-hero {
+        grid-template-columns: 1fr;
+        justify-items: center;
+        text-align: center;
+        padding: 0.95rem;
+    }
+
+    .reservation-status-badge,
+    .occupied-zone-badge {
+        margin-right: auto;
+        margin-left: auto;
+    }
+
+    .reservation-status-grid,
+    .occupied-zone-grid,
+    .release-reservation-summary {
+        grid-template-columns: 1fr;
+    }
+}
+
+
+@media (min-width: 769px) {
+    .premium-time-mobile-trigger {
+        display: none;
+    }
+}
+
+/* v2.2.4.3 fix3 · Fuerza selector premium de hora en móvil
+   Este bloque queda al final del stylesheet para que no sea sobrescrito por reglas previas. */
+@media (max-width: 768px) {
+    .open-zone-form .compact-field .premium-time-control-desktop {
+        display: none !important;
+    }
+
+    .open-zone-form .compact-field .premium-time-mobile-trigger {
+        display: flex !important;
+        min-height: 3.15rem;
+        visibility: visible !important;
+        opacity: 1 !important;
+    }
+
+    .open-zone-form .compact-field .premium-time-mobile-trigger[hidden] {
+        display: flex !important;
+    }
+
+    .modal-content.modal-zone-open .modal-body {
+        overflow: visible !important;
     }
 }
