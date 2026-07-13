@@ -1,4 +1,4 @@
-const MUNDIPOS_SW_VERSION = 'v2.2.3-fix1-liberar-nuevo-pedido';
+const MUNDIPOS_SW_VERSION = 'v2.2.4.2-bootstrap-admin';
 const APP_SHELL_CACHE = `mundipos-shell-${MUNDIPOS_SW_VERSION}`;
 const RUNTIME_CACHE = `mundipos-runtime-${MUNDIPOS_SW_VERSION}`;
 
@@ -9,7 +9,7 @@ const APP_SHELL_URLS = [
   '/POS/manifest.webmanifest',
   '/POS/favicon.ico',
   '/POS/css/style.css',
-  '/POS/css/style.css?v=2.2.3-fix1-liberar-nuevo-pedido',
+  '/POS/css/style.css?v=2.2.4.2-bootstrap-admin',
   '/POS/js/main.js',
   '/POS/js/components/dashboard.js',
   '/POS/js/components/tables.js',

@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 2.0
 - **Estado de producto:** versión funcional operativa en proceso de estabilización
-- **Línea de trabajo actual:** v2.2 · Estabilización de Dashboard
+- **Línea de trabajo actual:** v2.2.4 · Zonas dinámicas, roles de trabajo y permisos
 
 La versión visible para usuarios, configuración pública y metadata base de la app debe mantenerse como **2.0** hasta que se decida publicar una nueva versión funcional mayor. Las líneas internas **v2.1** y **v2.2** no representan todavía una versión visible para usuarios finales; representan etapas trazables de estabilización.
 
@@ -39,6 +39,7 @@ v2.1.5 Preparación PWA para PC y móvil
 v2.2.1 Estabilización base del Dashboard
 v2.2.2 Dashboard operativo por zonas
 v2.2.3 Indicadores y acciones rápidas
+v2.2.4.0 Roadmap de Zonas dinámicas, roles de trabajo y permisos
 ```
 
 ### Fixes derivados
@@ -60,7 +61,70 @@ Cada fix debe indicar:
 - Qué riesgo queda pendiente, si existe.
 ```
 
+## Documentación técnica de arquitectura
+
+La fase **v2.2.4** cuenta con un roadmap técnico separado para guiar la transición hacia zonas dinámicas, puestos dinámicos, roles de trabajo, permisos por acción, sesión operativa activa y servicio 10% configurable por zona/puesto.
+
+Documentos canónicos de esta arquitectura:
+
+```text
+docs/roadmap-v2.2.4-zonas-roles-permisos.md
+docs/auditoria-v2.2.4.1-mapa-impacto.md
+```
+
+El roadmap define el orden seguro de implementación. La auditoría técnica y mapa de impacto identifica dónde vive la lógica actual y qué archivos/módulos se verán afectados antes de escribir código funcional.
+
+Estos documentos deben revisarse antes de implementar cualquier cambio funcional relacionado con `Zonas`, `Usuarios`, `Dashboard`, `Pedidos`, `Cuentas`, `Header`, permisos, roles de trabajo o servicio 10%.
+
+Regla principal de implementación para v2.2.4:
+
+```text
+No se continúa con la siguiente subfase hasta que la subfase actual esté comprobada como funcional, documentada en README y subida mediante commit/push seguro.
+```
+
 ## Registro de cambios canónico
+
+### v2.2.4.2 · Bootstrap de administrador inicial
+
+- **Objetivo:** preparar MundiPOS para instalaciones nuevas de producción donde todavía no existe ningún administrador activo.
+- **Nueva regla de arranque:** si existe al menos un administrador activo, la app muestra el login normal; si no existe ningún administrador activo, muestra el registro inicial del administrador principal.
+- **Backend:** se agrega `GET /api/public/bootstrap-status` para consultar si el sistema requiere configuración inicial y `POST /api/auth/bootstrap-admin` para crear el primer administrador.
+- **Seguridad:** el endpoint de registro inicial valida nuevamente en backend que no exista ningún administrador activo antes de crear el usuario; si el sistema ya fue inicializado, responde con conflicto y no permite crear otro administrador por esta vía.
+- **Demo/desarrollo:** el usuario demo `admin / admin123` deja de crearse automáticamente salvo que `SEED_DEMO_USER=true`. Esto permite que producción use el flujo real de primer registro.
+- **Frontend:** el login detecta el estado de bootstrap; cuando el sistema no tiene admin, reemplaza el formulario de login por un formulario premium de creación del administrador inicial.
+- **Compatibilidad:** no se modifican Zonas, Dashboard, Pedidos, Cuentas, roles de trabajo, permisos avanzados ni base operativa actual.
+- **Cache/PWA:** se actualiza la versión de `style.css` y del service worker para evitar que móvil/PWA mantenga el formulario viejo.
+- **Archivos modificados:** `server/app.js`, `server/routes/auth.js`, `server/db/database.js`, `public/index.html`, `public/css/style.css`, `public/js/main.js`, `public/service-worker.js`, `.env.example` y `README.md`.
+- **Prueba recomendada:** con una base que no tenga administradores activos y `SEED_DEMO_USER=false`, iniciar la app y confirmar que aparece el registro inicial; crear el admin, validar entrada a la app y confirmar que posteriores cargas muestran login normal.
+- **Siguiente subfase:** continuar únicamente después de validar este flujo y hacer commit/push seguro.
+
+### v2.2.4.1 · Auditoría técnica y mapa de impacto
+
+- **Objetivo:** estudiar el código actual antes de implementar la arquitectura de zonas dinámicas, roles de trabajo, permisos por acción, sesión operativa activa y servicio 10% configurable.
+- **Alcance:** esta subfase es documental y de auditoría; no modifica lógica funcional, base de datos, permisos reales, Dashboard, Zonas, Usuarios, Pedidos ni Cuentas.
+- **Mapa de impacto:** se identifican los módulos y archivos donde viven actualmente login, usuarios, zonas rígidas, mesas/bancos, pedidos, cuentas, Dashboard, header, subnavegación móvil, realtime y PWA.
+- **Hallazgos principales:** la app todavía depende de `salon`, `bar`, `bar-mesa` y `bar-banco`; la tabla `mesas` funciona en la práctica como `puestos`; no existen tablas reales de zonas, tipos de puesto, roles de trabajo ni sesión operativa activa.
+- **Riesgos documentados:** no se debe renombrar `mesas` de golpe, no se deben activar restricciones por zona antes de tener sesión operativa, no se deben crear roles de trabajo con zonas inexistentes y no se debe mover el servicio 10% sin persistir la regla en el pedido.
+- **Recomendación técnica:** iniciar la siguiente subfase funcional con `v2.2.4.2 · Bootstrap de administrador inicial`, antes de rediseñar Zonas o activar restricciones operativas.
+- **Documento creado:** `docs/auditoria-v2.2.4.1-mapa-impacto.md`.
+- **Validación realizada:** revisión estática y `node --check` sobre backend/frontend principales relacionados con auth, usuarios, zonas, pedidos, Dashboard, realtime y service worker.
+- **Archivos modificados:** `README.md` y `docs/auditoria-v2.2.4.1-mapa-impacto.md`.
+- **Siguiente subfase:** `v2.2.4.2 · Bootstrap de administrador inicial`.
+
+### v2.2.4.0 · Roadmap de Zonas dinámicas, roles de trabajo y permisos
+
+- **Objetivo:** dejar documentado el camino seguro para convertir `Zonas` en una arquitectura dinámica sin romper la operación actual de Dashboard, Zonas, Pedidos, Cuentas, Usuarios, Header y sincronización PC/móvil.
+- **Contexto:** se define que las zonas ya no deben ser valores fijos como `Salón`, `Bar` y `Barra`; deben ser locaciones configurables del local. Los puestos tampoco deben limitarse a mesa/banco, sino evolucionar a tipos dinámicos como mesa, banco, sillón, cabina o mesa alta.
+- **Roles:** se separan dos conceptos: `rol de sistema` (`Admin` / `Estándar`) y `rol de trabajo` (`Bartender`, `Salonero`, `Terraza`, `Apoyo`, etc.). El rol de sistema controla permisos administrativos; el rol de trabajo define las zonas visibles y operables durante la sesión activa.
+- **Usuarios y zonas:** se documenta que no se deben crear usuarios estándar operativos sin zonas y roles de trabajo válidos. Los roles de trabajo deben seleccionar zonas reales existentes, no escribir nombres de zonas como texto libre.
+- **Registro inicial:** se define la necesidad de un flujo de bootstrap donde, si no existe ningún administrador, la app muestre registro inicial en lugar de login normal. El usuario demo debe ser configurable para desarrollo/producción.
+- **Servicio 10%:** se establece que cada zona puede definir si aplica servicio 10%, y cada puesto puede heredar o sobrescribir esa regla. Al abrir un pedido se deberá guardar si aplica servicio y el porcentaje correspondiente.
+- **Regla de seguridad:** no se deben bloquear módulos completos para usuarios estándar; los permisos deben ser por acción y por zona permitida. Un usuario estándar puede no administrar Zonas, pero sí operar puestos asignados.
+- **Documento creado:** `docs/roadmap-v2.2.4-zonas-roles-permisos.md`.
+- **Alcance:** esta subfase es documental; no modifica lógica funcional, base de datos, login, Dashboard, Zonas ni permisos reales.
+- **Siguiente subfase:** `v2.2.4.1 · Auditoría técnica y mapa de impacto`.
+- **Archivos modificados:** `README.md` y `docs/roadmap-v2.2.4-zonas-roles-permisos.md`.
+- **Prueba recomendada:** confirmar que ambos documentos existen, que el README referencia el roadmap y que no hay cambios funcionales pendientes asociados a esta subfase.
 
 ### v2.2.3 fix1 · Liberación de mesa/banco desde Nuevo pedido
 
@@ -343,11 +407,10 @@ http://localhost:3000/POS
 Usuario inicial cuando la base está vacía:
 
 ```text
-Usuario: admin
-Contraseña: admin123
+Si no existe ningún administrador activo, MundiPOS muestra el registro inicial para crear el primer administrador.
 ```
 
-Cambia esa contraseña desde la sección de usuarios/configuración antes de usar el sistema en producción.
+Para desarrollo se puede activar el usuario demo automático con `SEED_DEMO_USER=true`, lo que crea `admin / admin123` solo si la tabla de usuarios está vacía. En producción debe mantenerse `SEED_DEMO_USER=false`.
 
 ## Variables de entorno
 
@@ -360,9 +423,12 @@ DB_PATH=./data/restaurant.db
 CORS_ORIGINS=
 NODE_ENV=development
 COOKIE_SECURE=false
+SEED_DEMO_USER=false
 ```
 
 `CORS_ORIGINS` puede quedar vacío para uso local. Si se publica la API detrás de un dominio, agregar los orígenes separados por coma.
+
+`SEED_DEMO_USER=false` activa el flujo recomendado para producción: una base nueva sin administradores muestra el registro inicial del primer administrador. Usar `SEED_DEMO_USER=true` solo en desarrollo si se desea recrear automáticamente el usuario demo `admin / admin123`.
 
 ## Base de datos
 

@@ -421,15 +421,20 @@ class Database {
         await this.run(`UPDATE historial_transacciones SET usuario_id = NULL WHERE usuario_id IS NOT NULL AND usuario_id NOT IN (SELECT id FROM usuarios)`);
     }
 
+    shouldSeedDemoUser() {
+        const value = String(process.env.SEED_DEMO_USER || '').trim().toLowerCase();
+        return ['true', '1', 'yes', 'on'].includes(value);
+    }
+
     async insertInitialData() {
         const userCount = await this.get('SELECT COUNT(*) as count FROM usuarios');
-        if (!userCount || userCount.count === 0) {
+        if ((!userCount || userCount.count === 0) && this.shouldSeedDemoUser()) {
             const hashedPassword = await bcrypt.hash('admin123', 10);
             await this.run(
                 'INSERT INTO usuarios (nombre, password, tipo, activo, fecha_creacion) VALUES (?, ?, ?, ?, ?)',
                 ['admin', hashedPassword, 'administrador', 1, new Date().toISOString()]
             );
-            console.log('Usuario administrador inicial creado: admin / admin123');
+            console.log('Usuario administrador demo creado por SEED_DEMO_USER=true: admin / admin123');
         }
 
         const categoryCount = await this.get('SELECT COUNT(*) as count FROM categorias');

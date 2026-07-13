@@ -175,6 +175,30 @@ app.use('/uploads', express.static(path.join(publicPath, 'uploads'), { redirect:
 
 // Endpoint público de identidad visual de la app.
 // Expone únicamente datos no sensibles para poder mostrar el nombre del negocio antes del login.
+app.get('/api/public/bootstrap-status', async (req, res) => {
+    try {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+
+        const activeAdmins = await database.get(
+            "SELECT COUNT(*) as count FROM usuarios WHERE tipo = ? AND activo = 1",
+            ['administrador']
+        );
+
+        const adminCount = Number(activeAdmins?.count || 0);
+        res.json({
+            success: true,
+            data: {
+                hasAdmin: adminCount > 0,
+                requiresSetup: adminCount === 0,
+                adminCount
+            }
+        });
+    } catch (error) {
+        console.error('Error obteniendo estado de bootstrap:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
 app.get('/api/public/branding', async (req, res) => {
     try {
         const rows = await database.all(

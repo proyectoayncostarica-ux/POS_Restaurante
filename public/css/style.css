@@ -4903,3 +4903,80 @@ body {
         grid-template-columns: 1fr;
     }
 }
+
+/* v2.2.4.2 · Bootstrap de administrador inicial */
+.login-box.is-bootstrap-setup {
+    max-width: 460px;
+}
+
+.login-box.is-bootstrap-setup .login-brand-badge {
+    width: 96px;
+    height: 96px;
+    margin-bottom: 1rem;
+}
+
+.login-box.is-bootstrap-setup .login-header {
+    margin-bottom: 1.35rem;
+}
+
+.login-box.is-bootstrap-setup .login-header h1 {
+    font-size: clamp(1.95rem, 4vw, 2.55rem);
+    letter-spacing: -0.055em;
+}
+
+.bootstrap-admin-form {
+    text-align: left;
+}
+
+.bootstrap-admin-form[hidden] {
+    display: none !important;
+}
+
+.bootstrap-admin-notice {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1.05rem;
+    padding: 0.82rem 0.9rem;
+    color: #203247;
+    font-size: 0.88rem;
+    font-weight: 750;
+    line-height: 1.35;
+    text-align: left;
+    background: linear-gradient(135deg, rgba(232, 245, 252, 0.96), rgba(255, 249, 235, 0.94));
+    border: 1px solid rgba(52, 152, 219, 0.16);
+    border-radius: 16px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.bootstrap-admin-icon {
+    flex: 0 0 auto;
+    width: 2.35rem;
+    height: 2.35rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+    background: linear-gradient(135deg, #111827, #2563eb);
+    border-radius: 14px;
+    box-shadow: 0 8px 18px rgba(37, 99, 235, 0.22);
+}
+
+.bootstrap-admin-form .form-group {
+    margin-bottom: 0.82rem;
+}
+
+.bootstrap-admin-form .login-submit-btn {
+    margin-top: 0.2rem;
+}
+
+@media (max-width: 768px) {
+    .login-box.is-bootstrap-setup {
+        padding: 1.7rem;
+    }
+
+    .bootstrap-admin-notice {
+        font-size: 0.82rem;
+        padding: 0.75rem;
+    }
+}

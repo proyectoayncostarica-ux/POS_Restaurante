@@ -240,9 +240,18 @@ const Utils = {
 
 // Autenticación
 const Auth = {
+    requiresBootstrapSetup: false,
+
     // Verificar sesión
     async checkSession() {
         try {
+            const bootstrapStatus = await this.checkBootstrapStatus();
+            if (bootstrapStatus.requiresSetup) {
+                currentUser = null;
+                this.showBootstrapSetup();
+                return false;
+            }
+
             const response = await Utils.request('/auth/verify');
             if (response.authenticated) {
                 currentUser = response.user;
@@ -255,6 +264,46 @@ const Auth = {
         } catch (error) {
             console.error('Error verificando sesión:', error);
             this.showLogin();
+            return false;
+        }
+    },
+
+    async checkBootstrapStatus() {
+        const response = await Utils.request('/public/bootstrap-status', {
+            method: 'GET',
+            cache: 'no-store'
+        });
+
+        const data = response.data || {};
+        this.requiresBootstrapSetup = Boolean(data.requiresSetup);
+        return data;
+    },
+
+    // Crear el primer administrador cuando la instalación todavía no tiene ninguno.
+    async createBootstrapAdmin(nombre, password, confirmPassword) {
+        try {
+            const response = await Utils.request('/auth/bootstrap-admin', {
+                method: 'POST',
+                body: JSON.stringify({ nombre, password, confirmPassword })
+            });
+
+            if (response.success) {
+                this.requiresBootstrapSetup = false;
+                currentUser = response.user;
+                await this.transitionToApp();
+                await loadRestaurantName();
+                Utils.showNotification('Administrador inicial creado correctamente', 'success');
+
+                Dashboard.refreshData();
+                Dashboard.startAutoRefresh();
+                Realtime.connect();
+
+                return true;
+            }
+
+            return false;
+        } catch (error) {
+            Utils.showNotification(error.message, 'error');
             return false;
         }
     },
@@ -320,6 +369,29 @@ const Auth = {
         document.body.classList.remove('has-mobile-subnav');
         document.getElementById('mobile-subnav')?.classList.remove('is-visible');
         resetLoginForm();
+        setLoginMode('login');
+
+        if (mainApp) {
+            mainApp.classList.remove('app-entering');
+            mainApp.style.display = 'none';
+        }
+
+        if (loginScreen) {
+            loginScreen.classList.remove('login-card-exit', 'login-bg-exit');
+            loginScreen.style.display = 'flex';
+        }
+    },
+
+    showBootstrapSetup() {
+        const loginScreen = document.getElementById('login-screen');
+        const mainApp = document.getElementById('main-app');
+
+        stopHeaderClock();
+        Realtime.disconnect();
+        document.body.classList.remove('has-mobile-subnav');
+        document.getElementById('mobile-subnav')?.classList.remove('is-visible');
+        resetLoginForm();
+        setLoginMode('bootstrap');
 
         if (mainApp) {
             mainApp.classList.remove('app-entering');
@@ -406,26 +478,74 @@ function wait(ms) {
 }
 
 function resetLoginForm() {
-    const form = document.getElementById('login-form');
+    const loginForm = document.getElementById('login-form');
+    const bootstrapForm = document.getElementById('bootstrap-admin-form');
     const errorDiv = document.getElementById('login-error');
-    const button = form?.querySelector('button[type="submit"]');
 
-    if (form) form.reset();
+    if (loginForm) loginForm.reset();
+    if (bootstrapForm) bootstrapForm.reset();
 
     if (errorDiv) {
         errorDiv.textContent = '';
         errorDiv.style.display = 'none';
     }
 
-    if (button) {
-        button.disabled = false;
-        button.classList.remove('is-loading');
-        button.innerHTML = `
-            <span class="btn-content">
-                <i class="fas fa-sign-in-alt"></i>
-                Iniciar sesión
-            </span>
-        `;
+    resetSubmitButton(
+        loginForm?.querySelector('button[type="submit"]'),
+        '<i class="fas fa-sign-in-alt"></i>',
+        'Iniciar sesión'
+    );
+
+    resetSubmitButton(
+        bootstrapForm?.querySelector('button[type="submit"]'),
+        '<i class="fas fa-user-plus"></i>',
+        'Crear administrador'
+    );
+}
+
+function resetSubmitButton(button, iconHtml, label) {
+    if (!button) return;
+
+    button.disabled = false;
+    button.classList.remove('is-loading');
+    button.innerHTML = `
+        <span class="btn-content">
+            ${iconHtml}
+            ${label}
+        </span>
+    `;
+}
+
+function setLoginMode(mode = 'login') {
+    const loginCard = document.getElementById('login-card');
+    const loginForm = document.getElementById('login-form');
+    const bootstrapForm = document.getElementById('bootstrap-admin-form');
+    const eyebrow = document.querySelector('.login-eyebrow');
+    const title = document.querySelector('.login-header h1');
+    const restaurantName = document.getElementById('login-restaurant-name');
+    const isBootstrap = mode === 'bootstrap';
+
+    loginCard?.classList.toggle('is-bootstrap-setup', isBootstrap);
+
+    if (loginForm) loginForm.hidden = isBootstrap;
+    if (bootstrapForm) bootstrapForm.hidden = !isBootstrap;
+
+    if (eyebrow) {
+        eyebrow.textContent = isBootstrap
+            ? 'Configuración inicial'
+            : 'Punto de venta inteligente';
+    }
+
+    if (title) {
+        title.textContent = isBootstrap
+            ? 'Crear administrador'
+            : 'MundiPOS';
+    }
+
+    if (restaurantName) {
+        restaurantName.textContent = isBootstrap
+            ? 'Primero crea el usuario administrador principal'
+            : (restaurantName.dataset.businessName || restaurantName.textContent || 'Cargando negocio...');
     }
 }
 
@@ -1049,7 +1169,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     updateGreeting();
 
     // Login form
-    document.getElementById('login-form').addEventListener('submit', async function(e) {
+    document.getElementById('login-form')?.addEventListener('submit', async function(e) {
         e.preventDefault();
         
         const username = document.getElementById('username').value;
@@ -1080,6 +1200,51 @@ document.addEventListener('DOMContentLoaded', async function() {
             errorDiv.style.display = 'block';
         }
 
+    });
+
+    document.getElementById('bootstrap-admin-form')?.addEventListener('submit', async function(e) {
+        e.preventDefault();
+
+        const name = document.getElementById('bootstrap-admin-name').value.trim();
+        const password = document.getElementById('bootstrap-admin-password').value;
+        const confirmPassword = document.getElementById('bootstrap-admin-confirm-password').value;
+        const errorDiv = document.getElementById('login-error');
+
+        if (!name || !password || !confirmPassword) {
+            errorDiv.textContent = 'Complete todos los campos para crear el administrador inicial';
+            errorDiv.style.display = 'block';
+            return;
+        }
+
+        if (password !== confirmPassword) {
+            errorDiv.textContent = 'Las contraseñas no coinciden';
+            errorDiv.style.display = 'block';
+            return;
+        }
+
+        if (password.length < 8) {
+            errorDiv.textContent = 'La contraseña debe tener al menos 8 caracteres';
+            errorDiv.style.display = 'block';
+            return;
+        }
+
+        errorDiv.style.display = 'none';
+
+        const button = e.target.querySelector('button[type="submit"]');
+        const originalText = button.innerHTML;
+        button.classList.add('is-loading');
+        button.innerHTML = '<span class="btn-content"><span class="loading"></span> Creando administrador...</span>';
+        button.disabled = true;
+
+        const success = await Auth.createBootstrapAdmin(name, password, confirmPassword);
+
+        if (!success) {
+            button.innerHTML = originalText;
+            button.disabled = false;
+            button.classList.remove('is-loading');
+            errorDiv.textContent = errorDiv.textContent || 'No se pudo crear el administrador inicial';
+            errorDiv.style.display = 'block';
+        }
     });
 
     // Logout button
@@ -1305,7 +1470,12 @@ function applyBranding(data = {}) {
     const versionSpan = document.getElementById('app-version');
     const loginFooterVersion = document.getElementById('login-footer-version');
 
-    if (loginRestaurantName) loginRestaurantName.textContent = businessName;
+    if (loginRestaurantName) {
+        loginRestaurantName.dataset.businessName = businessName;
+        if (!Auth.requiresBootstrapSetup) {
+            loginRestaurantName.textContent = businessName;
+        }
+    }
     if (restaurantName) restaurantName.textContent = businessName;
     if (versionSpan && version) versionSpan.textContent = version;
     if (loginFooterVersion && version) {

@@ -40,6 +40,108 @@ function clearAdminVerificationFailures(req) {
     adminVerificationAttempts.delete(getAttemptKey(req));
 }
 
+function sanitizeUserName(nombre = '') {
+    return String(nombre).trim();
+}
+
+async function getActiveAdminCount() {
+    const result = await database.get(
+        "SELECT COUNT(*) as count FROM usuarios WHERE tipo = ? AND activo = 1",
+        ['administrador']
+    );
+
+    return Number(result?.count || 0);
+}
+
+function validateBootstrapAdminPayload({ nombre, password, confirmPassword }) {
+    const cleanName = sanitizeUserName(nombre);
+    const cleanPassword = String(password || '');
+    const cleanConfirmPassword = String(confirmPassword || '');
+
+    if (!cleanName || !cleanPassword) {
+        return { error: 'Nombre y contraseña son requeridos' };
+    }
+
+    if (cleanName.length < 3) {
+        return { error: 'El nombre de usuario debe tener al menos 3 caracteres' };
+    }
+
+    if (cleanName.length > 40) {
+        return { error: 'El nombre de usuario no debe superar 40 caracteres' };
+    }
+
+    if (!/^[a-zA-Z0-9._-]+$/.test(cleanName)) {
+        return { error: 'El nombre de usuario solo puede usar letras, números, punto, guion y guion bajo' };
+    }
+
+    if (cleanPassword.length < 8) {
+        return { error: 'La contraseña debe tener al menos 8 caracteres' };
+    }
+
+    if (cleanConfirmPassword && cleanPassword !== cleanConfirmPassword) {
+        return { error: 'Las contraseñas no coinciden' };
+    }
+
+    return { nombre: cleanName, password: cleanPassword };
+}
+
+// Registro inicial del primer administrador.
+// Solo se permite cuando no existe ningún administrador activo.
+router.post('/bootstrap-admin', async (req, res) => {
+    try {
+        const activeAdmins = await getActiveAdminCount();
+        if (activeAdmins > 0) {
+            return res.status(409).json({
+                error: 'El sistema ya fue inicializado. Inicie sesión con un administrador existente.'
+            });
+        }
+
+        const payload = validateBootstrapAdminPayload(req.body || {});
+        if (payload.error) {
+            return res.status(400).json({ error: payload.error });
+        }
+
+        const existingUser = await database.get(
+            'SELECT id FROM usuarios WHERE nombre = ?',
+            [payload.nombre]
+        );
+
+        if (existingUser) {
+            return res.status(409).json({ error: 'Ya existe un usuario con ese nombre' });
+        }
+
+        const hashedPassword = await bcrypt.hash(payload.password, 10);
+        const createdAt = new Date().toISOString();
+        const result = await database.run(
+            'INSERT INTO usuarios (nombre, password, tipo, activo, fecha_creacion) VALUES (?, ?, ?, ?, ?)',
+            [payload.nombre, hashedPassword, 'administrador', 1, createdAt]
+        );
+
+        req.session.userId = result.lastID || result.id;
+        req.session.userName = payload.nombre;
+        req.session.userNombre = payload.nombre;
+        req.session.userType = 'administrador';
+
+        await database.run(
+            'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+            ['bootstrap_admin', req.session.userId, `Administrador inicial ${payload.nombre} creado`, createdAt]
+        );
+
+        res.status(201).json({
+            success: true,
+            message: 'Administrador inicial creado correctamente',
+            user: {
+                id: req.session.userId,
+                nombre: payload.nombre,
+                tipo: 'administrador'
+            }
+        });
+    } catch (error) {
+        console.error('Error creando administrador inicial:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
 // Login
 router.post('/login', async (req, res) => {
     try {
