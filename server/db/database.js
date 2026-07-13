@@ -91,6 +91,25 @@ class Database {
                 actualizado_en TEXT
             )`,
 
+            `CREATE TABLE IF NOT EXISTS roles_trabajo (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT NOT NULL UNIQUE,
+                slug TEXT NOT NULL UNIQUE,
+                descripcion TEXT,
+                activo INTEGER NOT NULL DEFAULT 1,
+                creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                actualizado_en TEXT
+            )`,
+
+            `CREATE TABLE IF NOT EXISTS rol_trabajo_zonas (
+                rol_trabajo_id INTEGER NOT NULL,
+                zona_id INTEGER NOT NULL,
+                creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (rol_trabajo_id, zona_id),
+                FOREIGN KEY (rol_trabajo_id) REFERENCES roles_trabajo (id) ON DELETE CASCADE,
+                FOREIGN KEY (zona_id) REFERENCES zonas (id) ON DELETE CASCADE
+            )`,
+
             `CREATE TABLE IF NOT EXISTS mesas (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 numero INTEGER NOT NULL,
@@ -277,6 +296,8 @@ class Database {
             'CREATE INDEX IF NOT EXISTS idx_mesas_estado ON mesas(estado)',
             'CREATE INDEX IF NOT EXISTS idx_zonas_slug ON zonas(slug)',
             'CREATE INDEX IF NOT EXISTS idx_tipos_puesto_slug ON tipos_puesto(slug)',
+            'CREATE INDEX IF NOT EXISTS idx_roles_trabajo_slug ON roles_trabajo(slug)',
+            'CREATE INDEX IF NOT EXISTS idx_rol_trabajo_zonas_zona ON rol_trabajo_zonas(zona_id)',
             'CREATE INDEX IF NOT EXISTS idx_cuentas_credito_fecha ON cuentas_credito(fecha)',
             'CREATE INDEX IF NOT EXISTS idx_historial_fecha ON historial_transacciones(fecha)'
         ];
@@ -289,7 +310,8 @@ class Database {
     async createDynamicModelIndexes() {
         const indexes = [
             'CREATE INDEX IF NOT EXISTS idx_mesas_zona_id ON mesas(zona_id)',
-            'CREATE INDEX IF NOT EXISTS idx_mesas_tipo_puesto_id ON mesas(tipo_puesto_id)'
+            'CREATE INDEX IF NOT EXISTS idx_mesas_tipo_puesto_id ON mesas(tipo_puesto_id)',
+            'CREATE INDEX IF NOT EXISTS idx_rol_trabajo_zonas_rol ON rol_trabajo_zonas(rol_trabajo_id)'
         ];
 
         for (const sql of indexes) {

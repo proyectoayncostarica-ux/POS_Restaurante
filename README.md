@@ -499,3 +499,24 @@ En Windows también puedes usar `Inicio_Servidor.bat`. En Linux/macOS puedes usa
 - **Compatibilidad:** Salón, Bar, Barra, Mesa y Banco siguen funcionando como antes; las nuevas zonas/tipos personalizados quedan visibles al menos en la vista “Todos” hasta que se active navegación dinámica en fases posteriores.
 - **PWA/cache:** se actualizó el versionado de `style.css` y `service-worker.js` para evitar estilos o JS antiguos en móvil.
 - **Pendiente:** roles de trabajo, asignación de zonas a usuarios, navegación inferior dinámica y Dashboard dinámico se mantienen para subfases posteriores según roadmap.
+
+### v2.2.4.6 · Roles de trabajo vinculados a zonas existentes
+
+- **Objetivo:** crear la base de roles de trabajo operativos sin permitir asignaciones a zonas inexistentes o inactivas.
+- **Backend:** se agregaron las tablas `roles_trabajo` y `rol_trabajo_zonas` para separar el rol operativo del usuario de su rol de sistema.
+- **Validación central:** un rol de trabajo solo puede crearse o editarse seleccionando zonas activas existentes en `zonas`; no se aceptan zonas escritas manualmente como texto libre.
+- **Endpoints:** se agregaron `GET /api/tables/work-roles`, `POST /api/tables/work-roles` y `PUT /api/tables/work-roles/:id` para administrar roles de trabajo desde el módulo Zonas.
+- **Estructura dinámica:** `GET /api/tables/structure` ahora devuelve `roles_trabajo` con sus zonas asociadas, preparando la futura asignación a usuarios.
+- **Protección de consistencia:** no se permite desactivar una zona que esté vinculada a roles de trabajo activos.
+- **Frontend Zonas:** el panel administrativo ahora incluye la columna Roles de trabajo, con creación/edición mediante selector de zonas reales activas.
+- **Restricción temporal:** solo administradores pueden crear o editar roles de trabajo; todavía no se asignan usuarios ni se filtran Dashboard/Zonas por rol activo.
+- **Compatibilidad:** la operación actual de abrir/reservar/cerrar puestos no cambia en esta subfase.
+- **Pendiente:** asignar roles de trabajo a usuarios, seleccionar rol operativo al iniciar sesión y filtrar Dashboard/Zonas según zonas permitidas queda para subfases posteriores.
+
+### v2.2.4.6 fix1 · Corrección visual del panel administrativo de Zonas
+
+- **Problema detectado:** en móvil, las columnas administrativas de Zonas, Tipos de puesto y Roles de trabajo podían sobreponerse porque una regla posterior restauraba el grid de tres columnas. Además, los botones de acción quedaban visualmente desordenados entre PC y móvil.
+- **Corrección aplicada:** el panel administrativo ahora usa una columna en móvil, tarjetas compactas sin desbordes y los botones **Nueva zona**, **Nuevo tipo** y **Nuevo rol** quedan en una sola línea horizontal.
+- **PC:** los botones administrativos quedan alineados de forma uniforme y las tres columnas mantienen un layout ordenado.
+- **Móvil:** se evita la superposición de columnas, se reduce el tamaño de tarjetas/badges y se mantiene la operación sin cambios.
+- **Alcance:** ajuste visual únicamente; no cambia endpoints, base de datos, permisos ni lógica operativa.

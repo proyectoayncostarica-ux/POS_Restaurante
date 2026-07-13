@@ -1,7 +1,7 @@
 // Tables Component
 const Tables = {
     data: [],
-    structure: { zonas: [], tipos_puesto: [], compatibilidad: null },
+    structure: { zonas: [], tipos_puesto: [], roles_trabajo: [], compatibilidad: null },
 
     // Cargar datos de mesas
     async load() {
@@ -12,7 +12,7 @@ const Tables = {
             ]);
 
             this.data = tablesResponse.data || [];
-            this.structure = structureResponse.data || { zonas: [], tipos_puesto: [], compatibilidad: null };
+            this.structure = structureResponse.data || { zonas: [], tipos_puesto: [], roles_trabajo: [], compatibilidad: null };
             this.render();
         } catch (error) {
             console.error('Error cargando zonas:', error);
@@ -47,6 +47,10 @@ const Tables = {
 
     getSeatTypeById(id) {
         return (this.structure?.tipos_puesto || []).find(type => Number(type.id) === Number(id));
+    },
+
+    getWorkRoleById(id) {
+        return (this.structure?.roles_trabajo || []).find(role => Number(role.id) === Number(id));
     },
 
     formatBooleanLabel(value, trueLabel = 'Sí', falseLabel = 'No') {
@@ -132,6 +136,7 @@ const Tables = {
 
     const zonas = this.structure?.zonas || [];
     const tipos = this.structure?.tipos_puesto || [];
+    const roles = this.structure?.roles_trabajo || [];
     const compatibility = this.structure?.compatibilidad;
 
     return `
@@ -139,8 +144,8 @@ const Tables = {
             <div class="zones-admin-header">
                 <div>
                     <span class="zones-admin-eyebrow">Estructura del local</span>
-                    <h3>Zonas y tipos de puesto</h3>
-                    <p>Configura locaciones como Salón, Terraza o Barra y tipos como Mesa, Banco o Sillón.</p>
+                    <h3>Zonas, tipos y roles de trabajo</h3>
+                    <p>Configura locaciones, tipos de puesto y roles operativos vinculados a zonas reales.</p>
                 </div>
                 <div class="zones-admin-actions">
                     <button class="btn btn-primary" onclick="Tables.showZoneFormModal()">
@@ -148,6 +153,9 @@ const Tables = {
                     </button>
                     <button class="btn btn-light" onclick="Tables.showSeatTypeFormModal()">
                         <i class="fas fa-couch"></i> Nuevo tipo
+                    </button>
+                    <button class="btn btn-light" onclick="Tables.showWorkRoleFormModal()">
+                        <i class="fas fa-user-tag"></i> Nuevo rol
                     </button>
                 </div>
             </div>
@@ -170,6 +178,16 @@ const Tables = {
                     </div>
                     <div class="zones-admin-list">
                         ${tipos.length ? tipos.map(type => this.renderSeatTypeAdminCard(type)).join('') : '<p class="zones-empty-admin">No hay tipos de puesto configurados.</p>'}
+                    </div>
+                </div>
+
+                <div class="zones-admin-column">
+                    <div class="zones-admin-column-title">
+                        <strong>Roles de trabajo</strong>
+                        <span>${roles.length}</span>
+                    </div>
+                    <div class="zones-admin-list">
+                        ${roles.length ? roles.map(role => this.renderWorkRoleAdminCard(role)).join('') : '<p class="zones-empty-admin">No hay roles de trabajo configurados.</p>'}
                     </div>
                 </div>
             </div>
@@ -223,6 +241,34 @@ const Tables = {
                 </div>
             </div>
             <button class="btn btn-light btn-sm" onclick="Tables.showSeatTypeFormModal(${Number(type.id)})">
+                <i class="fas fa-pen"></i>
+            </button>
+        </article>
+    `;
+},
+
+    renderWorkRoleAdminCard(role) {
+    const zonas = Array.isArray(role.zonas) ? role.zonas : [];
+    const activeZones = zonas.filter(zone => Number(zone.activa) === 1);
+    const zoneNames = zonas.length
+        ? zonas.map(zone => this.escapeHtml(zone.nombre)).join(' · ')
+        : 'Sin zonas asignadas';
+
+    return `
+        <article class="zone-admin-card work-role-card ${Number(role.activo) === 1 && activeZones.length ? '' : 'is-inactive'}">
+            <div class="zone-admin-icon role-icon">
+                <i class="fas fa-user-tag"></i>
+            </div>
+            <div class="zone-admin-info">
+                <strong>${this.escapeHtml(role.nombre)}</strong>
+                <small>${zoneNames}</small>
+                <div class="zone-admin-badges">
+                    <span>${this.formatBooleanLabel(role.activo, 'Activo', 'Inactivo')}</span>
+                    <span>${Number(activeZones.length)} zonas activas</span>
+                    ${Number(activeZones.length) === 0 ? '<span class="warning-chip">Requiere zona activa</span>' : ''}
+                </div>
+            </div>
+            <button class="btn btn-light btn-sm" onclick="Tables.showWorkRoleFormModal(${Number(role.id)})">
                 <i class="fas fa-pen"></i>
             </button>
         </article>
@@ -564,6 +610,108 @@ const Tables = {
         await this.load();
     } catch (error) {
         Utils.showNotification(error.message || 'Error guardando tipo de puesto', 'error');
+    }
+},
+
+    showWorkRoleFormModal(roleId = null) {
+    if (!this.isAdmin()) {
+        Utils.showNotification('Solo un administrador puede modificar roles de trabajo', 'warning');
+        return;
+    }
+
+    const zonas = this.activeZones();
+    if (!zonas.length) {
+        Utils.showModal('Crear zonas primero', `
+            <div class="work-role-empty-state">
+                <div class="work-role-empty-icon"><i class="fas fa-map-location-dot"></i></div>
+                <h4>No hay zonas activas para asignar</h4>
+                <p>Antes de crear roles de trabajo, cree zonas reales del local. Los roles solo pueden vincularse a zonas existentes y activas.</p>
+                <button class="btn btn-primary" onclick="Utils.hideModal(); Tables.showZoneFormModal();">
+                    <i class="fas fa-plus"></i> Crear zona
+                </button>
+            </div>
+        `, [
+            { text: 'Cerrar', class: 'btn-light' }
+        ], 'modal-zone-structure');
+        return;
+    }
+
+    const role = roleId ? this.getWorkRoleById(roleId) : null;
+    const isEdit = Boolean(role);
+    const selectedZoneIds = new Set((role?.zonas || []).map(zone => Number(zone.id)));
+
+    Utils.showModal(isEdit ? 'Editar rol de trabajo' : 'Nuevo rol de trabajo', `
+        <form id="work-role-form" class="zone-structure-form">
+            <input type="hidden" id="work-role-id" value="${role?.id || ''}">
+            <div class="form-group">
+                <label for="work-role-name">Nombre del rol *</label>
+                <input type="text" id="work-role-name" name="nombre" maxlength="40" value="${this.escapeHtml(role?.nombre || '')}" placeholder="Ej: Bartender, Salonero terraza" required>
+            </div>
+            <div class="form-group">
+                <label for="work-role-description">Descripción</label>
+                <textarea id="work-role-description" name="descripcion" rows="2" maxlength="160" placeholder="Describe cuándo o dónde se usa este rol">${this.escapeHtml(role?.descripcion || '')}</textarea>
+            </div>
+            <div class="work-role-zone-picker">
+                <div class="work-role-zone-title">
+                    <strong>Zonas asignadas *</strong>
+                    <span>Seleccione zonas creadas y activas</span>
+                </div>
+                <div class="work-role-zone-list">
+                    ${zonas.map(zone => `
+                        <label class="work-role-zone-option" for="work-role-zone-${Number(zone.id)}">
+                            <input type="checkbox" id="work-role-zone-${Number(zone.id)}" name="zona_ids" value="${Number(zone.id)}" ${selectedZoneIds.has(Number(zone.id)) ? 'checked' : ''}>
+                            <span class="work-role-zone-icon" style="--zone-color:${this.escapeHtml(zone.color || '#3498db')}">
+                                <i class="fas ${this.escapeHtml(zone.icono || 'fa-location-dot')}"></i>
+                            </span>
+                            <span>
+                                <strong>${this.escapeHtml(zone.nombre)}</strong>
+                                <small>${Number(zone.puestos_total || 0)} puestos</small>
+                            </span>
+                        </label>
+                    `).join('')}
+                </div>
+            </div>
+            <div class="structure-switch-grid one-column">
+                ${this.renderSwitch('work-role-active', 'activo', 'Rol activo', role ? Number(role.activo) === 1 : true)}
+            </div>
+        </form>
+    `, [
+        { text: 'Cancelar', class: 'btn-light' },
+        { text: `<i class="fas fa-save"></i> ${isEdit ? 'Guardar' : 'Crear rol'}`, class: 'btn-success', onclick: 'Tables.saveWorkRole()' }
+    ], 'modal-zone-structure');
+},
+
+    async saveWorkRole() {
+    const form = document.getElementById('work-role-form');
+    if (!Utils.validateForm(form)) return;
+
+    const roleId = document.getElementById('work-role-id')?.value;
+    const formData = new FormData(form);
+    const zonaIds = formData.getAll('zona_ids').map(value => Number(value)).filter(Boolean);
+
+    if (!zonaIds.length) {
+        Utils.showNotification('Seleccione al menos una zona activa para el rol de trabajo', 'warning');
+        return;
+    }
+
+    const data = {
+        nombre: formData.get('nombre'),
+        descripcion: formData.get('descripcion'),
+        zona_ids: zonaIds,
+        activo: formData.get('activo') === 'on'
+    };
+
+    try {
+        await Utils.request(roleId ? `/tables/work-roles/${roleId}` : '/tables/work-roles', {
+            method: roleId ? 'PUT' : 'POST',
+            body: JSON.stringify(data)
+        });
+
+        Utils.hideModal();
+        Utils.showNotification(roleId ? 'Rol de trabajo actualizado correctamente' : 'Rol de trabajo creado correctamente', 'success');
+        await this.load();
+    } catch (error) {
+        Utils.showNotification(error.message || 'Error guardando rol de trabajo', 'error');
     }
 },
 

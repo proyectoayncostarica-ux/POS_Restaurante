@@ -151,6 +151,94 @@ async function getActiveDynamicZoneAndType({ zona_id, tipo_puesto_id }) {
     return { zone, seatType };
 }
 
+async function getWorkRolesWithZones() {
+    const [roles, links] = await Promise.all([
+        database.all(`
+            SELECT
+                rt.*,
+                COUNT(rtz.zona_id) AS zonas_total,
+                SUM(CASE WHEN z.activa = 1 THEN 1 ELSE 0 END) AS zonas_activas
+            FROM roles_trabajo rt
+            LEFT JOIN rol_trabajo_zonas rtz ON rtz.rol_trabajo_id = rt.id
+            LEFT JOIN zonas z ON z.id = rtz.zona_id
+            GROUP BY rt.id
+            ORDER BY rt.activo DESC, rt.nombre ASC
+        `),
+        database.all(`
+            SELECT
+                rtz.rol_trabajo_id,
+                z.id,
+                z.nombre,
+                z.slug,
+                z.icono,
+                z.color,
+                z.activa
+            FROM rol_trabajo_zonas rtz
+            INNER JOIN zonas z ON z.id = rtz.zona_id
+            ORDER BY z.orden ASC, z.nombre ASC
+        `)
+    ]);
+
+    const zonesByRole = links.reduce((acc, zone) => {
+        if (!acc.has(zone.rol_trabajo_id)) acc.set(zone.rol_trabajo_id, []);
+        acc.get(zone.rol_trabajo_id).push(zone);
+        return acc;
+    }, new Map());
+
+    return roles.map(role => ({
+        ...role,
+        zonas: zonesByRole.get(role.id) || []
+    }));
+}
+
+function normalizeZoneIds(value) {
+    const rawList = Array.isArray(value) ? value : [value];
+    const ids = rawList
+        .flatMap(item => String(item ?? '').split(','))
+        .map(item => toInteger(item, 0))
+        .filter(id => id > 0);
+
+    return [...new Set(ids)];
+}
+
+async function validateActiveZoneIds(zoneIds = []) {
+    if (!zoneIds.length) {
+        return { error: 'Debe seleccionar al menos una zona activa para este rol de trabajo' };
+    }
+
+    const placeholders = zoneIds.map(() => '?').join(',');
+    const zones = await database.all(`
+        SELECT id, nombre, activa
+        FROM zonas
+        WHERE id IN (${placeholders})
+    `, zoneIds);
+
+    const foundIds = new Set(zones.map(zone => Number(zone.id)));
+    const missingIds = zoneIds.filter(id => !foundIds.has(id));
+
+    if (missingIds.length) {
+        return { error: 'El rol de trabajo contiene zonas inexistentes. Seleccione zonas creadas en el sistema.' };
+    }
+
+    const inactiveZones = zones.filter(zone => Number(zone.activa) !== 1);
+    if (inactiveZones.length) {
+        return { error: `No se pueden asignar zonas inactivas: ${inactiveZones.map(zone => zone.nombre).join(', ')}` };
+    }
+
+    return { zones };
+}
+
+async function replaceWorkRoleZones(roleId, zoneIds) {
+    await database.run('DELETE FROM rol_trabajo_zonas WHERE rol_trabajo_id = ?', [roleId]);
+
+    for (const zoneId of zoneIds) {
+        await database.run(
+            'INSERT INTO rol_trabajo_zonas (rol_trabajo_id, zona_id, creado_en) VALUES (?, ?, ?)',
+            [roleId, zoneId, new Date().toISOString()]
+        );
+    }
+}
+
 function buildTablesSelect(whereClause = '') {
     return `
         SELECT
@@ -226,13 +314,17 @@ router.get('/structure', async (req, res) => {
             ORDER BY tp.orden ASC, tp.nombre ASC
         `);
 
-        const compatibilidad = await database.getDynamicModelCompatibilityReport();
+        const [compatibilidad, rolesTrabajo] = await Promise.all([
+            database.getDynamicModelCompatibilityReport(),
+            getWorkRolesWithZones()
+        ]);
 
         res.json({
             success: true,
             data: {
                 zonas,
                 tipos_puesto: tiposPuesto,
+                roles_trabajo: rolesTrabajo,
                 compatibilidad
             }
         });
@@ -330,6 +422,18 @@ router.put('/zones/:id', requireAdmin, async (req, res) => {
 
             if (Number(activeUse?.count || 0) > 0) {
                 return res.status(409).json({ error: 'No se puede desactivar una zona con puestos ocupados o reservados' });
+            }
+
+            const linkedRoles = await database.get(`
+                SELECT COUNT(*) AS count
+                FROM rol_trabajo_zonas rtz
+                INNER JOIN roles_trabajo rt ON rt.id = rtz.rol_trabajo_id
+                WHERE rtz.zona_id = ?
+                  AND rt.activo = 1
+            `, [id]);
+
+            if (Number(linkedRoles?.count || 0) > 0) {
+                return res.status(409).json({ error: 'No se puede desactivar una zona asignada a roles de trabajo activos' });
             }
         }
 
@@ -460,6 +564,114 @@ router.put('/seat-types/:id', requireAdmin, async (req, res) => {
     } catch (error) {
         console.error('Error actualizando tipo de puesto:', error);
         res.status(500).json({ error: 'Error interno actualizando tipo de puesto' });
+    }
+});
+
+// Obtener roles de trabajo vinculados a zonas existentes.
+router.get('/work-roles', requireAdmin, async (req, res) => {
+    try {
+        const rolesTrabajo = await getWorkRolesWithZones();
+        res.json({ success: true, data: rolesTrabajo });
+    } catch (error) {
+        console.error('Error obteniendo roles de trabajo:', error);
+        res.status(500).json({ error: 'Error interno obteniendo roles de trabajo' });
+    }
+});
+
+// Crear rol de trabajo usando únicamente zonas activas existentes.
+router.post('/work-roles', requireAdmin, async (req, res) => {
+    try {
+        const activeZones = await database.get('SELECT COUNT(*) AS count FROM zonas WHERE activa = 1');
+        if (Number(activeZones?.count || 0) === 0) {
+            return res.status(409).json({ error: 'Antes de crear roles de trabajo debe crear zonas activas del local' });
+        }
+
+        const payload = validateName(req.body?.nombre, 'nombre del rol de trabajo');
+        if (payload.error) return res.status(400).json({ error: payload.error });
+
+        const zoneIds = normalizeZoneIds(req.body?.zona_ids);
+        const zoneValidation = await validateActiveZoneIds(zoneIds);
+        if (zoneValidation.error) return res.status(400).json({ error: zoneValidation.error });
+
+        const slug = normalizeSlug(payload.nombre, 'rol-trabajo');
+        const existing = await database.get('SELECT id FROM roles_trabajo WHERE slug = ? OR LOWER(nombre) = LOWER(?)', [slug, payload.nombre]);
+        if (existing) {
+            return res.status(409).json({ error: 'Ya existe un rol de trabajo con ese nombre' });
+        }
+
+        const result = await database.run(`
+            INSERT INTO roles_trabajo (nombre, slug, descripcion, activo, creado_en, actualizado_en)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `, [
+            payload.nombre,
+            slug,
+            String(req.body?.descripcion || '').trim() || null,
+            toBooleanFlag(req.body?.activo, true),
+            new Date().toISOString(),
+            new Date().toISOString()
+        ]);
+
+        await replaceWorkRoleZones(result.lastID, zoneIds);
+
+        await database.run(
+            'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+            ['crear_rol_trabajo', req.session.userId, `Rol de trabajo ${payload.nombre} creado`, new Date().toISOString()]
+        );
+
+        res.status(201).json({ success: true, data: { id: result.lastID, nombre: payload.nombre, slug } });
+    } catch (error) {
+        console.error('Error creando rol de trabajo:', error);
+        res.status(500).json({ error: 'Error interno creando rol de trabajo' });
+    }
+});
+
+// Actualizar rol de trabajo y sus zonas vinculadas.
+router.put('/work-roles/:id', requireAdmin, async (req, res) => {
+    try {
+        const id = toInteger(req.params.id, 0);
+        if (!id) return res.status(400).json({ error: 'Rol de trabajo inválido' });
+
+        const role = await database.get('SELECT * FROM roles_trabajo WHERE id = ?', [id]);
+        if (!role) return res.status(404).json({ error: 'Rol de trabajo no encontrado' });
+
+        const payload = validateName(req.body?.nombre, 'nombre del rol de trabajo');
+        if (payload.error) return res.status(400).json({ error: payload.error });
+
+        const zoneIds = normalizeZoneIds(req.body?.zona_ids);
+        const zoneValidation = await validateActiveZoneIds(zoneIds);
+        if (zoneValidation.error) return res.status(400).json({ error: zoneValidation.error });
+
+        const duplicate = await database.get('SELECT id FROM roles_trabajo WHERE LOWER(nombre) = LOWER(?) AND id != ?', [payload.nombre, id]);
+        if (duplicate) {
+            return res.status(409).json({ error: 'Ya existe otro rol de trabajo con ese nombre' });
+        }
+
+        await database.run(`
+            UPDATE roles_trabajo
+            SET nombre = ?,
+                descripcion = ?,
+                activo = ?,
+                actualizado_en = ?
+            WHERE id = ?
+        `, [
+            payload.nombre,
+            String(req.body?.descripcion || '').trim() || null,
+            toBooleanFlag(req.body?.activo, role.activo === 1),
+            new Date().toISOString(),
+            id
+        ]);
+
+        await replaceWorkRoleZones(id, zoneIds);
+
+        await database.run(
+            'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+            ['actualizar_rol_trabajo', req.session.userId, `Rol de trabajo ${payload.nombre} actualizado`, new Date().toISOString()]
+        );
+
+        res.json({ success: true, message: 'Rol de trabajo actualizado correctamente' });
+    } catch (error) {
+        console.error('Error actualizando rol de trabajo:', error);
+        res.status(500).json({ error: 'Error interno actualizando rol de trabajo' });
     }
 });
 
