@@ -533,7 +533,7 @@ En Windows también puedes usar `Inicio_Servidor.bat`. En Linux/macOS puedes usa
 - Los endpoints de usuarios devuelven `roles_trabajo` asociados a cada usuario.
 - `POST /api/users` y `PUT /api/users/:id` aceptan `roles_trabajo_ids`.
 - Nuevo endpoint administrativo: `GET /api/users/work-roles` para listar roles disponibles para asignación.
-- `GET /api/auth/login` y `GET /api/auth/verify` ahora incluyen los roles de trabajo asignados en el usuario autenticado.
+- `POST /api/auth/login` y `GET /api/auth/verify` ahora incluyen los roles de trabajo asignados en el usuario autenticado.
 - No se activa todavía selección de rol activo al iniciar sesión, filtro operativo por rol, Dashboard dinámico ni restricciones backend por zona. Eso queda para las siguientes subfases.
 
 ### v2.2.4.7 fix1 · Footer visible en modal Nuevo Rol de trabajo
@@ -542,3 +542,23 @@ En Windows también puedes usar `Inicio_Servidor.bat`. En Linux/macOS puedes usa
 - **Corrección aplicada:** los modales de estructura ahora usan layout vertical con alto máximo, cuerpo desplazable y footer fijo dentro del modal.
 - **Resultado esperado:** los botones del footer permanecen visibles en PC y móvil, incluso cuando hay varias zonas disponibles para seleccionar.
 - **Alcance:** corrección visual únicamente; no cambia base de datos, endpoints, validaciones ni permisos.
+
+### v2.2.4.8 · Sesión operativa activa
+
+- **Objetivo:** preparar la sesión operativa real separando el usuario autenticado del rol de trabajo activo elegido para trabajar en el turno o dispositivo actual.
+- **Backend Auth:** `POST /api/auth/login` y `GET /api/auth/verify` ahora devuelven el bloque `sesion_operativa` con estado, modo, rol activo y roles disponibles.
+- **Selección de rol:** si un usuario tiene más de un rol de trabajo activo con zonas activas, la app muestra una pantalla intermedia para seleccionar el rol operativo antes de entrar al POS.
+- **Auto-selección:** si el usuario tiene un único rol de trabajo activo con zonas activas, ese rol se activa automáticamente en la sesión.
+- **Administradores:** un administrador puede operar sin rol de trabajo asignado; si tiene varios roles disponibles, puede elegir el rol con el que trabajará.
+- **Usuarios estándar:** un usuario estándar sin rol de trabajo activo con zonas activas no puede iniciar operación y recibe un mensaje para solicitar asignación administrativa.
+- **Nuevo endpoint:** `GET /api/auth/operational-session` permite consultar la sesión operativa actual.
+- **Nuevo endpoint:** `POST /api/auth/operational-session` permite seleccionar el rol de trabajo activo de la sesión actual.
+- **Frontend:** se agrega una pantalla premium de selección de rol operativo con botón para cambiar de usuario.
+- **Alcance:** todavía no filtra Dashboard/Zonas por zonas permitidas ni muestra el rol activo en Header; eso queda para v2.2.4.9/v2.2.4.10.
+- **PWA/cache:** se actualizó el versionado de `style.css`, `main.js` y `service-worker.js` para evitar caché antigua.
+
+### v2.2.4.8 fix1 · Corrección de login en sesión operativa
+
+- **Problema detectado:** el login respondía con error 500 porque `buildOperationalSession` devolvía la propiedad `modo` usando una variable inexistente.
+- **Corrección aplicada:** la respuesta de sesión operativa ahora expone `modo` desde la variable interna correcta `mode`.
+- **Alcance:** corrección backend puntual; no cambia estructura de base de datos, endpoints, UI ni reglas funcionales de selección de rol operativo.

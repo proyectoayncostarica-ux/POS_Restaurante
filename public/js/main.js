@@ -255,7 +255,7 @@ const Auth = {
             const response = await Utils.request('/auth/verify');
             if (response.authenticated) {
                 currentUser = response.user;
-                this.showApp();
+                await this.continueAuthenticatedSession({ animated: false });
                 return true;
             }
 
@@ -290,13 +290,15 @@ const Auth = {
             if (response.success) {
                 this.requiresBootstrapSetup = false;
                 currentUser = response.user;
-                await this.transitionToApp();
+                await this.continueAuthenticatedSession({ animated: true });
                 await loadRestaurantName();
                 Utils.showNotification('Administrador inicial creado correctamente', 'success');
 
-                Dashboard.refreshData();
-                Dashboard.startAutoRefresh();
-                Realtime.connect();
+                if (!this.requiresOperationalRoleSelection()) {
+                    Dashboard.refreshData();
+                    Dashboard.startAutoRefresh();
+                    Realtime.connect();
+                }
 
                 return true;
             }
@@ -318,8 +320,14 @@ const Auth = {
 
             if (response.success) {
                 currentUser = response.user;
-                await this.transitionToApp();
+                await this.continueAuthenticatedSession({ animated: true });
                 await loadRestaurantName();
+
+                if (this.requiresOperationalRoleSelection()) {
+                    Utils.showNotification('Selecciona tu rol de trabajo para iniciar la operación', 'info');
+                    return true;
+                }
+
                 Utils.showNotification('Sesión iniciada correctamente', 'success');
 
                 // Cargar datos del dashboard y activar autorefresco
@@ -363,7 +371,9 @@ const Auth = {
     showLogin() {
         const loginScreen = document.getElementById('login-screen');
         const mainApp = document.getElementById('main-app');
+        const operationalScreen = document.getElementById('operational-session-screen');
 
+        if (operationalScreen) operationalScreen.style.display = 'none';
         stopHeaderClock();
         Realtime.disconnect();
         document.body.classList.remove('has-mobile-subnav');
@@ -385,7 +395,9 @@ const Auth = {
     showBootstrapSetup() {
         const loginScreen = document.getElementById('login-screen');
         const mainApp = document.getElementById('main-app');
+        const operationalScreen = document.getElementById('operational-session-screen');
 
+        if (operationalScreen) operationalScreen.style.display = 'none';
         stopHeaderClock();
         Realtime.disconnect();
         document.body.classList.remove('has-mobile-subnav');
@@ -408,6 +420,9 @@ const Auth = {
     showApp() {
         const loginScreen = document.getElementById('login-screen');
         const mainApp = document.getElementById('main-app');
+        const operationalScreen = document.getElementById('operational-session-screen');
+
+        if (operationalScreen) operationalScreen.style.display = 'none';
 
         if (loginScreen) {
             loginScreen.style.display = 'none';
@@ -430,6 +445,9 @@ const Auth = {
     async transitionToApp() {
         const loginScreen = document.getElementById('login-screen');
         const mainApp = document.getElementById('main-app');
+        const operationalScreen = document.getElementById('operational-session-screen');
+
+        if (operationalScreen) operationalScreen.style.display = 'none';
 
         if (!loginScreen || !mainApp) {
             this.showApp();
@@ -454,6 +472,131 @@ const Auth = {
 
         await wait(650);
         mainApp.classList.remove('app-entering');
+    },
+
+    requiresOperationalRoleSelection() {
+        return Boolean(currentUser?.sesion_operativa?.requiere_seleccion);
+    },
+
+    canOperateWithCurrentSession() {
+        return Boolean(currentUser?.sesion_operativa?.puede_operar);
+    },
+
+    async continueAuthenticatedSession(options = {}) {
+        if (this.requiresOperationalRoleSelection() || !this.canOperateWithCurrentSession()) {
+            this.showOperationalSessionSelection();
+            return;
+        }
+
+        if (options.animated) {
+            await this.transitionToApp();
+        } else {
+            this.showApp();
+        }
+    },
+
+    showOperationalSessionSelection() {
+        const loginScreen = document.getElementById('login-screen');
+        const mainApp = document.getElementById('main-app');
+        const operationalScreen = document.getElementById('operational-session-screen');
+        const operationalUser = document.getElementById('operational-session-user');
+        const operationalSubtitle = document.getElementById('operational-session-subtitle');
+        const rolesContainer = document.getElementById('operational-role-options');
+        const blockedMessage = document.getElementById('operational-session-blocked');
+
+        stopHeaderClock();
+        Realtime.disconnect();
+        Dashboard.stopAutoRefresh();
+        document.body.classList.remove('has-mobile-subnav');
+        document.getElementById('mobile-subnav')?.classList.remove('is-visible');
+
+        if (loginScreen) loginScreen.style.display = 'none';
+        if (mainApp) mainApp.style.display = 'none';
+        if (operationalScreen) operationalScreen.style.display = 'flex';
+
+        const session = currentUser?.sesion_operativa || {};
+        const roles = Array.isArray(session.roles_disponibles) ? session.roles_disponibles : [];
+
+        if (operationalUser) {
+            operationalUser.textContent = currentUser?.nombre || 'Usuario';
+        }
+
+        if (operationalSubtitle) {
+            operationalSubtitle.textContent = roles.length
+                ? 'Elige el rol con el que vas a trabajar en esta sesión.'
+                : 'No hay roles de trabajo activos disponibles para continuar.';
+        }
+
+        if (blockedMessage) {
+            blockedMessage.hidden = roles.length > 0;
+            blockedMessage.textContent = session.mensaje || 'Solicita a un administrador asignarte un rol de trabajo activo.';
+        }
+
+        if (!rolesContainer) return;
+
+        rolesContainer.innerHTML = roles.map(role => this.renderOperationalRoleOption(role)).join('') || `
+            <div class="operational-session-empty">
+                <i class="fas fa-triangle-exclamation"></i>
+                <strong>Sin rol operativo disponible</strong>
+                <span>Este usuario no tiene un rol activo con zonas activas.</span>
+            </div>
+        `;
+    },
+
+    renderOperationalRoleOption(role) {
+        const zones = Array.isArray(role.zonas) ? role.zonas.filter(zone => Number(zone.activa) === 1) : [];
+        const zoneNames = zones.length
+            ? zones.map(zone => this.escapeHtml(zone.nombre)).join(' · ')
+            : 'Sin zonas activas';
+
+        return `
+            <button type="button" class="operational-role-card" onclick="Auth.selectOperationalRole(${Number(role.id)})">
+                <span class="operational-role-icon"><i class="fas fa-user-tag"></i></span>
+                <span class="operational-role-copy">
+                    <strong>${this.escapeHtml(role.nombre)}</strong>
+                    <small>${zoneNames}</small>
+                </span>
+                <span class="operational-role-action">Entrar <i class="fas fa-arrow-right"></i></span>
+            </button>
+        `;
+    },
+
+    escapeHtml(value = '') {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    },
+
+    async selectOperationalRole(roleId) {
+        try {
+            const roleButton = document.querySelector(`.operational-role-card[onclick="Auth.selectOperationalRole(${Number(roleId)})"]`);
+            if (roleButton) {
+                roleButton.disabled = true;
+                roleButton.classList.add('is-loading');
+            }
+
+            const response = await Utils.request('/auth/operational-session', {
+                method: 'POST',
+                body: JSON.stringify({ rol_trabajo_id: roleId })
+            });
+
+            if (response.success) {
+                currentUser = response.user;
+                this.showApp();
+                await loadRestaurantName();
+                Utils.showNotification('Rol de trabajo activo seleccionado', 'success');
+
+                Dashboard.refreshData();
+                Dashboard.startAutoRefresh();
+                Realtime.connect();
+            }
+        } catch (error) {
+            Utils.showNotification(error.message, 'error');
+            this.showOperationalSessionSelection();
+        }
     },
 
     updateUserInfo() {

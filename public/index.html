@@ -14,7 +14,7 @@
     <meta name="msapplication-starturl" content="/POS/">
     <title>MundiPOS</title>
     <link rel="manifest" href="/POS/manifest.webmanifest">
-    <link rel="stylesheet" href="/POS/css/style.css?v=2.2.4.7-fix1-work-role-modal-footer">
+    <link rel="stylesheet" href="/POS/css/style.css?v=2.2.4.8-operational-session">
     <link rel="icon" href="/POS/favicon.ico" type="image/x-icon">
     <link rel="shortcut icon" href="/POS/favicon.ico" type="image/x-icon">
     <link rel="apple-touch-icon" href="/POS/assets/icons/mundipos-icon-180.png">
@@ -80,6 +80,28 @@
             <strong>MundiPOS by AyN Costa Rica - Andrey Acuña</strong>
             <span id="login-footer-version" class="login-institutional-version">Cargando versión...</span>
         </footer>
+    </div>
+
+
+    <!-- Selección de sesión operativa -->
+    <div id="operational-session-screen" class="operational-session-container" style="display: none;">
+        <div class="operational-session-card">
+            <div class="operational-session-brand" aria-hidden="true">
+                <img src="assets/brand/mundipos-mark.png" alt="">
+            </div>
+            <div class="operational-session-header">
+                <span class="operational-session-eyebrow">Sesión operativa</span>
+                <h1>Selecciona tu rol de trabajo</h1>
+                <p>Hola, <strong id="operational-session-user">Usuario</strong>. <span id="operational-session-subtitle">Elige el rol con el que vas a trabajar en esta sesión.</span></p>
+            </div>
+            <div id="operational-session-blocked" class="operational-session-warning" hidden></div>
+            <div id="operational-role-options" class="operational-role-options" aria-label="Roles de trabajo disponibles"></div>
+            <div class="operational-session-footer">
+                <button type="button" class="btn btn-light" onclick="Auth.logout()">
+                    <i class="fas fa-arrow-left"></i> Cambiar usuario
+                </button>
+            </div>
+        </div>
     </div>
 
     <!-- Aplicación Principal -->
@@ -318,7 +340,7 @@
     </div>
 
     <!-- Scripts -->
-    <script src="js/main.js"></script>
+    <script src="js/main.js?v=2.2.4.8-operational-session"></script>
     <script src="js/components/dashboard.js"></script>
     <script src="js/components/tables.js"></script>
     <script src="js/components/menu.js"></script>

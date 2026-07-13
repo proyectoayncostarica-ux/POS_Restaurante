@@ -53,11 +53,35 @@ async function getActiveAdminCount() {
     return Number(result?.count || 0);
 }
 
+function normalizeBooleanNumber(value) {
+    return Number(value) === 1 ? 1 : 0;
+}
+
+function mapRoleRow(row = {}) {
+    return {
+        id: Number(row.id),
+        nombre: row.nombre,
+        slug: row.slug,
+        descripcion: row.descripcion,
+        activo: normalizeBooleanNumber(row.activo),
+        zonas_total: Number(row.zonas_total || 0),
+        zonas_activas: Number(row.zonas_activas || 0),
+        zonas: []
+    };
+}
+
+function isSelectableWorkRole(role = {}) {
+    return Number(role.activo) === 1 && Number(role.zonas_activas || 0) > 0;
+}
+
+function getSelectableWorkRoles(roles = []) {
+    return roles.filter(isSelectableWorkRole);
+}
 
 async function getUserWorkRoles(userId) {
     if (!userId) return [];
 
-    return database.all(`
+    const roles = await database.all(`
         SELECT
             rt.id,
             rt.nombre,
@@ -74,6 +98,112 @@ async function getUserWorkRoles(userId) {
         GROUP BY rt.id
         ORDER BY rt.activo DESC, rt.nombre ASC
     `, [userId]);
+
+    if (!roles.length) return [];
+
+    const mappedRoles = roles.map(mapRoleRow);
+    const roleIds = mappedRoles.map(role => role.id).filter(Boolean);
+    const placeholders = roleIds.map(() => '?').join(',');
+
+    if (placeholders) {
+        const zones = await database.all(`
+            SELECT
+                rtz.rol_trabajo_id,
+                z.id,
+                z.nombre,
+                z.slug,
+                z.icono,
+                z.color,
+                z.orden,
+                z.activa,
+                z.visible_dashboard
+            FROM rol_trabajo_zonas rtz
+            INNER JOIN zonas z ON z.id = rtz.zona_id
+            WHERE rtz.rol_trabajo_id IN (${placeholders})
+            ORDER BY z.orden ASC, z.nombre ASC
+        `, roleIds);
+
+        const zonesByRole = zones.reduce((acc, zone) => {
+            const roleId = Number(zone.rol_trabajo_id);
+            if (!acc.has(roleId)) acc.set(roleId, []);
+            acc.get(roleId).push({
+                id: Number(zone.id),
+                nombre: zone.nombre,
+                slug: zone.slug,
+                icono: zone.icono,
+                color: zone.color,
+                orden: Number(zone.orden || 0),
+                activa: normalizeBooleanNumber(zone.activa),
+                visible_dashboard: normalizeBooleanNumber(zone.visible_dashboard)
+            });
+            return acc;
+        }, new Map());
+
+        mappedRoles.forEach(role => {
+            role.zonas = zonesByRole.get(role.id) || [];
+        });
+    }
+
+    return mappedRoles;
+}
+
+function buildOperationalSession(req, user, rolesTrabajo = [], options = {}) {
+    const userType = user?.tipo || req.session?.userType;
+    const isAdmin = userType === 'administrador';
+    const selectableRoles = getSelectableWorkRoles(rolesTrabajo);
+    const resetSelection = Boolean(options.resetSelection);
+
+    if (resetSelection) {
+        req.session.activeWorkRoleId = null;
+        req.session.activeWorkRoleName = null;
+    }
+
+    let activeRole = null;
+    const currentRoleId = Number(req.session?.activeWorkRoleId || 0);
+    if (currentRoleId) {
+        activeRole = selectableRoles.find(role => Number(role.id) === currentRoleId) || null;
+        if (!activeRole) {
+            req.session.activeWorkRoleId = null;
+            req.session.activeWorkRoleName = null;
+        }
+    }
+
+    if (!activeRole && selectableRoles.length === 1) {
+        activeRole = selectableRoles[0];
+        req.session.activeWorkRoleId = activeRole.id;
+        req.session.activeWorkRoleName = activeRole.nombre;
+    }
+
+    const requiresSelection = !activeRole && selectableRoles.length > 1;
+    const blockedWithoutRole = !isAdmin && !activeRole && selectableRoles.length === 0;
+    const canOperate = Boolean(activeRole || isAdmin) && !requiresSelection && !blockedWithoutRole;
+    const mode = activeRole
+        ? 'rol_trabajo'
+        : (blockedWithoutRole ? 'bloqueado_sin_rol' : (isAdmin ? 'administrador_sin_rol' : 'pendiente'));
+
+    return {
+        activa: canOperate,
+        puede_operar: canOperate,
+        requiere_seleccion: requiresSelection,
+        modo: mode,
+        rol_trabajo: activeRole,
+        roles_disponibles: selectableRoles,
+        mensaje: blockedWithoutRole
+            ? 'Este usuario no tiene un rol de trabajo activo con zonas activas. Un administrador debe asignarlo antes de operar.'
+            : null
+    };
+}
+
+function buildUserPayload(req, user, rolesTrabajo = [], operationalSession = null) {
+    const sessionPayload = operationalSession || buildOperationalSession(req, user, rolesTrabajo);
+
+    return {
+        id: Number(user.id || req.session.userId),
+        nombre: user.nombre || req.session.userName,
+        tipo: user.tipo || req.session.userType,
+        roles_trabajo: rolesTrabajo,
+        sesion_operativa: sessionPayload
+    };
 }
 
 function validateBootstrapAdminPayload({ nombre, password, confirmPassword }) {
@@ -144,21 +274,22 @@ router.post('/bootstrap-admin', async (req, res) => {
         req.session.userName = payload.nombre;
         req.session.userNombre = payload.nombre;
         req.session.userType = 'administrador';
+        req.session.activeWorkRoleId = null;
+        req.session.activeWorkRoleName = null;
 
         await database.run(
             'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
             ['bootstrap_admin', req.session.userId, `Administrador inicial ${payload.nombre} creado`, createdAt]
         );
 
+        const user = { id: req.session.userId, nombre: payload.nombre, tipo: 'administrador' };
+        const rolesTrabajo = [];
+        const sesionOperativa = buildOperationalSession(req, user, rolesTrabajo);
+
         res.status(201).json({
             success: true,
             message: 'Administrador inicial creado correctamente',
-            user: {
-                id: req.session.userId,
-                nombre: payload.nombre,
-                tipo: 'administrador',
-                roles_trabajo: []
-            }
+            user: buildUserPayload(req, user, rolesTrabajo, sesionOperativa)
         });
     } catch (error) {
         console.error('Error creando administrador inicial:', error);
@@ -195,6 +326,14 @@ router.post('/login', async (req, res) => {
         req.session.userType = user.tipo;
 
         const rolesTrabajo = await getUserWorkRoles(user.id);
+        const sesionOperativa = buildOperationalSession(req, user, rolesTrabajo, { resetSelection: true });
+
+        if (sesionOperativa.modo === 'bloqueado_sin_rol') {
+            return req.session.destroy(() => {
+                res.clearCookie('pos.sid');
+                res.status(403).json({ error: sesionOperativa.mensaje });
+            });
+        }
 
         await database.run(
             'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
@@ -203,12 +342,7 @@ router.post('/login', async (req, res) => {
 
         res.json({
             success: true,
-            user: {
-                id: user.id,
-                nombre: user.nombre,
-                tipo: user.tipo,
-                roles_trabajo: rolesTrabajo
-            }
+            user: buildUserPayload(req, user, rolesTrabajo, sesionOperativa)
         });
     } catch (error) {
         console.error('Error en login:', error);
@@ -243,21 +377,87 @@ router.post('/logout', async (req, res) => {
 router.get('/verify', async (req, res) => {
     try {
         if (req.session && req.session.userId) {
+            const user = {
+                id: req.session.userId,
+                nombre: req.session.userName,
+                tipo: req.session.userType
+            };
             const rolesTrabajo = await getUserWorkRoles(req.session.userId);
+            const sesionOperativa = buildOperationalSession(req, user, rolesTrabajo);
+
             res.json({
                 authenticated: true,
-                user: {
-                    id: req.session.userId,
-                    nombre: req.session.userName,
-                    tipo: req.session.userType,
-                    roles_trabajo: rolesTrabajo
-                }
+                user: buildUserPayload(req, user, rolesTrabajo, sesionOperativa)
             });
         } else {
             res.json({ authenticated: false });
         }
     } catch (error) {
         console.error('Error verificando sesión:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// Consultar el estado de sesión operativa del usuario autenticado.
+router.get('/operational-session', requireSession, async (req, res) => {
+    try {
+        const user = {
+            id: req.session.userId,
+            nombre: req.session.userName,
+            tipo: req.session.userType
+        };
+        const rolesTrabajo = await getUserWorkRoles(req.session.userId);
+        const sesionOperativa = buildOperationalSession(req, user, rolesTrabajo);
+
+        res.json({
+            success: true,
+            data: sesionOperativa,
+            user: buildUserPayload(req, user, rolesTrabajo, sesionOperativa)
+        });
+    } catch (error) {
+        console.error('Error obteniendo sesión operativa:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// Seleccionar el rol de trabajo activo para la sesión actual.
+router.post('/operational-session', requireSession, async (req, res) => {
+    try {
+        const roleId = Number(req.body?.rol_trabajo_id || req.body?.roleId || 0);
+        if (!Number.isFinite(roleId) || roleId <= 0) {
+            return res.status(400).json({ error: 'Debe seleccionar un rol de trabajo válido' });
+        }
+
+        const user = {
+            id: req.session.userId,
+            nombre: req.session.userName,
+            tipo: req.session.userType
+        };
+        const rolesTrabajo = await getUserWorkRoles(req.session.userId);
+        const selectableRoles = getSelectableWorkRoles(rolesTrabajo);
+        const selectedRole = selectableRoles.find(role => Number(role.id) === roleId);
+
+        if (!selectedRole) {
+            return res.status(403).json({ error: 'El rol seleccionado no está disponible para este usuario o no tiene zonas activas' });
+        }
+
+        req.session.activeWorkRoleId = selectedRole.id;
+        req.session.activeWorkRoleName = selectedRole.nombre;
+
+        await database.run(
+            'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+            ['seleccion_rol_trabajo', req.session.userId, `Rol de trabajo activo: ${selectedRole.nombre}`, new Date().toISOString()]
+        );
+
+        const sesionOperativa = buildOperationalSession(req, user, rolesTrabajo);
+        res.json({
+            success: true,
+            message: 'Rol de trabajo activo seleccionado',
+            data: sesionOperativa,
+            user: buildUserPayload(req, user, rolesTrabajo, sesionOperativa)
+        });
+    } catch (error) {
+        console.error('Error seleccionando rol de trabajo activo:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
