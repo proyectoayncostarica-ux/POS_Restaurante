@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const database = require('../db/database');
+const realtime = require('../utils/realtime');
 
 const router = express.Router();
 const adminVerificationAttempts = new Map();
@@ -55,6 +56,15 @@ async function getActiveAdminCount() {
 
 function normalizeBooleanNumber(value) {
     return Number(value) === 1 ? 1 : 0;
+}
+
+function normalizeUserType(value = '') {
+    return String(value || '').trim().toLowerCase();
+}
+
+function isAdminType(value = '') {
+    const type = normalizeUserType(value);
+    return type === 'administrador' || type === 'admin';
 }
 
 function mapRoleRow(row = {}) {
@@ -142,6 +152,25 @@ function getActiveZoneIdsForRoles(roles = []) {
         getActiveZoneIdsForRole(role).forEach(zoneId => ids.add(zoneId));
     });
     return [...ids];
+}
+
+function broadcastOperationalSessionChange(req, payload = {}) {
+    try {
+        realtime.broadcast('operation-change', {
+            type: 'operation-change',
+            scope: 'sesion',
+            method: 'POST',
+            path: '/api/auth/operational-session',
+            statusCode: 200,
+            userId: req.session?.userId || null,
+            sourceClientId: String(req.get?.('X-MundiPOS-Client') || '').trim(),
+            targetUserIds: [req.session?.userId].filter(Boolean),
+            affectedUserIds: [req.session?.userId].filter(Boolean),
+            ...payload
+        });
+    } catch (error) {
+        console.warn('MundiPOS realtime: no se pudo emitir cambio de sesión operativa.', error);
+    }
 }
 
 
@@ -562,7 +591,7 @@ async function getUserWorkRoles(userId) {
 
 function buildOperationalSession(req, user, rolesTrabajo = [], options = {}) {
     const userType = user?.tipo || req.session?.userType;
-    const isAdmin = userType === 'administrador';
+    const isAdmin = isAdminType(userType);
     const selectableRoles = getSelectableWorkRoles(rolesTrabajo);
     const resetSelection = Boolean(options.resetSelection);
 
@@ -921,7 +950,7 @@ router.post('/operational-session', requireSession, async (req, res) => {
                 });
             }
 
-            if (req.session.userType !== 'administrador') {
+            if (!isAdminType(req.session.userType)) {
                 const verification = await verifyAdminPasswordForRoleChange(req, req.body?.admin_password || req.body?.adminPassword);
                 if (verification.error) {
                     await database.run(
@@ -957,6 +986,13 @@ router.post('/operational-session', requireSession, async (req, res) => {
         );
 
         const sesionOperativa = buildOperationalSession(req, user, rolesTrabajo);
+        broadcastOperationalSessionChange(req, {
+            activeWorkRoleIds: selectedRoles.map(role => Number(role.id)),
+            zoneIds: targetZoneIds,
+            mesaIds: responsabilidadesLiberadas.map(row => Number(row.mesa_id)).filter(Boolean),
+            global: false
+        });
+
         res.json({
             success: true,
             message: 'Roles de trabajo activos seleccionados',

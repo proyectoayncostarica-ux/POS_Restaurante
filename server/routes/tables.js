@@ -239,8 +239,17 @@ async function replaceWorkRoleZones(roleId, zoneIds) {
     }
 }
 
+function normalizeUserType(value = '') {
+    return String(value || '').trim().toLowerCase();
+}
+
+function isAdminType(value = '') {
+    const type = normalizeUserType(value);
+    return type === 'administrador' || type === 'admin';
+}
+
 function isAdminSession(req) {
-    return req.session?.userType === 'administrador';
+    return isAdminType(req.session?.userType);
 }
 
 function getSessionUserId(req) {
@@ -248,11 +257,11 @@ function getSessionUserId(req) {
 }
 
 function getSessionActiveWorkRoleIds(req) {
-    const multiIds = Array.isArray(req.session?.activeWorkRoleIds) ? req.session.activeWorkRoleIds : [];
-    const ids = multiIds.map(id => Number(id)).filter(id => Number.isFinite(id) && id > 0);
-    if (ids.length) return [...new Set(ids)];
-    const legacyId = Number(req.session?.activeWorkRoleId || 0);
-    return legacyId > 0 ? [legacyId] : [];
+    const ids = [
+        ...normalizeSessionRoleIds(req.session?.activeWorkRoleIds),
+        ...normalizeSessionRoleIds(req.session?.activeWorkRoleId)
+    ];
+    return [...new Set(ids)];
 }
 
 async function getSessionActiveWorkRoleIdForMesa(req, mesaId) {
@@ -514,12 +523,16 @@ async function requireMesaOperationAccess(req, res, mesa) {
     return false;
 }
 
-async function ensureMesaResponsibility(mesaId, req, actionLabel = 'asignar_responsable_mesa') {
+async function ensureMesaResponsibility(mesaId, req, actionLabel = 'asignar_responsable_mesa', options = {}) {
     const userId = getSessionUserId(req);
     if (!userId) return;
 
+    if (options.resetExisting === true) {
+        await database.run('DELETE FROM mesa_responsables WHERE mesa_id = ?', [mesaId]);
+    }
+
     const summary = await getMesaResponsibilitySummary(mesaId, userId);
-    if (summary.soy_responsable || summary.responsables_total > 0) return;
+    if (summary.soy_responsable || (!options.resetExisting && summary.responsables_total > 0)) return;
 
     await database.run(`
         INSERT OR IGNORE INTO mesa_responsables (
@@ -1413,7 +1426,10 @@ router.post('/:id/open', async (req, res) => {
         }
 
         await database.run(query, params);
-        await ensureMesaResponsibility(id, req, estado === 'reservada' ? 'responsable_reserva_asignado' : 'responsable_mesa_asignado');
+        // Al abrir/reservar desde estado libre, la responsabilidad inicial debe quedar limpia
+        // y asignada únicamente al usuario que realizó la apertura. Esto elimina
+        // responsables residuales de pruebas/sesiones anteriores y evita bloqueos falsos.
+        await ensureMesaResponsibility(id, req, estado === 'reservada' ? 'responsable_reserva_asignado' : 'responsable_mesa_asignado', { resetExisting: true });
 
         // Registrar en historial
         await database.run(

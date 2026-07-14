@@ -334,7 +334,7 @@ const Auth = {
                 // Cargar datos del dashboard y activar autorefresco
                 Dashboard.refreshData();
                 Dashboard.startAutoRefresh();
-                Realtime.connect();
+                Realtime.reconnectForSession();
 
                 return true;
             }
@@ -892,7 +892,8 @@ const Auth = {
             const currentIds = getActiveWorkRoles(currentUser).map(role => Number(role.id)).sort((a, b) => a - b);
             const selectedSorted = [...normalizedIds].sort((a, b) => a - b);
             const isRoleChange = currentIds.length > 0 && (currentIds.length !== selectedSorted.length || currentIds.some((id, index) => id !== selectedSorted[index]));
-            const requiresAdminAuthorization = currentUser?.tipo !== 'administrador' && isRoleChange && !options.adminPassword;
+            const currentUserType = String(currentUser?.tipo || '').trim().toLowerCase();
+            const requiresAdminAuthorization = !['administrador', 'admin'].includes(currentUserType) && isRoleChange && !options.adminPassword;
 
             if (requiresAdminAuthorization) {
                 this.showRoleChangeAuthorizationModal(normalizedIds);
@@ -915,6 +916,7 @@ const Auth = {
             if (response.success) {
                 currentUser = response.user;
                 this.updateUserInfo();
+                Realtime.reconnectForSession();
                 Utils.hideModal();
                 Utils.showNotification('Roles de trabajo actualizados correctamente', 'success');
 
@@ -985,6 +987,27 @@ const Auth = {
         }
 
         await this.changeOperationalRole(this.pendingRoleChangeIds || [], { adminPassword });
+    },
+
+    async refreshCurrentUserFromServer(options = {}) {
+        try {
+            const response = await Utils.request('/auth/verify', {
+                method: 'GET',
+                cache: 'no-store'
+            });
+
+            if (response.authenticated && response.user) {
+                currentUser = response.user;
+                this.updateUserInfo();
+                return true;
+            }
+        } catch (error) {
+            if (!options.silent) {
+                Utils.showNotification('No se pudo actualizar la sesión operativa', 'warning');
+            }
+        }
+
+        return false;
     },
 
     updateUserInfo() {
@@ -1579,6 +1602,42 @@ const Realtime = {
         }, 3500);
     },
 
+    reconnectForSession() {
+        this.disconnect(true);
+        window.setTimeout(() => this.connect(), 120);
+    },
+
+    isPayloadRelevant(payload = {}) {
+        if (!currentUser || !payload) return false;
+
+        const userType = String(currentUser.tipo || '').trim().toLowerCase();
+        if (userType === 'administrador' || userType === 'admin') return true;
+
+        const targetUserIds = Array.isArray(payload.targetUserIds)
+            ? payload.targetUserIds.map(id => Number(id)).filter(Boolean)
+            : [];
+        const affectedUserIds = Array.isArray(payload.affectedUserIds)
+            ? payload.affectedUserIds.map(id => Number(id)).filter(Boolean)
+            : [];
+        const userId = Number(currentUser.id || 0);
+
+        if (userId && (targetUserIds.includes(userId) || affectedUserIds.includes(userId))) {
+            return true;
+        }
+
+        const zoneIds = Array.isArray(payload.zoneIds)
+            ? payload.zoneIds.map(id => Number(id)).filter(Boolean)
+            : [];
+        if (!zoneIds.length || payload.global === true) return true;
+
+        const activeRoles = getActiveWorkRoles(currentUser);
+        const allowedZoneIds = activeRoles.flatMap(role => Array.isArray(role.zonas)
+            ? role.zonas.map(zone => Number(zone.id)).filter(Boolean)
+            : []);
+
+        return zoneIds.some(zoneId => allowedZoneIds.includes(Number(zoneId)));
+    },
+
     handleServerEvent(event, shouldRefresh) {
         const payload = this.parseEvent(event);
         if (!payload) return;
@@ -1586,7 +1645,7 @@ const Realtime = {
         if (payload.id && payload.id <= this.lastEventId) return;
         if (payload.id) this.lastEventId = payload.id;
 
-        if (shouldRefresh) {
+        if (shouldRefresh && this.isPayloadRelevant(payload)) {
             this.scheduleOperationalRefresh(payload);
         }
     },
@@ -1615,33 +1674,40 @@ const Realtime = {
 
     async refreshVisibleOperation(payload = {}) {
         const scope = payload.scope || 'operacion';
+        const isSelfTarget = Array.isArray(payload.targetUserIds)
+            && payload.targetUserIds.map(id => Number(id)).includes(Number(currentUser?.id || 0));
 
         try {
+            if (scope === 'sesion' && isSelfTarget && payload.sourceClientId !== MUNDIPOS_CLIENT_ID) {
+                await Auth.refreshCurrentUserFromServer({ silent: true });
+                this.reconnectForSession();
+            }
+
             if (typeof Dashboard !== 'undefined') {
                 if (currentSection === 'dashboard') {
-                    await Dashboard.refreshData({ source: 'realtime', silent: true });
+                    await Dashboard.refreshData({ source: 'realtime', silent: true, payload });
                 } else if (typeof Dashboard.markStale === 'function') {
                     Dashboard.markStale();
                 }
             }
 
             if (currentSection === 'tables' && typeof Tables !== 'undefined') {
-                await Tables.load();
+                await Tables.load({ source: 'realtime', payload });
                 return;
             }
 
             if (currentSection === 'orders' && typeof Orders !== 'undefined') {
-                await Orders.load();
+                await Orders.load({ source: 'realtime', payload });
                 return;
             }
 
             if (currentSection === 'accounts' && typeof Accounts !== 'undefined') {
-                await Accounts.load();
+                await Accounts.load({ source: 'realtime', payload });
                 return;
             }
 
             if (currentSection === 'menu' && scope === 'menu' && typeof Menu !== 'undefined') {
-                await Menu.load();
+                await Menu.load({ source: 'realtime', payload });
             }
         } catch (error) {
             console.warn('MundiPOS realtime: no se pudo refrescar la vista activa', error);

@@ -21,7 +21,8 @@ const Tables = {
     },
 
     isAdmin() {
-        return currentUser?.tipo === 'administrador';
+        const tipo = String(currentUser?.tipo || '').trim().toLowerCase();
+        return tipo === 'administrador' || tipo === 'admin';
     },
 
     escapeHtml(value = '') {
@@ -682,7 +683,11 @@ const Tables = {
 
     const esBanco = mesa.zona?.toLowerCase() === 'bar' && mesa.tipo_asiento?.toLowerCase() === 'banco';
 
-    if (mesa.estado !== 'libre' && Number(mesa.puede_operar) !== 1 && !this.isAdmin()) {
+    const canOperateMesa = Number(mesa.puede_operar || 0) === 1
+        || Number(mesa.soy_responsable || 0) === 1
+        || this.isAdmin();
+
+    if (mesa.estado !== 'libre' && !canOperateMesa) {
         Utils.showNotification('Responsable asignado. No puedes operar esta mesa/cuenta con tu usuario actual.', 'info');
         return;
     }

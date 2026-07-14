@@ -390,14 +390,9 @@ Abrir la app en:
 http://localhost:3000/POS
 ```
 
-Usuario inicial cuando la base está vacía:
+Cuando la base está vacía y `SEED_DEMO_USER=false`, la app muestra el formulario de registro inicial del primer administrador.
 
-```text
-Usuario: admin
-Contraseña: admin123
-```
-
-Cambia esa contraseña desde la sección de usuarios/configuración antes de usar el sistema en producción.
+Para desarrollo controlado, `SEED_DEMO_USER=true` puede crear el usuario demo `admin/admin123` solo si la tabla de usuarios está vacía. No usar ese modo en producción.
 
 ## Variables de entorno
 
@@ -556,3 +551,50 @@ Archivos modificados en este fix:
 - **Cards operativas:** las tarjetas de puestos muestran zona/tipo reales, servicio, reservas, estado operativo y responsabilidad sin exponer nombres a usuarios básicos no responsables.
 - **Permisos visuales:** usuarios estándar ven solo la operación permitida; administradores ven administración + operación global.
 - **Alcance:** no cambia base de datos, reglas de responsabilidad, endpoints ni cálculo de servicio 10%.
+
+### v2.2.4.15 · Realtime adaptado
+
+- **Sincronización segmentada:** los eventos SSE ahora incluyen contexto operativo de zona, mesa, pedido y usuarios afectados cuando el backend puede inferirlo.
+- **Respeto de roles activos:** usuarios estándar solo reciben refrescos en tiempo real de zonas permitidas por sus roles de trabajo activos o de mesas/cuentas donde están involucrados como responsables.
+- **Admin global:** usuarios administradores mantienen sincronización global para poder supervisar y operar todo el local.
+- **Responsabilidad compartida:** cambios en responsables de mesa, apertura/cierre de puestos y pedidos pendientes notifican a los usuarios relacionados sin exponer zonas ajenas a usuarios estándar.
+- **Sesión multirrol:** al cambiar roles activos, el cliente reconecta el canal realtime para que el servidor actualice el contexto de zonas permitidas.
+- **Recarga inteligente:** Dashboard, Zonas, Cuentas y Créditos refrescan solo cuando el evento recibido es relevante para la vista actual.
+- **Compatibilidad:** mantiene el mismo endpoint SSE `/api/realtime/events` y conserva compatibilidad con estaciones existentes.
+
+### v2.2.4.15 fix1 · Corrección de responsabilidad y filtro por rol activo
+
+- **Problema corregido:** después de adaptar Realtime, al abrir una mesa podían quedar responsables residuales de sesiones anteriores y la UI terminaba mostrando “Responsable asignado” incluso para quien abría la mesa.
+- **Corrección aplicada:** al abrir o reservar una mesa desde estado libre, se limpia cualquier responsabilidad residual y se asigna únicamente al usuario que realiza la apertura, respetando la regla operativa definida.
+- **Admin:** se normaliza la detección de administrador tanto en frontend como backend para evitar bloqueos falsos si el tipo de usuario llega como `admin` o `administrador`.
+- **Rol activo:** la lectura de roles activos de sesión ahora normaliza arreglos, strings y valores legacy para mantener el filtro de zonas en usuarios básicos/estándar.
+- **Realtime:** se conserva el refresco adaptado, pero sin afectar responsabilidad ni permisos operativos.
+
+### v2.2.4.15 fix2 · Recuperación de Dashboard dinámico y responsabilidad operativa
+
+- **Problema detectado:** después de revisar las fases posteriores a v2.2.4.11, se encontró que `server/routes/dashboard.js` había quedado sobrescrito por una versión anterior durante la integración de servicio 10%. Esa versión no devolvía `puede_operar`, `soy_responsable`, `responsable_asignado` ni el alcance dinámico multirrol del Dashboard.
+- **Efecto:** al no recibir `puede_operar`, el frontend interpretaba cualquier mesa ocupada/reservada como bloqueada por responsable asignado, incluso para administradores o para el usuario que había abierto la mesa. También se perdía el filtro real por roles activos en Dashboard.
+- **Corrección aplicada:** se recupera el Dashboard dinámico/multirrol de v2.2.4.11, se conserva el cálculo de servicio 10% de v2.2.4.13 y se mantiene la responsabilidad compartida.
+- **Admin:** Dashboard vuelve a permitir operación global a administradores.
+- **Usuario estándar:** Dashboard vuelve a filtrar por zonas de sus roles activos y solo permite operar mesas donde está asignado como responsable.
+- **Servicio:** los montos activos y pagados siguen usando `total_con_servicio` cuando aplica.
+- **Zonas:** se agrega una defensa visual para que el responsable real o admin no quede bloqueado si una respuesta anterior no trae `puede_operar` completo.
+- **Alcance:** corrección de regresión en Dashboard y defensa visual en Zonas; no cambia base de datos ni reglas de Realtime.
+
+### v2.2.4.16 · Limpieza final y cierre de estabilidad v2.2.4
+
+- **Objetivo:** cerrar la reestructuración de zonas dinámicas, roles de trabajo, responsabilidad compartida, sesión multirrol, Dashboard/Zonas dinámicos, restricciones backend, servicio 10% y Realtime adaptado.
+- **Cache/PWA:** se sincronizó el versionado de `index.html` y `public/service-worker.js` en `v2.2.4.16-cierre-estabilidad` para evitar mezclas de assets viejos después de los fixes de servicio 10% y Realtime.
+- **Service Worker:** se limpió la lista de precaché para eliminar duplicados y referencias a versiones intermedias, conservando los fallbacks defensivos que siempre devuelven una `Response` válida.
+- **Versión visible:** la app mantiene `APP_VERSION = 2.0` como versión visible para usuarios; la línea interna de estabilidad queda documentada como `2.2.4.16`.
+- **Documentación:** se agregó `docs/cierre-v2.2.4.16-estabilidad.md` con el resumen técnico, checklist de verificación y criterios de cierre.
+- **Alcance:** no cambia reglas de negocio, base de datos, endpoints ni UI funcional; es una fase de estabilización, limpieza de caché y documentación de cierre.
+
+Archivos modificados en esta subfase:
+
+- `README.md`
+- `docs/cierre-v2.2.4.16-estabilidad.md`
+- `server/config/appInfo.js`
+- `public/index.html`
+- `public/service-worker.js`
+

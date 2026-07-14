@@ -191,7 +191,7 @@ const Dashboard = {
         const estado = this.normalizeEstado(mesa?.estado);
         const isActive = estado === 'ocupada' || estado === 'reservada';
         const isCurrentUserResponsible = Number(mesa?.soy_responsable || 0) === 1;
-        const canOperate = Number(mesa?.puede_operar || 0) === 1;
+        const canOperate = Number(mesa?.puede_operar || 0) === 1 || this.isAdminUser?.();
         return isActive && (isCurrentUserResponsible || canOperate);
     },
 
@@ -421,10 +421,16 @@ const Dashboard = {
         return '<small>Sin información</small>';
     },
 
+    isAdminUser() {
+        const tipo = String(currentUser?.tipo || '').trim().toLowerCase();
+        return tipo === 'administrador' || tipo === 'admin';
+    },
+
     getMesaAction(mesa) {
         const estado = this.normalizeEstado(mesa.estado);
+        const canOperate = Number(mesa.puede_operar || 0) === 1 || this.isAdminUser();
 
-        if (estado !== 'libre' && Number(mesa.puede_operar) !== 1) {
+        if (estado !== 'libre' && !canOperate) {
             return {
                 label: 'Responsable asignado',
                 onclick: 'Dashboard.notifyMesaAssigned()',
