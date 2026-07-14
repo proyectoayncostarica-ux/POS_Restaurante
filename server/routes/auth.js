@@ -78,6 +78,72 @@ function getSelectableWorkRoles(roles = []) {
     return roles.filter(isSelectableWorkRole);
 }
 
+function normalizeRoleIds(value) {
+    if (value === null || value === undefined || value === '') return [];
+
+    let normalizedValue = value;
+    if (typeof normalizedValue === 'string') {
+        const trimmed = normalizedValue.trim();
+        if (!trimmed) return [];
+
+        if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || trimmed.includes(',')) {
+            try {
+                normalizedValue = trimmed.startsWith('[')
+                    ? JSON.parse(trimmed)
+                    : trimmed.split(',');
+            } catch (error) {
+                normalizedValue = trimmed.split(',');
+            }
+        }
+    }
+
+    const raw = Array.isArray(normalizedValue) ? normalizedValue : [normalizedValue];
+    const ids = raw
+        .flatMap(item => Array.isArray(item) ? item : [item])
+        .map(item => Number(item))
+        .filter(id => Number.isFinite(id) && id > 0);
+
+    return [...new Set(ids)];
+}
+
+function getSessionActiveWorkRoleIds(req) {
+    const multiIds = normalizeRoleIds(req.session?.activeWorkRoleIds);
+    if (multiIds.length) return multiIds;
+
+    const legacyId = Number(req.session?.activeWorkRoleId || 0);
+    return legacyId > 0 ? [legacyId] : [];
+}
+
+function setSessionActiveWorkRoles(req, roles = []) {
+    const normalizedRoles = Array.isArray(roles) ? roles.filter(role => Number(role?.id) > 0) : [];
+    const ids = normalizedRoles.map(role => Number(role.id));
+    const names = normalizedRoles.map(role => role.nombre).filter(Boolean);
+
+    req.session.activeWorkRoleIds = ids;
+    req.session.activeWorkRoleId = ids[0] || null;
+    req.session.activeWorkRoleName = names.join(' + ') || null;
+}
+
+function clearSessionActiveWorkRoles(req) {
+    req.session.activeWorkRoleIds = [];
+    req.session.activeWorkRoleId = null;
+    req.session.activeWorkRoleName = null;
+}
+
+function sameRoleSet(left = [], right = []) {
+    const a = normalizeRoleIds(left).sort((x, y) => x - y);
+    const b = normalizeRoleIds(right).sort((x, y) => x - y);
+    return a.length === b.length && a.every((id, index) => id === b[index]);
+}
+
+function getActiveZoneIdsForRoles(roles = []) {
+    const ids = new Set();
+    roles.forEach(role => {
+        getActiveZoneIdsForRole(role).forEach(zoneId => ids.add(zoneId));
+    });
+    return [...ids];
+}
+
 
 function getActiveZoneIdsForRole(role = {}) {
     const zones = Array.isArray(role.zonas) ? role.zonas : [];
@@ -86,8 +152,170 @@ function getActiveZoneIdsForRole(role = {}) {
         .map(zone => Number(zone.id));
 }
 
-async function getRoleChangeBlockStatus(userId) {
+
+function unwrapStoredSession(rawSession) {
+    if (!rawSession) return null;
+
+    let session = rawSession;
+    if (typeof session === 'string') {
+        try {
+            session = JSON.parse(session);
+        } catch (error) {
+            return null;
+        }
+    }
+
+    if (session?.sess) return unwrapStoredSession(session.sess);
+    if (session?.session) return unwrapStoredSession(session.session);
+    return session;
+}
+
+function isStoredSessionExpired(session = {}) {
+    const expires = session?.cookie?.expires;
+    if (!expires) return false;
+    const timestamp = Date.parse(expires);
+    return Number.isFinite(timestamp) && timestamp <= Date.now();
+}
+
+function getSessionsFromStoreAll(req) {
+    return new Promise(resolve => {
+        const store = req?.sessionStore;
+        if (!store || typeof store.all !== 'function') {
+            return resolve([]);
+        }
+
+        store.all((error, sessions) => {
+            if (error || !sessions) return resolve([]);
+            if (Array.isArray(sessions)) return resolve(sessions);
+            if (typeof sessions === 'object') return resolve(Object.values(sessions));
+            return resolve([]);
+        });
+    });
+}
+
+async function getActiveOperationalSessionsByUser(req) {
+    const storeSessions = await getSessionsFromStoreAll(req);
+    const memoryStoreSessions = req?.sessionStore?.sessions && typeof req.sessionStore.sessions === 'object'
+        ? Object.values(req.sessionStore.sessions)
+        : [];
+    const currentSession = req?.session ? [req.session] : [];
+    const sessions = [...storeSessions, ...memoryStoreSessions, ...currentSession];
+    const activeByUser = new Map();
+
+    sessions.forEach(rawSession => {
+        const session = unwrapStoredSession(rawSession);
+        const userId = Number(session?.userId || 0);
+        if (!userId || isStoredSessionExpired(session)) return;
+
+        const activeRoleIds = [...new Set([
+            ...normalizeRoleIds(session.activeWorkRoleIds),
+            ...normalizeRoleIds(session.activeWorkRoleId)
+        ])];
+        if (!activeRoleIds.length) return;
+
+        if (!activeByUser.has(userId)) {
+            activeByUser.set(userId, { userId, activeRoleIds: new Set() });
+        }
+
+        const target = activeByUser.get(userId);
+        activeRoleIds.forEach(roleId => target.activeRoleIds.add(Number(roleId)));
+    });
+
+    return activeByUser;
+}
+
+async function getActiveOperationalZoneAccessByUser(req) {
+    const activeSessionsByUser = await getActiveOperationalSessionsByUser(req);
+    const allRoleIds = [...new Set(
+        [...activeSessionsByUser.values()]
+            .flatMap(session => [...session.activeRoleIds])
+            .map(id => Number(id))
+            .filter(id => id > 0)
+    )];
+
+    if (!allRoleIds.length) return new Map();
+
+    const placeholders = allRoleIds.map(() => '?').join(',');
+    const roleZones = await database.all(`
+        SELECT DISTINCT rtz.rol_trabajo_id, rtz.zona_id
+        FROM rol_trabajo_zonas rtz
+        INNER JOIN roles_trabajo rt ON rt.id = rtz.rol_trabajo_id AND rt.activo = 1
+        INNER JOIN zonas z ON z.id = rtz.zona_id AND z.activa = 1
+        WHERE rtz.rol_trabajo_id IN (${placeholders})
+    `, allRoleIds);
+
+    const zonesByRole = roleZones.reduce((acc, row) => {
+        const roleId = Number(row.rol_trabajo_id || 0);
+        if (!acc.has(roleId)) acc.set(roleId, new Set());
+        acc.get(roleId).add(Number(row.zona_id || 0));
+        return acc;
+    }, new Map());
+
+    const accessByUser = new Map();
+    activeSessionsByUser.forEach((session, userId) => {
+        const activeZoneIds = new Set();
+        session.activeRoleIds.forEach(roleId => {
+            const zones = zonesByRole.get(Number(roleId));
+            if (zones) zones.forEach(zoneId => activeZoneIds.add(Number(zoneId)));
+        });
+        if (activeZoneIds.size) {
+            accessByUser.set(Number(userId), {
+                userId: Number(userId),
+                activeRoleIds: session.activeRoleIds,
+                activeZoneIds
+            });
+        }
+    });
+
+    return accessByUser;
+}
+
+async function getActiveResponsibleCountsByMesa(req, rows = [], excludingUserId = 0) {
+    const mesaIds = [...new Set(rows.map(row => Number(row.mesa_id || 0)).filter(id => id > 0))];
+    if (!mesaIds.length) return new Map();
+
+    const accessByUser = await getActiveOperationalZoneAccessByUser(req);
+    if (!accessByUser.size) return new Map();
+
+    const placeholders = mesaIds.map(() => '?').join(',');
+    const responsibles = await database.all(`
+        SELECT mesa_id, usuario_id
+        FROM mesa_responsables
+        WHERE mesa_id IN (${placeholders})
+    `, mesaIds);
+
+    const zoneByMesa = rows.reduce((acc, row) => {
+        acc.set(Number(row.mesa_id), Number(row.zona_id || 0));
+        return acc;
+    }, new Map());
+    const counts = new Map();
+    const counted = new Set();
+    const excludeId = Number(excludingUserId || 0);
+
+    responsibles.forEach(row => {
+        const mesaId = Number(row.mesa_id || 0);
+        const userId = Number(row.usuario_id || 0);
+        const zonaId = Number(zoneByMesa.get(mesaId) || 0);
+        if (!mesaId || !userId || userId === excludeId || !zonaId) return;
+
+        const userAccess = accessByUser.get(userId);
+        if (!userAccess || !userAccess.activeZoneIds.has(zonaId)) return;
+
+        const key = `${mesaId}:${userId}`;
+        if (counted.has(key)) return;
+        counted.add(key);
+        counts.set(mesaId, Number(counts.get(mesaId) || 0) + 1);
+    });
+
+    return counts;
+}
+
+async function getRoleChangeBlockStatus(userId, options = {}) {
     const numericUserId = Number(userId || 0);
+    const targetZoneIds = Array.isArray(options.targetZoneIds)
+        ? new Set(options.targetZoneIds.map(id => Number(id)).filter(id => id > 0))
+        : null;
+
     if (!numericUserId) {
         return {
             bloqueado: false,
@@ -96,6 +324,7 @@ async function getRoleChangeBlockStatus(userId) {
             responsabilidades_activas: 0,
             responsabilidades_compartidas: 0,
             responsabilidades_unicas: 0,
+            responsabilidades_a_liberar: 0,
             mesas_bloqueantes: [],
             mensaje: null
         };
@@ -105,6 +334,7 @@ async function getRoleChangeBlockStatus(userId) {
         SELECT
             m.id AS mesa_id,
             m.numero,
+            m.zona_id,
             COALESCE(z.nombre, CASE
                 WHEN LOWER(COALESCE(m.zona, 'salon')) = 'bar' AND LOWER(COALESCE(m.tipo_asiento, 'mesa')) = 'banco' THEN 'Barra'
                 WHEN LOWER(COALESCE(m.zona, 'salon')) = 'bar' THEN 'Bar'
@@ -139,28 +369,37 @@ async function getRoleChangeBlockStatus(userId) {
     `, [numericUserId]);
 
     const activeRows = rows.filter(row => Number(row.cuentas_pendientes || 0) > 0 || ['ocupada', 'reservada'].includes(String(row.estado || '').toLowerCase()));
-    const uniqueRows = activeRows.filter(row => Number(row.responsables_activos || 0) <= 1);
-    const sharedRows = activeRows.filter(row => Number(row.responsables_activos || 0) > 1);
+    const otherActiveResponsiblesByMesa = await getActiveResponsibleCountsByMesa(options.req, activeRows, numericUserId);
+    const rowsOutsideTarget = targetZoneIds
+        ? activeRows.filter(row => !targetZoneIds.has(Number(row.zona_id || 0)))
+        : [];
+    const rowsToEvaluate = targetZoneIds ? rowsOutsideTarget : [];
+    const uniqueRows = rowsToEvaluate.filter(row => Number(otherActiveResponsiblesByMesa.get(Number(row.mesa_id)) || 0) <= 0);
+    const sharedRows = rowsToEvaluate.filter(row => Number(otherActiveResponsiblesByMesa.get(Number(row.mesa_id)) || 0) > 0);
     const pendingTotal = activeRows.reduce((sum, row) => sum + Number(row.cuentas_pendientes || 0), 0);
     const occupiedTotal = activeRows.filter(row => String(row.estado || '').toLowerCase() === 'ocupada').length;
+    const allUniqueRows = activeRows.filter(row => Number(otherActiveResponsiblesByMesa.get(Number(row.mesa_id)) || 0) <= 0);
+    const allSharedRows = activeRows.filter(row => Number(otherActiveResponsiblesByMesa.get(Number(row.mesa_id)) || 0) > 0);
 
     return {
         bloqueado: uniqueRows.length > 0,
         cuentas_pendientes: pendingTotal,
         puestos_ocupados: occupiedTotal,
         responsabilidades_activas: activeRows.length,
-        responsabilidades_compartidas: sharedRows.length,
-        responsabilidades_unicas: uniqueRows.length,
+        responsabilidades_compartidas: allSharedRows.length,
+        responsabilidades_unicas: allUniqueRows.length,
+        responsabilidades_a_liberar: sharedRows.length,
         mesas_bloqueantes: uniqueRows.map(row => ({
             mesa_id: Number(row.mesa_id),
             numero: Number(row.numero),
+            zona_id: Number(row.zona_id || 0),
             zona_nombre: row.zona_nombre,
             tipo_puesto_nombre: row.tipo_puesto_nombre,
             estado: row.estado,
             cuentas_pendientes: Number(row.cuentas_pendientes || 0)
         })),
         mensaje: uniqueRows.length > 0
-            ? 'No se puede cambiar de rol porque hay mesas/cuentas activas donde este usuario es el único responsable asignado. Un administrador debe agregar otro responsable desde Zonas o cerrar la cuenta.'
+            ? 'No se puede cambiar de rol porque hay mesas/cuentas activas donde este usuario quedaría sin otro responsable con sesión operativa activa en esa zona. Un administrador debe agregar otro responsable activo desde Zonas o cerrar la cuenta.'
             : null
     };
 }
@@ -190,14 +429,18 @@ async function verifyAdminPasswordForRoleChange(req, password) {
     return { error: 'Contraseña de administrador incorrecta', status: 401 };
 }
 
-async function releaseSharedMesaResponsibilitiesForUser(userId, authorizedByAdmin = null) {
+async function releaseSharedMesaResponsibilitiesForUser(userId, authorizedByAdmin = null, options = {}) {
     const numericUserId = Number(userId || 0);
+    const targetZoneIds = Array.isArray(options.targetZoneIds)
+        ? new Set(options.targetZoneIds.map(id => Number(id)).filter(id => id > 0))
+        : new Set();
     if (!numericUserId) return { removed: [] };
 
     const rows = await database.all(`
         SELECT
             m.id AS mesa_id,
             m.numero,
+            m.zona_id,
             COALESCE(z.nombre, CASE
                 WHEN LOWER(COALESCE(m.zona, 'salon')) = 'bar' AND LOWER(COALESCE(m.tipo_asiento, 'mesa')) = 'banco' THEN 'Barra'
                 WHEN LOWER(COALESCE(m.zona, 'salon')) = 'bar' THEN 'Bar'
@@ -224,7 +467,10 @@ async function releaseSharedMesaResponsibilitiesForUser(userId, authorizedByAdmi
           ) > 1
     `, [numericUserId]);
 
-    for (const row of rows) {
+    const otherActiveResponsiblesByMesa = await getActiveResponsibleCountsByMesa(options.req, rows, numericUserId);
+    const rowsToRelease = rows.filter(row => !targetZoneIds.has(Number(row.zona_id || 0)) && Number(otherActiveResponsiblesByMesa.get(Number(row.mesa_id)) || 0) > 0);
+
+    for (const row of rowsToRelease) {
         await database.run(
             'DELETE FROM mesa_responsables WHERE mesa_id = ? AND usuario_id = ?',
             [row.mesa_id, numericUserId]
@@ -235,13 +481,13 @@ async function releaseSharedMesaResponsibilitiesForUser(userId, authorizedByAdmi
             [
                 'responsabilidad_mesa_liberada_por_cambio_rol',
                 numericUserId,
-                `Usuario liberado automáticamente de ${row.tipo_puesto_nombre} ${row.numero} (${row.zona_nombre}) por cambio de rol${authorizedByAdmin?.nombre ? ` autorizado por ${authorizedByAdmin.nombre}` : ''}`,
+                `Usuario liberado automáticamente de ${row.tipo_puesto_nombre} ${row.numero} (${row.zona_nombre}) por cambio de roles activos${authorizedByAdmin?.nombre ? ` autorizado por ${authorizedByAdmin.nombre}` : ''}`,
                 new Date().toISOString()
             ]
         );
     }
 
-    return { removed: rows };
+    return { removed: rowsToRelease };
 }
 
 
@@ -321,31 +567,30 @@ function buildOperationalSession(req, user, rolesTrabajo = [], options = {}) {
     const resetSelection = Boolean(options.resetSelection);
 
     if (resetSelection) {
-        req.session.activeWorkRoleId = null;
-        req.session.activeWorkRoleName = null;
+        clearSessionActiveWorkRoles(req);
     }
 
-    let activeRole = null;
-    const currentRoleId = Number(req.session?.activeWorkRoleId || 0);
-    if (currentRoleId) {
-        activeRole = selectableRoles.find(role => Number(role.id) === currentRoleId) || null;
-        if (!activeRole) {
-            req.session.activeWorkRoleId = null;
-            req.session.activeWorkRoleName = null;
+    let activeRoles = [];
+    const currentRoleIds = getSessionActiveWorkRoleIds(req);
+    if (currentRoleIds.length) {
+        activeRoles = selectableRoles.filter(role => currentRoleIds.includes(Number(role.id)));
+        if (!activeRoles.length) {
+            clearSessionActiveWorkRoles(req);
+        } else if (!sameRoleSet(currentRoleIds, activeRoles.map(role => role.id))) {
+            setSessionActiveWorkRoles(req, activeRoles);
         }
     }
 
-    if (!activeRole && selectableRoles.length === 1) {
-        activeRole = selectableRoles[0];
-        req.session.activeWorkRoleId = activeRole.id;
-        req.session.activeWorkRoleName = activeRole.nombre;
+    if (!activeRoles.length && selectableRoles.length === 1) {
+        activeRoles = [selectableRoles[0]];
+        setSessionActiveWorkRoles(req, activeRoles);
     }
 
-    const requiresSelection = !activeRole && selectableRoles.length > 1;
-    const blockedWithoutRole = !isAdmin && !activeRole && selectableRoles.length === 0;
-    const canOperate = Boolean(activeRole || isAdmin) && !requiresSelection && !blockedWithoutRole;
-    const mode = activeRole
-        ? 'rol_trabajo'
+    const requiresSelection = !activeRoles.length && selectableRoles.length > 1;
+    const blockedWithoutRole = !isAdmin && !activeRoles.length && selectableRoles.length === 0;
+    const canOperate = Boolean(activeRoles.length || isAdmin) && !requiresSelection && !blockedWithoutRole;
+    const mode = activeRoles.length
+        ? 'roles_trabajo'
         : (blockedWithoutRole ? 'bloqueado_sin_rol' : (isAdmin ? 'administrador_sin_rol' : 'pendiente'));
 
     return {
@@ -353,7 +598,9 @@ function buildOperationalSession(req, user, rolesTrabajo = [], options = {}) {
         puede_operar: canOperate,
         requiere_seleccion: requiresSelection,
         modo: mode,
-        rol_trabajo: activeRole,
+        rol_trabajo: activeRoles[0] || null,
+        roles_trabajo_activos: activeRoles,
+        rol_trabajo_ids: activeRoles.map(role => Number(role.id)),
         roles_disponibles: selectableRoles,
         mensaje: blockedWithoutRole
             ? 'Este usuario no tiene un rol de trabajo activo con zonas activas. Un administrador debe asignarlo antes de operar.'
@@ -441,8 +688,7 @@ router.post('/bootstrap-admin', async (req, res) => {
         req.session.userName = payload.nombre;
         req.session.userNombre = payload.nombre;
         req.session.userType = 'administrador';
-        req.session.activeWorkRoleId = null;
-        req.session.activeWorkRoleName = null;
+        clearSessionActiveWorkRoles(req);
 
         await database.run(
             'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
@@ -598,15 +844,17 @@ router.get('/operational-session/change-status', requireSession, async (req, res
         };
         const rolesTrabajo = await getUserWorkRoles(req.session.userId);
         const sesionOperativa = buildOperationalSession(req, user, rolesTrabajo);
-        const activeRole = sesionOperativa.rol_trabajo || null;
-        const bloqueo = await getRoleChangeBlockStatus(req.session.userId);
+        const activeRoles = Array.isArray(sesionOperativa.roles_trabajo_activos) ? sesionOperativa.roles_trabajo_activos : [];
+        const activeRole = sesionOperativa.rol_trabajo || activeRoles[0] || null;
+        const bloqueo = await getRoleChangeBlockStatus(req.session.userId, { req });
 
         res.json({
             success: true,
             data: {
-                puede_cambiar: !bloqueo.bloqueado,
+                puede_cambiar: true,
                 bloqueo,
                 rol_trabajo_actual: activeRole,
+                roles_trabajo_actuales: activeRoles,
                 roles_disponibles: getSelectableWorkRoles(rolesTrabajo),
                 sesion_operativa: sesionOperativa
             },
@@ -621,9 +869,16 @@ router.get('/operational-session/change-status', requireSession, async (req, res
 // Seleccionar el rol de trabajo activo para la sesión actual.
 router.post('/operational-session', requireSession, async (req, res) => {
     try {
-        const roleId = Number(req.body?.rol_trabajo_id || req.body?.roleId || 0);
-        if (!Number.isFinite(roleId) || roleId <= 0) {
-            return res.status(400).json({ error: 'Debe seleccionar un rol de trabajo válido' });
+        const selectedIds = normalizeRoleIds(
+            req.body?.rol_trabajo_ids
+            ?? req.body?.role_ids
+            ?? req.body?.roles_trabajo_ids
+            ?? req.body?.rol_trabajo_id
+            ?? req.body?.roleId
+        );
+
+        if (!selectedIds.length) {
+            return res.status(400).json({ error: 'Debe seleccionar al menos un rol de trabajo válido' });
         }
 
         const user = {
@@ -633,23 +888,21 @@ router.post('/operational-session', requireSession, async (req, res) => {
         };
         const rolesTrabajo = await getUserWorkRoles(req.session.userId);
         const selectableRoles = getSelectableWorkRoles(rolesTrabajo);
-        const selectedRole = selectableRoles.find(role => Number(role.id) === roleId);
+        const selectedRoles = selectableRoles.filter(role => selectedIds.includes(Number(role.id)));
 
-        if (!selectedRole) {
-            return res.status(403).json({ error: 'El rol seleccionado no está disponible para este usuario o no tiene zonas activas' });
+        if (!selectedRoles.length || selectedRoles.length !== selectedIds.length) {
+            return res.status(403).json({ error: 'Uno o más roles seleccionados no están disponibles para este usuario o no tienen zonas activas' });
         }
 
-        const currentRoleId = Number(req.session.activeWorkRoleId || 0);
-        const currentRole = currentRoleId
-            ? selectableRoles.find(role => Number(role.id) === currentRoleId) || null
-            : null;
-
-        const isRoleChange = Boolean(currentRole && Number(currentRole.id) !== Number(selectedRole.id));
+        const currentRoleIds = getSessionActiveWorkRoleIds(req);
+        const currentRoles = selectableRoles.filter(role => currentRoleIds.includes(Number(role.id)));
+        const isRoleChange = currentRoleIds.length > 0 && !sameRoleSet(currentRoleIds, selectedIds);
+        const targetZoneIds = getActiveZoneIdsForRoles(selectedRoles);
         let adminAutorizador = null;
         let responsabilidadesLiberadas = [];
 
         if (isRoleChange) {
-            const bloqueo = await getRoleChangeBlockStatus(req.session.userId);
+            const bloqueo = await getRoleChangeBlockStatus(req.session.userId, { targetZoneIds, req });
             if (bloqueo.bloqueado) {
                 await database.run(
                     'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
@@ -662,7 +915,7 @@ router.post('/operational-session', requireSession, async (req, res) => {
                 );
 
                 return res.status(409).json({
-                    error: bloqueo.mensaje || 'No se puede cambiar de rol porque el usuario es responsable único de una o más mesas activas.',
+                    error: bloqueo.mensaje || 'No se puede cambiar de rol porque el usuario quedaría como único responsable fuera de sus nuevos roles activos.',
                     code: 'ROLE_CHANGE_BLOCKED_SINGLE_RESPONSIBLE',
                     bloqueo
                 });
@@ -676,7 +929,7 @@ router.post('/operational-session', requireSession, async (req, res) => {
                         [
                             'cambio_rol_rechazado_password_admin',
                             req.session.userId,
-                            `Cambio de rol de ${currentRole.nombre} a ${selectedRole.nombre} rechazado por autorización admin inválida`,
+                            `Cambio de roles de ${currentRoles.map(role => role.nombre).join(' + ') || 'Sin rol'} a ${selectedRoles.map(role => role.nombre).join(' + ')} rechazado por autorización admin inválida`,
                             new Date().toISOString()
                         ]
                     );
@@ -685,21 +938,20 @@ router.post('/operational-session', requireSession, async (req, res) => {
                 adminAutorizador = verification.admin;
             }
 
-            const releaseResult = await releaseSharedMesaResponsibilitiesForUser(req.session.userId, adminAutorizador);
+            const releaseResult = await releaseSharedMesaResponsibilitiesForUser(req.session.userId, adminAutorizador, { targetZoneIds, req });
             responsabilidadesLiberadas = releaseResult.removed || [];
         }
 
-        req.session.activeWorkRoleId = selectedRole.id;
-        req.session.activeWorkRoleName = selectedRole.nombre;
+        setSessionActiveWorkRoles(req, selectedRoles);
 
         await database.run(
             'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
             [
-                isRoleChange ? 'cambio_rol_trabajo' : 'seleccion_rol_trabajo',
+                isRoleChange ? 'cambio_roles_trabajo' : 'seleccion_roles_trabajo',
                 req.session.userId,
                 isRoleChange
-                    ? `Rol de trabajo cambiado de ${currentRole.nombre} a ${selectedRole.nombre}${adminAutorizador?.nombre ? ` con autorización admin de ${adminAutorizador.nombre}` : ''}. Responsabilidades liberadas: ${responsabilidadesLiberadas.length}`
-                    : `Rol de trabajo activo: ${selectedRole.nombre}`,
+                    ? `Roles de trabajo cambiados de ${currentRoles.map(role => role.nombre).join(' + ') || 'Sin rol'} a ${selectedRoles.map(role => role.nombre).join(' + ')}${adminAutorizador?.nombre ? ` con autorización admin de ${adminAutorizador.nombre}` : ''}. Responsabilidades liberadas: ${responsabilidadesLiberadas.length}`
+                    : `Roles de trabajo activos: ${selectedRoles.map(role => role.nombre).join(' + ')}`,
                 new Date().toISOString()
             ]
         );
@@ -707,12 +959,12 @@ router.post('/operational-session', requireSession, async (req, res) => {
         const sesionOperativa = buildOperationalSession(req, user, rolesTrabajo);
         res.json({
             success: true,
-            message: 'Rol de trabajo activo seleccionado',
+            message: 'Roles de trabajo activos seleccionados',
             data: sesionOperativa,
             user: buildUserPayload(req, user, rolesTrabajo, sesionOperativa)
         });
     } catch (error) {
-        console.error('Error seleccionando rol de trabajo activo:', error);
+        console.error('Error seleccionando roles de trabajo activos:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });

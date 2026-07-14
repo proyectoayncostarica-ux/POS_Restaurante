@@ -185,56 +185,78 @@ function buildZoneWhere(scope = {}, alias = 'm') {
     };
 }
 
+function normalizeRoleIds(value) {
+    const raw = Array.isArray(value) ? value : (value ? [value] : []);
+    return [...new Set(raw.flatMap(item => Array.isArray(item) ? item : [item])
+        .map(item => Number(item))
+        .filter(id => Number.isFinite(id) && id > 0))];
+}
+
+function getSessionActiveWorkRoleIds(req) {
+    const multiIds = normalizeRoleIds(req.session?.activeWorkRoleIds);
+    if (multiIds.length) return multiIds;
+    const legacyId = Number(req.session?.activeWorkRoleId || 0);
+    return legacyId > 0 ? [legacyId] : [];
+}
+
 async function getDashboardScope(req) {
     const userId = Number(req.session?.userId || 0);
     const userType = req.session?.userType || 'basico';
-    const activeWorkRoleId = Number(req.session?.activeWorkRoleId || 0);
+    const activeWorkRoleIds = getSessionActiveWorkRoleIds(req);
     const isAdmin = userType === 'administrador';
 
-    if (activeWorkRoleId > 0) {
-        const role = await database.get(`
-            SELECT rt.id, rt.nombre, rt.slug, rt.descripcion, rt.activo
+    if (activeWorkRoleIds.length > 0) {
+        const placeholders = activeWorkRoleIds.map(() => '?').join(',');
+        const roles = await database.all(`
+            SELECT DISTINCT rt.id, rt.nombre, rt.slug, rt.descripcion, rt.activo
             FROM roles_trabajo rt
             INNER JOIN usuario_roles_trabajo urt ON urt.rol_trabajo_id = rt.id
-            WHERE rt.id = ?
+            WHERE rt.id IN (${placeholders})
               AND urt.usuario_id = ?
               AND rt.activo = 1
-        `, [activeWorkRoleId, userId]);
+            ORDER BY rt.nombre ASC
+        `, [...activeWorkRoleIds, userId]);
 
-        if (!role) {
+        if (!roles.length) {
             return {
                 modo: 'rol_no_disponible',
                 rol_trabajo: null,
+                roles_trabajo: [],
                 zonas: [],
                 zoneIds: [],
                 restringido: true,
-                mensaje: 'El rol operativo activo ya no está disponible para este usuario.'
+                mensaje: 'Los roles operativos activos ya no están disponibles para este usuario.'
             };
         }
 
+        const roleIds = roles.map(role => Number(role.id));
+        const rolePlaceholders = roleIds.map(() => '?').join(',');
         const zonas = await database.all(`
-            SELECT z.*
+            SELECT DISTINCT z.*
             FROM rol_trabajo_zonas rtz
             INNER JOIN zonas z ON z.id = rtz.zona_id
-            WHERE rtz.rol_trabajo_id = ?
+            WHERE rtz.rol_trabajo_id IN (${rolePlaceholders})
               AND z.activa = 1
               AND z.visible_dashboard = 1
             ORDER BY z.orden ASC, z.nombre ASC
-        `, [activeWorkRoleId]);
+        `, roleIds);
+
+        const mappedRoles = roles.map(role => ({
+            id: Number(role.id),
+            nombre: role.nombre,
+            slug: role.slug,
+            descripcion: role.descripcion,
+            activo: normalizeBooleanNumber(role.activo)
+        }));
 
         return {
-            modo: 'rol_trabajo',
-            rol_trabajo: {
-                id: Number(role.id),
-                nombre: role.nombre,
-                slug: role.slug,
-                descripcion: role.descripcion,
-                activo: normalizeBooleanNumber(role.activo)
-            },
+            modo: 'roles_trabajo',
+            rol_trabajo: mappedRoles[0] || null,
+            roles_trabajo: mappedRoles,
             zonas,
             zoneIds: zonas.map(zone => Number(zone.id)).filter(Boolean),
             restringido: true,
-            mensaje: zonas.length ? null : 'El rol operativo activo no tiene zonas visibles en Dashboard.'
+            mensaje: zonas.length ? null : 'Los roles operativos activos no tienen zonas visibles en Dashboard.'
         };
     }
 
@@ -250,6 +272,7 @@ async function getDashboardScope(req) {
         return {
             modo: 'administrador_sin_rol',
             rol_trabajo: null,
+            roles_trabajo: [],
             zonas,
             zoneIds: zonas.map(zone => Number(zone.id)).filter(Boolean),
             restringido: false,
@@ -260,10 +283,11 @@ async function getDashboardScope(req) {
     return {
         modo: 'sin_rol_operativo',
         rol_trabajo: null,
+        roles_trabajo: [],
         zonas: [],
         zoneIds: [],
         restringido: true,
-        mensaje: 'Seleccione un rol operativo activo para consultar el Dashboard.'
+        mensaje: 'Seleccione al menos un rol operativo activo para consultar el Dashboard.'
     };
 }
 
@@ -412,7 +436,8 @@ router.get('/', async (req, res) => {
             id: req.session.userId,
             nombre: req.session.userName,
             tipo: req.session.userType,
-            rol_trabajo_activo: scope.rol_trabajo
+            rol_trabajo_activo: scope.rol_trabajo,
+            roles_trabajo_activos: scope.roles_trabajo || []
         };
 
         const mesasDetalle = await database.all(buildDashboardSeatSelect(zoneWhere, { currentUserId: req.session.userId, isAdmin: req.session.userType === 'administrador' }), zoneWhere.params);
@@ -473,6 +498,7 @@ router.get('/', async (req, res) => {
                     modo: scope.modo,
                     restringido: scope.restringido,
                     rol_trabajo: scope.rol_trabajo,
+                    roles_trabajo: scope.roles_trabajo || [],
                     zonas_permitidas: scope.zonas.map(zone => ({
                         id: Number(zone.id),
                         nombre: zone.nombre,

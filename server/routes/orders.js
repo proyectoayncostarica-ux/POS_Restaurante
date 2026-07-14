@@ -11,8 +11,115 @@ function getSessionUserId(req) {
   return Number(req.session?.userId || 0);
 }
 
-function getSessionActiveWorkRoleId(req) {
-  return Number(req.session?.activeWorkRoleId || 0) || null;
+function getSessionActiveWorkRoleIds(req) {
+  const multiIds = Array.isArray(req.session?.activeWorkRoleIds) ? req.session.activeWorkRoleIds : [];
+  const ids = multiIds.map(id => Number(id)).filter(id => Number.isFinite(id) && id > 0);
+  if (ids.length) return [...new Set(ids)];
+  const legacyId = Number(req.session?.activeWorkRoleId || 0);
+  return legacyId > 0 ? [legacyId] : [];
+}
+
+
+async function getSessionPermittedZoneIds(req) {
+  if (isAdminSession(req)) return null;
+
+  const roleIds = getSessionActiveWorkRoleIds(req);
+  if (!roleIds.length || !getSessionUserId(req)) return [];
+
+  const placeholders = roleIds.map(() => '?').join(',');
+  const rows = await database.all(`
+    SELECT DISTINCT z.id
+    FROM rol_trabajo_zonas rtz
+    INNER JOIN roles_trabajo rt ON rt.id = rtz.rol_trabajo_id AND rt.activo = 1
+    INNER JOIN zonas z ON z.id = rtz.zona_id AND z.activa = 1
+    INNER JOIN usuario_roles_trabajo urt ON urt.rol_trabajo_id = rt.id AND urt.usuario_id = ?
+    WHERE rtz.rol_trabajo_id IN (${placeholders})
+  `, [getSessionUserId(req), ...roleIds]);
+
+  return rows.map(row => Number(row.id)).filter(id => id > 0);
+}
+
+async function canAccessMesaZone(req, mesa = {}) {
+  if (isAdminSession(req)) return true;
+
+  const zonaId = Number(mesa.zona_id || mesa.zona_dinamica_id || 0);
+  if (!zonaId || !getSessionUserId(req)) return false;
+
+  const zoneIds = await getSessionPermittedZoneIds(req);
+  return Array.isArray(zoneIds) && zoneIds.includes(zonaId);
+}
+
+async function requireMesaZoneAccess(req, res, mesa = {}) {
+  if (await canAccessMesaZone(req, mesa)) return true;
+
+  res.status(403).json({
+    error: 'No tienes un rol de trabajo activo para operar esta zona.',
+    code: 'ZONE_NOT_ALLOWED'
+  });
+  return false;
+}
+
+async function appendOrderListAccessFilter(req, whereParts, params) {
+  if (isAdminSession(req)) return;
+
+  const zoneIds = await getSessionPermittedZoneIds(req);
+  if (!zoneIds.length) {
+    whereParts.push('1 = 0');
+    return;
+  }
+
+  whereParts.push(`m.zona_id IN (${zoneIds.map(() => '?').join(',')})`);
+  params.push(...zoneIds);
+  whereParts.push(`(
+    p.estado <> 'pendiente'
+    OR EXISTS (
+      SELECT 1 FROM mesa_responsables mr_access
+      WHERE mr_access.mesa_id = p.mesa_id
+        AND mr_access.usuario_id = ?
+    )
+  )`);
+  params.push(getSessionUserId(req));
+}
+
+async function canReadPedido(req, pedido = {}) {
+  if (isAdminSession(req)) return true;
+  if (!(await canAccessMesaZone(req, pedido))) return false;
+
+  if (String(pedido.estado || '').toLowerCase() !== 'pendiente') return true;
+
+  const summary = await getMesaResponsibilitySummary(pedido.mesa_id, getSessionUserId(req));
+  return summary.soy_responsable;
+}
+
+async function requirePedidoReadAccess(req, res, pedido = {}) {
+  if (await canReadPedido(req, pedido)) return true;
+
+  res.status(403).json({
+    error: 'No tienes permiso para consultar esta cuenta desde tu rol operativo actual.',
+    code: 'ORDER_NOT_ALLOWED'
+  });
+  return false;
+}
+
+async function getSessionActiveWorkRoleIdForMesa(req, mesaId) {
+  const roleIds = getSessionActiveWorkRoleIds(req);
+  if (!roleIds.length) return null;
+
+  const mesa = await database.get('SELECT zona_id FROM mesas WHERE id = ?', [mesaId]);
+  const zonaId = Number(mesa?.zona_id || 0);
+  if (!zonaId) return roleIds[0];
+
+  const placeholders = roleIds.map(() => '?').join(',');
+  const role = await database.get(`
+    SELECT rtz.rol_trabajo_id
+    FROM rol_trabajo_zonas rtz
+    WHERE rtz.zona_id = ?
+      AND rtz.rol_trabajo_id IN (${placeholders})
+    ORDER BY rtz.rol_trabajo_id ASC
+    LIMIT 1
+  `, [zonaId, ...roleIds]);
+
+  return Number(role?.rol_trabajo_id || roleIds[0]) || null;
 }
 
 async function getMesaResponsibilitySummary(mesaId, currentUserId = 0) {
@@ -33,11 +140,25 @@ async function getMesaResponsibilitySummary(mesaId, currentUserId = 0) {
 
 async function canOperateMesa(req, mesaId) {
   if (isAdminSession(req)) return true;
+
+  const mesa = await database.get('SELECT id, zona_id, estado FROM mesas WHERE id = ?', [mesaId]);
+  if (!mesa || !(await canAccessMesaZone(req, mesa))) return false;
+
   const summary = await getMesaResponsibilitySummary(mesaId, getSessionUserId(req));
   return summary.soy_responsable;
 }
 
 async function requireMesaOperationAccess(req, res, mesaId) {
+  const mesa = await database.get('SELECT id, zona_id, estado FROM mesas WHERE id = ?', [mesaId]);
+  if (!mesa) {
+    res.status(404).json({ error: 'Mesa no encontrada' });
+    return false;
+  }
+
+  if (!isAdminSession(req) && !(await canAccessMesaZone(req, mesa))) {
+    return requireMesaZoneAccess(req, res, mesa);
+  }
+
   if (await canOperateMesa(req, mesaId)) return true;
   res.status(403).json({
     error: 'Responsable asignado. No puedes operar esta mesa/cuenta con tu usuario actual.',
@@ -57,7 +178,7 @@ async function ensureMesaResponsibility(mesaId, req, actionLabel = 'responsable_
     INSERT OR IGNORE INTO mesa_responsables (
       mesa_id, usuario_id, rol_trabajo_id, asignado_por_usuario_id, fecha_asignacion
     ) VALUES (?, ?, ?, ?, ?)
-  `, [mesaId, userId, getSessionActiveWorkRoleId(req), userId, new Date().toISOString()]);
+  `, [mesaId, userId, await getSessionActiveWorkRoleIdForMesa(req, mesaId), userId, new Date().toISOString()]);
 
   await database.run(
     'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
@@ -74,28 +195,35 @@ async function clearMesaResponsibilities(mesaId) {
 router.get("/", async (req, res) => {
     try {
         const { estado, mesa_id } = req.query;
-        
-        let whereClause = "";
-        let params = [];
-        
+        const whereParts = [];
+        const params = [];
+
         if (estado) {
-            whereClause += " WHERE p.estado = ?";
+            whereParts.push("p.estado = ?");
             params.push(estado);
         }
-        
+
         if (mesa_id) {
-            whereClause += estado ? " AND p.mesa_id = ?" : " WHERE p.mesa_id = ?";
+            whereParts.push("p.mesa_id = ?");
             params.push(mesa_id);
         }
+
+        await appendOrderListAccessFilter(req, whereParts, params);
+        const whereClause = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
 
         const pedidos = await database.all(`
             SELECT p.*, 
                 m.numero as mesa_numero,
                 m.tipo_asiento as mesa_tipo,
+                m.zona_id,
+                z.nombre as zona_nombre,
+                tp.nombre as tipo_puesto_nombre,
                 u.nombre as usuario_nombre
 
             FROM pedidos p
             JOIN mesas m ON p.mesa_id = m.id
+            LEFT JOIN zonas z ON z.id = m.zona_id
+            LEFT JOIN tipos_puesto tp ON tp.id = m.tipo_puesto_id
             JOIN usuarios u ON p.usuario_id = u.id
             ${whereClause}
             ORDER BY p.fecha DESC
@@ -117,6 +245,8 @@ router.get("/:id", async (req, res) => {
     SELECT p.*, 
            m.numero as mesa_numero,
            m.tipo_asiento as mesa_tipo,
+           m.zona_id,
+           m.tipo_puesto_id,
            COALESCE(p.cliente_nombre, m.cliente_nombre) as cliente_nombre,
            u.nombre as usuario_nombre
     FROM pedidos p
@@ -128,6 +258,8 @@ router.get("/:id", async (req, res) => {
         if (!pedido) {
             return res.status(404).json({ error: "Pedido no encontrado" });
         }
+
+        if (!(await requirePedidoReadAccess(req, res, pedido))) return;
 
 const productos = await database.all(`
   SELECT 
@@ -257,7 +389,7 @@ router.post("/", async (req, res) => {
     const pedidoResult = await database.run(
       `INSERT INTO pedidos (mesa_id, usuario_id, rol_trabajo_id, fecha, estado, total, cliente_nombre)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [mesa_id, userId, getSessionActiveWorkRoleId(req), new Date().toISOString(), "pendiente", total, mesa.cliente_nombre]
+      [mesa_id, userId, await getSessionActiveWorkRoleIdForMesa(req, mesa_id), new Date().toISOString(), "pendiente", total, mesa.cliente_nombre]
     );
 
     const pedidoId = pedidoResult.id;

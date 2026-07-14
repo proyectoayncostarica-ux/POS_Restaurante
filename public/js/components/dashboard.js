@@ -97,11 +97,108 @@ const Dashboard = {
     },
 
     getInternalNavItems() {
-        return this.getDashboardZones().map(zone => ({
+        return this.getMobileOrderedDashboardZones().map(zone => ({
             id: zone.id,
             label: zone.label,
             icon: zone.icon || 'fa-layer-group'
         }));
+    },
+
+    getMobileOrderedDashboardZones() {
+        const zones = this.getDashboardZones();
+        if (!zones.length) return zones;
+
+        const allZone = zones.find(zone => zone.id === 'todos') || zones[0];
+        const zoneItems = zones.filter(zone => zone.id !== allZone.id);
+        const validIds = new Set(zoneItems.map(zone => zone.id));
+        const priorityIds = [];
+
+        const pushPriority = (id) => {
+            if (!id || !validIds.has(id) || priorityIds.includes(id)) return;
+            priorityIds.push(id);
+        };
+
+        this.getMobileOperationalPriorityZoneIds(zoneItems).forEach(pushPriority);
+        this.getStoredMobilePriorityZoneIds().forEach(pushPriority);
+
+        const activeId = this.filtroTipo || 'todos';
+        if (activeId !== allZone.id) pushPriority(activeId);
+
+        const priorityZones = priorityIds
+            .map(id => zoneItems.find(zone => zone.id === id))
+            .filter(Boolean);
+        const remainingZones = zoneItems.filter(zone => !priorityIds.includes(zone.id));
+
+        return [allZone, ...priorityZones, ...remainingZones];
+    },
+
+    getMobilePriorityStorageKey() {
+        const userId = (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.id || currentUser.nombre || 'anon') : 'anon';
+        return `mundipos.dashboard.mobileZonePriority.${userId}`;
+    },
+
+    getStoredMobilePriorityZoneIds() {
+        try {
+            const raw = localStorage.getItem(this.getMobilePriorityStorageKey());
+            const parsed = raw ? JSON.parse(raw) : [];
+            return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+        } catch (error) {
+            return [];
+        }
+    },
+
+    rememberMobileZonePriority(zoneId) {
+        if (!zoneId || zoneId === 'todos') return;
+
+        const zones = this.getDashboardZones();
+        const validIds = new Set(zones.map(zone => zone.id));
+        if (!validIds.has(zoneId)) return;
+
+        try {
+            const current = this.getStoredMobilePriorityZoneIds().filter(id => id !== zoneId);
+            const next = [zoneId, ...current].slice(0, 12);
+            localStorage.setItem(this.getMobilePriorityStorageKey(), JSON.stringify(next));
+        } catch (error) {
+            // Sin almacenamiento local, el orden dinámico se mantiene por actividad operativa.
+        }
+    },
+
+    getMobileOperationalPriorityZoneIds(zoneItems = []) {
+        const validIds = new Set(zoneItems.map(zone => zone.id));
+        const mesas = Array.isArray(this.data?.mesasDetalle) ? this.data.mesasDetalle : [];
+        const zonesByFirstActivity = new Map();
+
+        mesas.forEach((mesa, index) => {
+            if (!this.isMesaPriorityForMobileNav(mesa)) return;
+
+            const zoneId = this.normalizeZoneKey(mesa);
+            if (!validIds.has(zoneId)) return;
+
+            const timestamp = this.getMesaActivityTimestamp(mesa, index);
+            const previous = zonesByFirstActivity.get(zoneId);
+
+            if (!previous || timestamp < previous.timestamp) {
+                zonesByFirstActivity.set(zoneId, { id: zoneId, timestamp });
+            }
+        });
+
+        return Array.from(zonesByFirstActivity.values())
+            .sort((a, b) => a.timestamp - b.timestamp)
+            .map(item => item.id);
+    },
+
+    isMesaPriorityForMobileNav(mesa) {
+        const estado = this.normalizeEstado(mesa?.estado);
+        const isActive = estado === 'ocupada' || estado === 'reservada';
+        const isCurrentUserResponsible = Number(mesa?.soy_responsable || 0) === 1;
+        const canOperate = Number(mesa?.puede_operar || 0) === 1;
+        return isActive && (isCurrentUserResponsible || canOperate);
+    },
+
+    getMesaActivityTimestamp(mesa, fallbackIndex = 0) {
+        const rawDate = mesa?.fecha_apertura || mesa?.actualizado_en || mesa?.created_at || '';
+        const parsed = rawDate ? Date.parse(rawDate) : NaN;
+        return Number.isFinite(parsed) ? parsed : Date.now() + fallbackIndex;
     },
 
     normalizeActiveFilter() {

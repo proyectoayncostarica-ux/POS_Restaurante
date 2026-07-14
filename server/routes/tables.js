@@ -247,8 +247,196 @@ function getSessionUserId(req) {
     return Number(req.session?.userId || 0);
 }
 
-function getSessionActiveWorkRoleId(req) {
-    return Number(req.session?.activeWorkRoleId || 0) || null;
+function getSessionActiveWorkRoleIds(req) {
+    const multiIds = Array.isArray(req.session?.activeWorkRoleIds) ? req.session.activeWorkRoleIds : [];
+    const ids = multiIds.map(id => Number(id)).filter(id => Number.isFinite(id) && id > 0);
+    if (ids.length) return [...new Set(ids)];
+    const legacyId = Number(req.session?.activeWorkRoleId || 0);
+    return legacyId > 0 ? [legacyId] : [];
+}
+
+async function getSessionActiveWorkRoleIdForMesa(req, mesaId) {
+    const roleIds = getSessionActiveWorkRoleIds(req);
+    if (!roleIds.length) return null;
+
+    const mesa = await database.get('SELECT zona_id FROM mesas WHERE id = ?', [mesaId]);
+    const zonaId = Number(mesa?.zona_id || 0);
+    if (!zonaId) return roleIds[0];
+
+    const placeholders = roleIds.map(() => '?').join(',');
+    const role = await database.get(`
+        SELECT rtz.rol_trabajo_id
+        FROM rol_trabajo_zonas rtz
+        WHERE rtz.zona_id = ?
+          AND rtz.rol_trabajo_id IN (${placeholders})
+        ORDER BY rtz.rol_trabajo_id ASC
+        LIMIT 1
+    `, [zonaId, ...roleIds]);
+
+    return Number(role?.rol_trabajo_id || roleIds[0]) || null;
+}
+
+
+async function getSessionPermittedZoneIds(req) {
+    if (isAdminSession(req)) return null;
+
+    const roleIds = getSessionActiveWorkRoleIds(req);
+    if (!roleIds.length) return [];
+
+    const placeholders = roleIds.map(() => '?').join(',');
+    const rows = await database.all(`
+        SELECT DISTINCT z.id
+        FROM rol_trabajo_zonas rtz
+        INNER JOIN roles_trabajo rt ON rt.id = rtz.rol_trabajo_id AND rt.activo = 1
+        INNER JOIN zonas z ON z.id = rtz.zona_id AND z.activa = 1
+        INNER JOIN usuario_roles_trabajo urt ON urt.rol_trabajo_id = rt.id AND urt.usuario_id = ?
+        WHERE rtz.rol_trabajo_id IN (${placeholders})
+    `, [getSessionUserId(req), ...roleIds]);
+
+    return rows.map(row => Number(row.id)).filter(id => id > 0);
+}
+
+async function canAccessMesaZone(req, mesa = {}) {
+    if (isAdminSession(req)) return true;
+
+    const zonaId = Number(mesa.zona_id || mesa.zona_dinamica_id || 0);
+    if (!getSessionUserId(req) || !zonaId) return false;
+
+    const zoneIds = await getSessionPermittedZoneIds(req);
+    return Array.isArray(zoneIds) && zoneIds.includes(zonaId);
+}
+
+async function requireMesaZoneAccess(req, res, mesa = {}) {
+    if (await canAccessMesaZone(req, mesa)) return true;
+
+    res.status(403).json({
+        error: 'No tienes un rol de trabajo activo para operar esta zona.',
+        code: 'ZONE_NOT_ALLOWED'
+    });
+    return false;
+}
+
+async function buildTablesAccessFilter(req, baseWhere = 'WHERE COALESCE(m.activo, 1) = 1', baseParams = []) {
+    const params = [...baseParams];
+    const clauses = [baseWhere.replace(/^WHERE\s+/i, '').trim()].filter(Boolean);
+
+    if (!isAdminSession(req)) {
+        const zoneIds = await getSessionPermittedZoneIds(req);
+        if (!zoneIds.length) {
+            clauses.push('1 = 0');
+        } else {
+            clauses.push(`m.zona_id IN (${zoneIds.map(() => '?').join(',')})`);
+            params.push(...zoneIds);
+        }
+    }
+
+    return {
+        where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '',
+        params
+    };
+}
+
+
+function normalizeSessionRoleIds(value) {
+    if (Array.isArray(value)) {
+        return [...new Set(value.map(id => Number(id)).filter(id => Number.isFinite(id) && id > 0))];
+    }
+
+    if (typeof value === 'number') {
+        return value > 0 ? [value] : [];
+    }
+
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (!trimmed) return [];
+        if (trimmed.startsWith('[')) {
+            try {
+                return normalizeSessionRoleIds(JSON.parse(trimmed));
+            } catch (error) {
+                return [];
+            }
+        }
+        return [...new Set(trimmed.split(',').map(id => Number(id.trim())).filter(id => Number.isFinite(id) && id > 0))];
+    }
+
+    return [];
+}
+
+function unwrapStoredSession(rawSession) {
+    if (!rawSession) return null;
+
+    let session = rawSession;
+    if (typeof session === 'string') {
+        try {
+            session = JSON.parse(session);
+        } catch (error) {
+            return null;
+        }
+    }
+
+    if (session?.sess) return unwrapStoredSession(session.sess);
+    if (session?.session) return unwrapStoredSession(session.session);
+    return session;
+}
+
+function isStoredSessionExpired(session = {}) {
+    const expires = session?.cookie?.expires;
+    if (!expires) return false;
+    const timestamp = Date.parse(expires);
+    return Number.isFinite(timestamp) && timestamp <= Date.now();
+}
+
+function getSessionsFromStoreAll(req) {
+    return new Promise(resolve => {
+        const store = req?.sessionStore;
+        if (!store || typeof store.all !== 'function') {
+            return resolve([]);
+        }
+
+        store.all((error, sessions) => {
+            if (error || !sessions) return resolve([]);
+            if (Array.isArray(sessions)) return resolve(sessions);
+            if (typeof sessions === 'object') return resolve(Object.values(sessions));
+            return resolve([]);
+        });
+    });
+}
+
+async function getActiveOperationalSessionsByUser(req) {
+    const storeSessions = await getSessionsFromStoreAll(req);
+    const memoryStoreSessions = req?.sessionStore?.sessions && typeof req.sessionStore.sessions === 'object'
+        ? Object.values(req.sessionStore.sessions)
+        : [];
+    const currentSession = req?.session ? [req.session] : [];
+    const sessions = [...storeSessions, ...memoryStoreSessions, ...currentSession];
+    const activeByUser = new Map();
+
+    sessions.forEach(rawSession => {
+        const session = unwrapStoredSession(rawSession);
+        const userId = Number(session?.userId || 0);
+        if (!userId || isStoredSessionExpired(session)) return;
+
+        const roleIds = normalizeSessionRoleIds(session.activeWorkRoleIds);
+        const legacyRoleIds = normalizeSessionRoleIds(session.activeWorkRoleId);
+        const activeRoleIds = [...new Set([...roleIds, ...legacyRoleIds])];
+        if (!activeRoleIds.length) return;
+
+        if (!activeByUser.has(userId)) {
+            activeByUser.set(userId, { userId, activeRoleIds: new Set() });
+        }
+
+        const target = activeByUser.get(userId);
+        activeRoleIds.forEach(roleId => target.activeRoleIds.add(Number(roleId)));
+    });
+
+    return activeByUser;
+}
+
+function parseRoleIdList(value) {
+    return String(value || '')
+        .split(',')
+        .map(id => Number(id.trim()))
+        .filter(id => Number.isFinite(id) && id > 0);
 }
 
 function getSeatDisplayName(mesa = {}) {
@@ -300,13 +488,22 @@ async function getMesaResponsibilitySummary(mesaId, currentUserId = 0) {
 async function canOperateAssignedMesa(req, mesa) {
     if (!mesa) return false;
     if (isAdminSession(req)) return true;
+    if (!(await canAccessMesaZone(req, mesa))) return false;
+
     const estado = String(mesa.estado || 'libre').toLowerCase();
     if (estado === 'libre') return true;
+
     const summary = await getMesaResponsibilitySummary(mesa.id, getSessionUserId(req));
     return summary.soy_responsable;
 }
 
 async function requireMesaOperationAccess(req, res, mesa) {
+    if (!mesa) return false;
+
+    if (!isAdminSession(req) && !(await canAccessMesaZone(req, mesa))) {
+        return requireMesaZoneAccess(req, res, mesa);
+    }
+
     const canOperate = await canOperateAssignedMesa(req, mesa);
     if (canOperate) return true;
 
@@ -328,7 +525,7 @@ async function ensureMesaResponsibility(mesaId, req, actionLabel = 'asignar_resp
         INSERT OR IGNORE INTO mesa_responsables (
             mesa_id, usuario_id, rol_trabajo_id, asignado_por_usuario_id, fecha_asignacion
         ) VALUES (?, ?, ?, ?, ?)
-    `, [mesaId, userId, getSessionActiveWorkRoleId(req), userId, new Date().toISOString()]);
+    `, [mesaId, userId, await getSessionActiveWorkRoleIdForMesa(req, mesaId), userId, new Date().toISOString()]);
 
     await logHistory(
         actionLabel,
@@ -341,35 +538,51 @@ async function clearMesaResponsibilities(mesaId) {
     await database.run('DELETE FROM mesa_responsables WHERE mesa_id = ?', [mesaId]);
 }
 
-async function getAssignableUsersForMesa(mesaId) {
+async function getAssignableUsersForMesa(req, mesaId) {
     const mesa = await getMesaWithDynamicData(mesaId);
     if (!mesa) return { error: 'Mesa no encontrada' };
 
     const zonaId = Number(mesa.zona_id || 0);
     if (!zonaId) return { error: 'La mesa no tiene una zona dinámica válida para asignar responsables' };
 
+    const activeSessionsByUser = await getActiveOperationalSessionsByUser(req);
+    if (!activeSessionsByUser.size) {
+        return {
+            mesa,
+            usuarios: [],
+            warning: 'No hay usuarios con sesión operativa activa para esta zona'
+        };
+    }
+
     const users = await database.all(`
-        SELECT DISTINCT
+        SELECT
             u.id,
             u.nombre,
             u.tipo,
-            CASE WHEN mr.usuario_id IS NULL THEN 0 ELSE 1 END AS asignado
+            CASE WHEN mr.usuario_id IS NULL THEN 0 ELSE 1 END AS asignado,
+            GROUP_CONCAT(DISTINCT rt.id) AS roles_zona_ids
         FROM usuarios u
-        LEFT JOIN usuario_roles_trabajo urt ON urt.usuario_id = u.id
-        LEFT JOIN roles_trabajo rt ON rt.id = urt.rol_trabajo_id AND rt.activo = 1
-        LEFT JOIN rol_trabajo_zonas rtz ON rtz.rol_trabajo_id = rt.id AND rtz.zona_id = ?
+        INNER JOIN usuario_roles_trabajo urt ON urt.usuario_id = u.id
+        INNER JOIN roles_trabajo rt ON rt.id = urt.rol_trabajo_id AND rt.activo = 1
+        INNER JOIN rol_trabajo_zonas rtz ON rtz.rol_trabajo_id = rt.id AND rtz.zona_id = ?
+        INNER JOIN zonas z ON z.id = rtz.zona_id AND z.activa = 1
         LEFT JOIN mesa_responsables mr ON mr.usuario_id = u.id AND mr.mesa_id = ?
         WHERE u.activo = 1
-          AND (
-              u.tipo = 'administrador'
-              OR rtz.zona_id IS NOT NULL
-          )
+        GROUP BY u.id, u.nombre, u.tipo, mr.usuario_id
         ORDER BY u.tipo = 'administrador' DESC, u.nombre ASC
     `, [zonaId, mesaId]);
 
+    const filteredUsers = users.filter(user => {
+        const activeSession = activeSessionsByUser.get(Number(user.id));
+        if (!activeSession) return false;
+
+        const rolesForZone = parseRoleIdList(user.roles_zona_ids);
+        return rolesForZone.some(roleId => activeSession.activeRoleIds.has(Number(roleId)));
+    });
+
     return {
         mesa,
-        usuarios: users.map(user => ({
+        usuarios: filteredUsers.map(user => ({
             id: Number(user.id),
             nombre: user.nombre,
             tipo: user.tipo,
@@ -378,13 +591,13 @@ async function getAssignableUsersForMesa(mesaId) {
     };
 }
 
-async function replaceMesaResponsibles(mesaId, userIds = [], adminUserId = null) {
+async function replaceMesaResponsibles(req, mesaId, userIds = [], adminUserId = null) {
     const normalizedIds = [...new Set(userIds.map(id => Number(id)).filter(id => id > 0))];
     if (!normalizedIds.length) {
         return { error: 'Debe quedar al menos un responsable asignado para una mesa/cuenta activa' };
     }
 
-    const assignable = await getAssignableUsersForMesa(mesaId);
+    const assignable = await getAssignableUsersForMesa(req, mesaId);
     if (assignable.error) return assignable;
 
     const validIds = new Set(assignable.usuarios.map(user => Number(user.id)));
@@ -470,7 +683,11 @@ function buildTablesSelect(whereClause = '', options = {}) {
 // Obtener todas las mesas/puestos con metadata dinámica compatible
 router.get('/', async (req, res) => {
     try {
-        const mesas = await database.all(buildTablesSelect('WHERE COALESCE(m.activo, 1) = 1', { currentUserId: getSessionUserId(req), isAdmin: isAdminSession(req) }));
+        const accessFilter = await buildTablesAccessFilter(req);
+        const mesas = await database.all(
+            buildTablesSelect(accessFilter.where, { currentUserId: getSessionUserId(req), isAdmin: isAdminSession(req) }),
+            accessFilter.params
+        );
         res.json({ success: true, data: mesas });
     } catch (error) {
         console.error('Error obteniendo Zonas:', error);
@@ -482,6 +699,13 @@ router.get('/', async (req, res) => {
 // Esta lectura no cambia la operación actual; prepara futuras fases de Zonas dinámicas.
 router.get('/structure', async (req, res) => {
     try {
+        const permittedZoneIds = await getSessionPermittedZoneIds(req);
+        const restrictStructure = !isAdminSession(req);
+        const zoneFilterClause = restrictStructure
+            ? (permittedZoneIds.length ? `WHERE z.id IN (${permittedZoneIds.map(() => '?').join(',')})` : 'WHERE 1 = 0')
+            : '';
+        const zoneFilterParams = restrictStructure ? permittedZoneIds : [];
+
         const zonas = await database.all(`
             SELECT
                 z.*,
@@ -491,9 +715,15 @@ router.get('/structure', async (req, res) => {
                 SUM(CASE WHEN m.estado = 'reservada' THEN 1 ELSE 0 END) AS puestos_reservados
             FROM zonas z
             LEFT JOIN mesas m ON m.zona_id = z.id AND COALESCE(m.activo, 1) = 1
+            ${zoneFilterClause}
             GROUP BY z.id
             ORDER BY z.orden ASC, z.nombre ASC
-        `);
+        `, zoneFilterParams);
+
+        const typeFilterClause = restrictStructure
+            ? (permittedZoneIds.length ? `WHERE EXISTS (SELECT 1 FROM mesas m2 WHERE m2.tipo_puesto_id = tp.id AND m2.zona_id IN (${permittedZoneIds.map(() => '?').join(',')}) AND COALESCE(m2.activo, 1) = 1)` : 'WHERE 1 = 0')
+            : '';
+        const typeFilterParams = restrictStructure ? permittedZoneIds : [];
 
         const tiposPuesto = await database.all(`
             SELECT
@@ -501,13 +731,14 @@ router.get('/structure', async (req, res) => {
                 COUNT(m.id) AS puestos_total
             FROM tipos_puesto tp
             LEFT JOIN mesas m ON m.tipo_puesto_id = tp.id AND COALESCE(m.activo, 1) = 1
+            ${typeFilterClause}
             GROUP BY tp.id
             ORDER BY tp.orden ASC, tp.nombre ASC
-        `);
+        `, typeFilterParams);
 
         const [compatibilidad, rolesTrabajo] = await Promise.all([
             database.getDynamicModelCompatibilityReport(),
-            getWorkRolesWithZones()
+            restrictStructure ? Promise.resolve([]) : getWorkRolesWithZones()
         ]);
 
         res.json({
@@ -1031,6 +1262,8 @@ router.put('/:id', requireAdmin, async (req, res) => {
             return res.status(404).json({ error: 'Mesa no encontrada' });
         }
 
+        if (!(await requireMesaZoneAccess(req, res, mesa))) return;
+
         const esBanco = mesa.zona?.toLowerCase() === 'bar' && mesa.tipo_asiento?.toLowerCase() === 'banco';
         const tipoNombre = esBanco ? 'banco' : 'mesa';
         const tipoCapitalizado = tipoNombre.charAt(0).toUpperCase() + tipoNombre.slice(1);
@@ -1140,6 +1373,8 @@ router.post('/:id/open', async (req, res) => {
         if (!mesa) {
             return res.status(404).json({ error: 'Mesa no encontrada' });
         }
+
+        if (!(await requireMesaZoneAccess(req, res, mesa))) return;
 
         const esBanco = mesa.zona?.toLowerCase() === 'bar' && mesa.tipo_asiento?.toLowerCase() === 'banco';
         const tipoNombre = esBanco ? 'banco' : 'mesa';
@@ -1320,7 +1555,7 @@ router.get('/:id/responsibles', requireAdmin, async (req, res) => {
         const mesaId = toInteger(req.params.id, 0);
         if (!mesaId) return res.status(400).json({ error: 'Mesa inválida' });
 
-        const data = await getAssignableUsersForMesa(mesaId);
+        const data = await getAssignableUsersForMesa(req, mesaId);
         if (data.error) return res.status(400).json({ error: data.error });
 
         res.json({
@@ -1356,7 +1591,7 @@ router.put('/:id/responsibles', requireAdmin, async (req, res) => {
             .map(id => toInteger(id, 0))
             .filter(id => id > 0);
 
-        const result = await replaceMesaResponsibles(mesaId, userIds, req.session.userId);
+        const result = await replaceMesaResponsibles(req, mesaId, userIds, req.session.userId);
         if (result.error) return res.status(400).json({ error: result.error });
 
         const users = await database.all(
@@ -1449,6 +1684,8 @@ router.get('/:id', async (req, res) => {
         if (!mesa) {
             return res.status(404).json({ error: 'Zona no encontrada' });
         }
+
+        if (!(await requireMesaZoneAccess(req, res, mesa))) return;
 
         res.json({ success: true, data: mesa });
     } catch (error) {

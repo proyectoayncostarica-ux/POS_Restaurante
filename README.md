@@ -618,3 +618,45 @@ En Windows también puedes usar `Inicio_Servidor.bat`. En Linux/macOS puedes usa
 - **Corrección aplicada:** el índice de `pedidos.rol_trabajo_id` se crea ahora después de verificar/agregar la columna correspondiente durante la migración de esquema.
 - **Alcance:** corrección de arranque/migración únicamente; no cambia UI, permisos, endpoints ni lógica operativa.
 
+
+### v2.2.4.11 · Navegación inferior móvil dinámica y sesión multirrol
+
+- **Navegación inferior móvil del Dashboard:** se mantiene visible `Todos` más las primeras tres zonas operativas y, cuando hay más zonas, se muestra el botón **Más...** al lado derecho.
+- **Dropdown hacia arriba:** el botón **Más...** despliega las zonas faltantes hacia arriba para mejorar la operabilidad en móvil.
+- **Promoción dinámica de zonas:** cuando una zona se selecciona desde **Más...** o tiene actividad operativa/responsabilidad del usuario, se prioriza para aparecer entre las zonas visibles principales.
+- **Sesión operativa multirrol:** la pantalla **Selecciona tu rol de trabajo** ahora permite escoger uno o varios roles mediante checkbox.
+- **Opción Todos:** permite activar todos los roles de trabajo disponibles para el usuario.
+- **Footer de sesión operativa:** se agregan los botones **Cambiar usuario** y **Entrar**.
+- **Cambio de rol desde Header:** ahora permite seleccionar varios roles activos; usuarios estándar siguen requiriendo autorización de administrador cuando cambian su selección activa.
+- **Responsabilidad segura:** si al cambiar roles el usuario deja zonas donde tenía mesas compartidas, se libera automáticamente de esas responsabilidades; si quedaría como responsable único fuera de sus nuevos roles, el cambio se bloquea.
+- **Dashboard dinámico:** el alcance de zonas permitidas se calcula por la unión de todos los roles activos seleccionados.
+- **Compatibilidad:** se mantiene `rol_trabajo` como primer rol activo para código legacy y se agrega `roles_trabajo_activos` para la nueva operación multirrol.
+
+### v2.2.4.11 fix1 · Corrección de selección multirrol en sesión operativa
+
+- **Problema detectado:** al entrar desde el modal **Selecciona tu Rol de trabajo**, el frontend enviaba la selección multirrol pero una ruta backend anterior podía interpretar la petición como si faltara `rol_trabajo_id`, provocando `400 Bad Request` con el mensaje `Debe seleccionar un rol de trabajo válido`.
+- **Corrección aplicada:** la petición ahora envía los IDs en formato multirrol y también mantiene campos legacy compatibles (`rol_trabajo_id` / `roleId`) para evitar fallos de transición.
+- **Backend:** la normalización de roles acepta arrays, valores únicos, strings JSON y listas separadas por coma.
+- **Resultado esperado:** el botón **Entrar** permite seleccionar uno, varios o todos los roles disponibles sin error 400.
+- **Alcance:** no cambia permisos, zonas, Dashboard ni reglas de responsabilidad; solo corrige la entrega/lectura de roles activos.
+
+### v2.2.4.11 fix2 · Responsables reasignables solo con sesión operativa activa
+
+- **Problema detectado:** el modal de reasignación de mesa en Zonas mostraba usuarios activos en base de datos aunque no tuvieran sesión iniciada ni rol de trabajo activo en ese momento.
+- **Corrección aplicada:** ahora solo aparecen usuarios con sesión operativa activa y con al menos un rol activo que incluya la zona de la mesa/banco/sillón.
+- **Regla por zona:** si un usuario tiene roles disponibles pero no tiene activo un rol que cubra la zona de la mesa, no aparece como asignable.
+- **Regla por sesión:** usuarios sin sesión iniciada o sin selección operativa activa no aparecen como responsables asignables, aunque estén activos en la base de datos.
+- **Seguridad adicional:** el cambio de rol ya considera si los otros responsables tienen sesión operativa activa en la zona antes de liberar al usuario que cambia de rol, evitando dejar mesas activas sin responsable operativo real.
+- **Alcance:** no cambia la UI ni la base de datos; solo endurece la validación backend para reasignaciones y cambio seguro de rol.
+
+### v2.2.4.12 · Restricciones backend por zona y responsabilidad
+
+- **Objetivo:** endurecer las validaciones del backend para que las zonas permitidas y la responsabilidad compartida no dependan únicamente de la interfaz.
+- **Zonas permitidas:** usuarios básicos/estándar solo pueden consultar y operar puestos dentro de las zonas cubiertas por sus roles de trabajo activos en la sesión operativa actual.
+- **Administrador:** conserva operación global sobre las mesas/cuentas; las restricciones estrictas por zona aplican a usuarios estándar.
+- **Módulo Zonas:** `GET /api/tables` y `GET /api/tables/:id` filtran/validan por zonas permitidas para usuarios estándar. La estructura pública para estándar solo expone zonas/tipos relacionados con sus zonas activas y no entrega roles de trabajo administrativos.
+- **Operación de mesas:** abrir, reservar, pasar de reservada a ocupada, cerrar/liberar y consultar mesas específicas ahora validan backend por zona activa además de responsabilidad asignada cuando corresponde.
+- **Pedidos/Cuentas activas:** crear pedido, agregar productos, editar productos, cobrar y consultar pedidos pendientes validan que el usuario estándar tenga zona activa compatible y esté asignado como responsable de la mesa/cuenta.
+- **Listados de pedidos:** usuarios estándar solo reciben pedidos dentro de sus zonas activas; los pedidos pendientes además requieren responsabilidad asignada.
+- **Errores operativos:** se agregan respuestas 403 con códigos `ZONE_NOT_ALLOWED`, `MESA_ASSIGNED_TO_OTHER_USER` u `ORDER_NOT_ALLOWED` según el caso.
+- **Compatibilidad:** no cambia base de datos ni UI operativa; refuerza reglas backend sobre la estructura creada en fases anteriores.

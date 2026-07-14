@@ -241,6 +241,7 @@ const Utils = {
 // Autenticación
 const Auth = {
     requiresBootstrapSetup: false,
+    pendingRoleChangeIds: [],
 
     // Verificar sesión
     async checkSession() {
@@ -503,6 +504,7 @@ const Auth = {
         const operationalSubtitle = document.getElementById('operational-session-subtitle');
         const rolesContainer = document.getElementById('operational-role-options');
         const blockedMessage = document.getElementById('operational-session-blocked');
+        const enterButton = document.getElementById('operational-session-enter-btn');
 
         stopHeaderClock();
         Realtime.disconnect();
@@ -516,6 +518,8 @@ const Auth = {
 
         const session = currentUser?.sesion_operativa || {};
         const roles = Array.isArray(session.roles_disponibles) ? session.roles_disponibles : [];
+        const activeIds = new Set((session.rol_trabajo_ids || []).map(id => Number(id)));
+        const initialSelected = activeIds.size ? [...activeIds] : (roles.length === 1 ? [Number(roles[0].id)] : []);
 
         if (operationalUser) {
             operationalUser.textContent = currentUser?.nombre || 'Usuario';
@@ -523,7 +527,7 @@ const Auth = {
 
         if (operationalSubtitle) {
             operationalSubtitle.textContent = roles.length
-                ? 'Elige el rol con el que vas a trabajar en esta sesión.'
+                ? 'Elige uno o varios roles de trabajo para esta sesión.'
                 : 'No hay roles de trabajo activos disponibles para continuar.';
         }
 
@@ -534,31 +538,77 @@ const Auth = {
 
         if (!rolesContainer) return;
 
-        rolesContainer.innerHTML = roles.map(role => this.renderOperationalRoleOption(role)).join('') || `
+        rolesContainer.innerHTML = roles.length ? `
+            <label class="operational-role-card operational-role-card-all">
+                <input type="checkbox" id="operational-select-all" onchange="Auth.toggleAllOperationalRoles(this.checked)">
+                <span class="operational-role-icon"><i class="fas fa-check-double"></i></span>
+                <span class="operational-role-copy">
+                    <strong>Todos</strong>
+                    <small>Selecciona todos los roles disponibles para este usuario.</small>
+                </span>
+            </label>
+            ${roles.map(role => this.renderOperationalRoleOption(role, initialSelected.includes(Number(role.id)))).join('')}
+        ` : `
             <div class="operational-session-empty">
                 <i class="fas fa-triangle-exclamation"></i>
                 <strong>Sin rol operativo disponible</strong>
                 <span>Este usuario no tiene un rol activo con zonas activas.</span>
             </div>
         `;
+
+        this.syncOperationalRoleSelectionState();
+        if (enterButton) enterButton.disabled = !roles.length || !this.getCheckedOperationalRoleIds().length;
     },
 
-    renderOperationalRoleOption(role) {
+    renderOperationalRoleOption(role, checked = false) {
         const zones = Array.isArray(role.zonas) ? role.zonas.filter(zone => Number(zone.activa) === 1) : [];
         const zoneNames = zones.length
             ? zones.map(zone => this.escapeHtml(zone.nombre)).join(' · ')
             : 'Sin zonas activas';
 
         return `
-            <button type="button" class="operational-role-card" onclick="Auth.selectOperationalRole(${Number(role.id)})">
+            <label class="operational-role-card operational-role-card-check ${checked ? 'is-selected' : ''}" data-role-id="${Number(role.id)}">
+                <input type="checkbox" class="operational-role-checkbox" value="${Number(role.id)}" ${checked ? 'checked' : ''} onchange="Auth.syncOperationalRoleSelectionState()">
                 <span class="operational-role-icon"><i class="fas fa-user-tag"></i></span>
                 <span class="operational-role-copy">
                     <strong>${this.escapeHtml(role.nombre)}</strong>
                     <small>${zoneNames}</small>
                 </span>
-                <span class="operational-role-action">Entrar <i class="fas fa-arrow-right"></i></span>
-            </button>
+                <span class="operational-role-checkmark"><i class="fas fa-check"></i></span>
+            </label>
         `;
+    },
+
+    getCheckedOperationalRoleIds() {
+        return Array.from(document.querySelectorAll('#operational-role-options .operational-role-checkbox:checked'))
+            .map(input => Number(input.value))
+            .filter(id => Number.isFinite(id) && id > 0);
+    },
+
+    toggleAllOperationalRoles(checked = false) {
+        document.querySelectorAll('#operational-role-options .operational-role-checkbox').forEach(input => {
+            input.checked = Boolean(checked);
+        });
+        this.syncOperationalRoleSelectionState();
+    },
+
+    syncOperationalRoleSelectionState() {
+        const checkboxes = Array.from(document.querySelectorAll('#operational-role-options .operational-role-checkbox'));
+        const checked = checkboxes.filter(input => input.checked);
+        const selectAll = document.getElementById('operational-select-all');
+        const enterButton = document.getElementById('operational-session-enter-btn');
+
+        document.querySelectorAll('#operational-role-options .operational-role-card-check').forEach(card => {
+            const input = card.querySelector('.operational-role-checkbox');
+            card.classList.toggle('is-selected', Boolean(input?.checked));
+        });
+
+        if (selectAll) {
+            selectAll.checked = Boolean(checkboxes.length && checked.length === checkboxes.length);
+            selectAll.indeterminate = Boolean(checked.length && checked.length < checkboxes.length);
+        }
+
+        if (enterButton) enterButton.disabled = checked.length === 0;
     },
 
     escapeHtml(value = '') {
@@ -571,23 +621,49 @@ const Auth = {
     },
 
     async selectOperationalRole(roleId) {
+        return this.selectOperationalRoles([roleId]);
+    },
+
+    async submitOperationalRoles() {
+        const roleIds = this.getCheckedOperationalRoleIds();
+        if (!roleIds.length) {
+            Utils.showNotification('Selecciona al menos un rol de trabajo para entrar', 'warning');
+            return;
+        }
+
+        await this.selectOperationalRoles(roleIds);
+    },
+
+    async selectOperationalRoles(roleIds = []) {
+        const normalizedIds = [...new Set((Array.isArray(roleIds) ? roleIds : [roleIds]).map(id => Number(id)).filter(id => id > 0))];
+        if (!normalizedIds.length) {
+            Utils.showNotification('Selecciona al menos un rol de trabajo para entrar', 'warning');
+            return;
+        }
+
         try {
-            const roleButton = document.querySelector(`.operational-role-card[onclick="Auth.selectOperationalRole(${Number(roleId)})"]`);
-            if (roleButton) {
-                roleButton.disabled = true;
-                roleButton.classList.add('is-loading');
+            const enterButton = document.getElementById('operational-session-enter-btn');
+            if (enterButton) {
+                enterButton.disabled = true;
+                enterButton.classList.add('is-loading');
             }
 
             const response = await Utils.request('/auth/operational-session', {
                 method: 'POST',
-                body: JSON.stringify({ rol_trabajo_id: roleId })
+                body: JSON.stringify({
+                    rol_trabajo_ids: normalizedIds,
+                    roles_trabajo_ids: normalizedIds,
+                    role_ids: normalizedIds,
+                    rol_trabajo_id: normalizedIds[0],
+                    roleId: normalizedIds[0]
+                })
             });
 
             if (response.success) {
                 currentUser = response.user;
                 this.showApp();
                 await loadRestaurantName();
-                Utils.showNotification('Rol de trabajo activo seleccionado', 'success');
+                Utils.showNotification('Roles de trabajo activos seleccionados', 'success');
 
                 Dashboard.refreshData();
                 Dashboard.startAutoRefresh();
@@ -603,15 +679,13 @@ const Auth = {
     canOpenRoleChangeControl() {
         const session = currentUser?.sesion_operativa || {};
         const roles = Array.isArray(session.roles_disponibles) ? session.roles_disponibles : [];
-        const activeRole = getActiveWorkRole(currentUser);
-
-        return roles.length > 1 || (!activeRole && roles.length > 0) || Boolean(session.requiere_seleccion && roles.length);
+        return roles.length > 1 || Boolean(session.requiere_seleccion && roles.length);
     },
 
     buildRoleChangeStatusFromOperationalSession(response = {}) {
         const session = response.data || response.user?.sesion_operativa || currentUser?.sesion_operativa || {};
         const roles = Array.isArray(session.roles_disponibles) ? session.roles_disponibles : [];
-        const activeRole = session.rol_trabajo || getActiveWorkRole(response.user || currentUser);
+        const activeRoles = getActiveWorkRoles(response.user || currentUser);
 
         return {
             puede_cambiar: true,
@@ -621,7 +695,8 @@ const Auth = {
                 puestos_ocupados: 0,
                 mensaje: null
             },
-            rol_trabajo_actual: activeRole,
+            rol_trabajo_actual: activeRoles[0] || null,
+            roles_trabajo_actuales: activeRoles,
             roles_disponibles: roles,
             sesion_operativa: session
         };
@@ -682,11 +757,8 @@ const Auth = {
 
             const data = response.data || {};
             const roles = Array.isArray(data.roles_disponibles) ? data.roles_disponibles : [];
-            const currentRole = data.rol_trabajo_actual || getActiveWorkRole(currentUser);
-            const availableAlternatives = roles.filter(role => Number(role.id) !== Number(currentRole?.id || 0));
-
-            if (!availableAlternatives.length && currentRole) {
-                Utils.showNotification('No tienes otro rol de trabajo activo disponible para cambiar.', 'info');
+            if (!roles.length) {
+                Utils.showNotification('No tienes roles de trabajo activos disponibles.', 'info');
                 return;
             }
 
@@ -698,10 +770,18 @@ const Auth = {
                         text: 'Cancelar',
                         class: 'btn-light',
                         onclick: 'Utils.hideModal()'
+                    },
+                    {
+                        text: '<i class="fas fa-check"></i> Aplicar cambio',
+                        class: 'btn-primary',
+                        align: 'right',
+                        onclick: 'Auth.submitRoleChangeSelection()'
                     }
                 ],
                 'modal-role-change'
             );
+
+            this.syncRoleChangeSelectionState();
         } catch (error) {
             Utils.showNotification(error.message || 'No se pudo consultar el cambio de rol', 'error');
         }
@@ -709,88 +789,126 @@ const Auth = {
 
     renderRoleChangeModal(data = {}) {
         const roles = Array.isArray(data.roles_disponibles) ? data.roles_disponibles : [];
-        const currentRole = data.rol_trabajo_actual || getActiveWorkRole(currentUser);
-        const bloqueo = data.bloqueo || {};
-        const canChange = data.puede_cambiar !== false && !bloqueo.bloqueado;
-        const currentRoleName = currentRole?.nombre || 'Sin rol operativo';
-        const alternatives = roles.filter(role => Number(role.id) !== Number(currentRole?.id || 0));
-
-        const warning = canChange ? '' : `
-            <div class="role-change-warning">
-                <i class="fas fa-lock"></i>
-                <div>
-                    <strong>No se puede cambiar de rol todavía</strong>
-                    <p>${this.escapeHtml(bloqueo.mensaje || 'Hay mesas activas donde este usuario es el único responsable asignado.')}</p>
-                    <small>Cierra la cuenta o solicita que un administrador agregue otro responsable desde Zonas.</small>
-                </div>
-            </div>
-        `;
-
-        const emptyState = alternatives.length ? '' : `
-            <div class="role-change-empty">
-                <i class="fas fa-circle-info"></i>
-                <strong>Sin roles alternativos</strong>
-                <span>Este usuario no tiene otro rol de trabajo activo disponible.</span>
-            </div>
-        `;
+        const activeRoles = Array.isArray(data.roles_trabajo_actuales) && data.roles_trabajo_actuales.length
+            ? data.roles_trabajo_actuales
+            : getActiveWorkRoles(currentUser);
+        const activeIds = new Set(activeRoles.map(role => Number(role.id)));
+        const currentRoleName = activeRoles.length
+            ? activeRoles.map(role => role.nombre).join(' + ')
+            : 'Sin rol operativo';
 
         return `
             <div class="role-change-shell">
                 <div class="role-change-current">
-                    <span>Rol actual</span>
+                    <span>Roles actuales</span>
                     <strong>${this.escapeHtml(currentRoleName)}</strong>
                 </div>
-                ${warning}
+                <div class="role-change-helper">
+                    <i class="fas fa-circle-info"></i>
+                    <span>Selecciona uno o varios roles. Si dejas una zona con mesas compartidas, el sistema te libera de esas responsabilidades. Si eres responsable único, el cambio se bloquea.</span>
+                </div>
                 <div class="role-change-options" aria-label="Roles de trabajo disponibles para cambio">
-                    ${alternatives.map(role => this.renderRoleChangeOption(role, canChange)).join('')}
-                    ${emptyState}
+                    <label class="role-change-option role-change-option-all">
+                        <input type="checkbox" id="role-change-select-all" onchange="Auth.toggleAllRoleChangeRoles(this.checked)">
+                        <span class="role-change-option-icon"><i class="fas fa-check-double"></i></span>
+                        <span class="role-change-option-copy">
+                            <strong>Todos</strong>
+                            <small>Activar todos los roles disponibles para este usuario.</small>
+                        </span>
+                        <span class="role-change-option-action">Todos</span>
+                    </label>
+                    ${roles.map(role => this.renderRoleChangeOption(role, activeIds.has(Number(role.id)))).join('')}
                 </div>
             </div>
         `;
     },
 
-    renderRoleChangeOption(role, canChange = true) {
+    renderRoleChangeOption(role, checked = false) {
         const zones = Array.isArray(role.zonas) ? role.zonas.filter(zone => Number(zone.activa) === 1) : [];
         const zoneNames = zones.length
             ? zones.map(zone => this.escapeHtml(zone.nombre)).join(' · ')
             : 'Sin zonas activas';
-        const disabledAttr = canChange ? '' : 'disabled aria-disabled="true"';
-        const actionText = canChange ? 'Cambiar' : 'Bloqueado';
 
         return `
-            <button type="button" class="role-change-option" onclick="Auth.changeOperationalRole(${Number(role.id)})" ${disabledAttr}>
+            <label class="role-change-option role-change-option-check ${checked ? 'is-selected' : ''}" data-role-id="${Number(role.id)}">
+                <input type="checkbox" class="role-change-checkbox" value="${Number(role.id)}" ${checked ? 'checked' : ''} onchange="Auth.syncRoleChangeSelectionState()">
                 <span class="role-change-option-icon"><i class="fas fa-user-tag"></i></span>
                 <span class="role-change-option-copy">
                     <strong>${this.escapeHtml(role.nombre)}</strong>
                     <small>${zoneNames}</small>
                 </span>
-                <span class="role-change-option-action">${actionText}</span>
-            </button>
+                <span class="role-change-option-action"><i class="fas fa-check"></i></span>
+            </label>
         `;
     },
 
-    async changeOperationalRole(roleId, options = {}) {
+    getCheckedRoleChangeIds() {
+        return Array.from(document.querySelectorAll('.modal-role-change .role-change-checkbox:checked'))
+            .map(input => Number(input.value))
+            .filter(id => Number.isFinite(id) && id > 0);
+    },
+
+    toggleAllRoleChangeRoles(checked = false) {
+        document.querySelectorAll('.modal-role-change .role-change-checkbox').forEach(input => {
+            input.checked = Boolean(checked);
+        });
+        this.syncRoleChangeSelectionState();
+    },
+
+    syncRoleChangeSelectionState() {
+        const checkboxes = Array.from(document.querySelectorAll('.modal-role-change .role-change-checkbox'));
+        const checked = checkboxes.filter(input => input.checked);
+        const selectAll = document.getElementById('role-change-select-all');
+
+        document.querySelectorAll('.modal-role-change .role-change-option-check').forEach(card => {
+            const input = card.querySelector('.role-change-checkbox');
+            card.classList.toggle('is-selected', Boolean(input?.checked));
+        });
+
+        if (selectAll) {
+            selectAll.checked = Boolean(checkboxes.length && checked.length === checkboxes.length);
+            selectAll.indeterminate = Boolean(checked.length && checked.length < checkboxes.length);
+        }
+    },
+
+    async submitRoleChangeSelection() {
+        const roleIds = this.getCheckedRoleChangeIds();
+        if (!roleIds.length) {
+            Utils.showNotification('Selecciona al menos un rol de trabajo', 'warning');
+            return;
+        }
+
+        await this.changeOperationalRole(roleIds);
+    },
+
+    async changeOperationalRole(roleIds, options = {}) {
+        const normalizedIds = [...new Set((Array.isArray(roleIds) ? roleIds : [roleIds]).map(id => Number(id)).filter(id => id > 0))];
+        if (!normalizedIds.length) {
+            Utils.showNotification('Selecciona al menos un rol de trabajo', 'warning');
+            return;
+        }
+
         try {
-            const currentRole = getActiveWorkRole(currentUser);
-            const isRoleChange = Boolean(currentRole && Number(currentRole.id) !== Number(roleId));
+            const currentIds = getActiveWorkRoles(currentUser).map(role => Number(role.id)).sort((a, b) => a - b);
+            const selectedSorted = [...normalizedIds].sort((a, b) => a - b);
+            const isRoleChange = currentIds.length > 0 && (currentIds.length !== selectedSorted.length || currentIds.some((id, index) => id !== selectedSorted[index]));
             const requiresAdminAuthorization = currentUser?.tipo !== 'administrador' && isRoleChange && !options.adminPassword;
 
             if (requiresAdminAuthorization) {
-                this.showRoleChangeAuthorizationModal(roleId);
+                this.showRoleChangeAuthorizationModal(normalizedIds);
                 return;
-            }
-
-            const selectedButton = document.querySelector(`.role-change-option[onclick="Auth.changeOperationalRole(${Number(roleId)})"]`);
-            if (selectedButton) {
-                selectedButton.disabled = true;
-                selectedButton.classList.add('is-loading');
             }
 
             const response = await Utils.request('/auth/operational-session', {
                 method: 'POST',
                 body: JSON.stringify({
-                    rol_trabajo_id: roleId,
-                    admin_password: options.adminPassword || undefined
+                    rol_trabajo_ids: normalizedIds,
+                    roles_trabajo_ids: normalizedIds,
+                    role_ids: normalizedIds,
+                    rol_trabajo_id: normalizedIds[0],
+                    roleId: normalizedIds[0],
+                    admin_password: options.adminPassword || undefined,
+                    adminPassword: options.adminPassword || undefined
                 })
             });
 
@@ -798,7 +916,7 @@ const Auth = {
                 currentUser = response.user;
                 this.updateUserInfo();
                 Utils.hideModal();
-                Utils.showNotification('Rol de trabajo cambiado correctamente', 'success');
+                Utils.showNotification('Roles de trabajo actualizados correctamente', 'success');
 
                 if (typeof Dashboard !== 'undefined' && typeof Dashboard.refreshData === 'function') {
                     Dashboard.refreshData();
@@ -817,24 +935,27 @@ const Auth = {
         }
     },
 
-    showRoleChangeAuthorizationModal(roleId) {
+    showRoleChangeAuthorizationModal(roleIds) {
+        const normalizedIds = [...new Set((Array.isArray(roleIds) ? roleIds : [roleIds]).map(id => Number(id)).filter(id => id > 0))];
+        this.pendingRoleChangeIds = normalizedIds;
+
         const roles = currentUser?.sesion_operativa?.roles_disponibles || [];
-        const targetRole = roles.find(role => Number(role.id) === Number(roleId));
-        const currentRole = getActiveWorkRole(currentUser);
-        const targetName = targetRole?.nombre || 'rol seleccionado';
-        const currentName = currentRole?.nombre || 'rol actual';
+        const targetRoles = roles.filter(role => normalizedIds.includes(Number(role.id)));
+        const currentRoles = getActiveWorkRoles(currentUser);
+        const targetName = targetRoles.length ? targetRoles.map(role => role.nombre).join(' + ') : 'roles seleccionados';
+        const currentName = currentRoles.length ? currentRoles.map(role => role.nombre).join(' + ') : 'rol actual';
 
         Utils.showModal('Autorizar cambio de rol', `
             <div class="role-change-auth-shell">
                 <div class="role-change-auth-icon"><i class="fas fa-shield-halved"></i></div>
                 <div class="role-change-auth-copy">
                     <strong>${this.escapeHtml(currentName)} → ${this.escapeHtml(targetName)}</strong>
-                    <p>Un administrador debe ingresar su contraseña para autorizar este cambio de rol.</p>
-                    <small>Si el usuario es responsable único de una mesa activa, el sistema bloqueará el cambio aunque la contraseña sea correcta.</small>
+                    <p>Un administrador debe ingresar su contraseña para autorizar este cambio de roles.</p>
+                    <small>Si el usuario quedaría como responsable único de una mesa activa fuera de sus nuevos roles, el sistema bloqueará el cambio aunque la contraseña sea correcta.</small>
                 </div>
                 <label class="form-group role-change-auth-field">
                     <span>Contraseña de administrador</span>
-                    <input type="password" id="role-change-admin-password" autocomplete="current-password" placeholder="Contraseña admin" onkeydown="if(event.key === 'Enter') Auth.submitRoleChangeAuthorization(${Number(roleId)})">
+                    <input type="password" id="role-change-admin-password" autocomplete="current-password" placeholder="Contraseña admin" onkeydown="if(event.key === 'Enter') Auth.submitRoleChangeAuthorization()">
                 </label>
             </div>
         `, [
@@ -847,14 +968,14 @@ const Auth = {
                 text: '<i class="fas fa-check"></i> Autorizar cambio',
                 class: 'btn-primary',
                 align: 'right',
-                onclick: `Auth.submitRoleChangeAuthorization(${Number(roleId)})`
+                onclick: 'Auth.submitRoleChangeAuthorization()'
             }
         ], 'modal-role-change-auth');
 
         setTimeout(() => document.getElementById('role-change-admin-password')?.focus(), 80);
     },
 
-    async submitRoleChangeAuthorization(roleId) {
+    async submitRoleChangeAuthorization() {
         const input = document.getElementById('role-change-admin-password');
         const adminPassword = input?.value || '';
         if (!adminPassword.trim()) {
@@ -863,7 +984,7 @@ const Auth = {
             return;
         }
 
-        await this.changeOperationalRole(roleId, { adminPassword });
+        await this.changeOperationalRole(this.pendingRoleChangeIds || [], { adminPassword });
     },
 
     updateUserInfo() {
@@ -998,6 +1119,8 @@ function setLoginMode(mode = 'login') {
 
 // Navegación
 const Navigation = {
+    mobileSubnavMoreOpen: false,
+
     // Mostrar sección
     async showSection(sectionName) {
         {
@@ -1146,6 +1269,37 @@ const Navigation = {
         }
     },
 
+    getMobileSubnavLayout(sectionName, items = [], activeId = '') {
+        if (sectionName !== 'dashboard' || items.length <= 4) {
+            return { visibleItems: items, overflowItems: [] };
+        }
+
+        const allItem = items.find(item => item.id === 'todos') || items[0];
+        const zoneItems = items.filter(item => item.id !== allItem.id);
+        const visibleZones = zoneItems.slice(0, 3);
+        const overflowItems = zoneItems.slice(3);
+
+        return {
+            visibleItems: [allItem, ...visibleZones],
+            overflowItems,
+            hasActiveOverflow: overflowItems.some(item => item.id === activeId)
+        };
+    },
+
+    renderMobileSubnavButton(sectionName, item, activeId) {
+        return `
+            <button type="button"
+                    class="mobile-subnav-item ${item.id === activeId ? 'active' : ''}"
+                    data-subnav-item="${item.id}"
+                    onclick="Navigation.selectInternal('${sectionName}', '${item.id}')"
+                    aria-label="${item.label}"
+                    title="${item.label}">
+                <i class="fas ${item.icon}"></i>
+                <span>${item.label}</span>
+            </button>
+        `;
+    },
+
     renderInternalSubnav(sectionName = currentSection) {
         const bar = document.getElementById('mobile-subnav');
         const items = this.getInternalItems(sectionName);
@@ -1160,21 +1314,58 @@ const Navigation = {
         }
 
         const activeId = this.getInternalActive(sectionName);
-        bar.innerHTML = items.map(item => `
-            <button type="button"
-                    class="mobile-subnav-item ${item.id === activeId ? 'active' : ''}"
-                    data-subnav-item="${item.id}"
-                    onclick="Navigation.selectInternal('${sectionName}', '${item.id}')"
-                    aria-label="${item.label}"
-                    title="${item.label}">
-                <i class="fas ${item.icon}"></i>
-                <span>${item.label}</span>
-            </button>
-        `).join('');
+        const layout = this.getMobileSubnavLayout(sectionName, items, activeId);
+        const visibleHtml = layout.visibleItems
+            .map(item => this.renderMobileSubnavButton(sectionName, item, activeId))
+            .join('');
 
+        const overflowHtml = layout.overflowItems.length ? `
+            <div class="mobile-subnav-more-wrap ${this.mobileSubnavMoreOpen ? 'is-open' : ''}">
+                <button type="button"
+                        class="mobile-subnav-item mobile-subnav-more ${layout.hasActiveOverflow ? 'active' : ''} ${this.mobileSubnavMoreOpen ? 'is-open' : ''}"
+                        data-subnav-more="true"
+                        onclick="Navigation.toggleMobileSubnavMore(event)"
+                        aria-haspopup="true"
+                        aria-expanded="${this.mobileSubnavMoreOpen ? 'true' : 'false'}"
+                        aria-label="Mostrar más zonas"
+                        title="Más zonas">
+                    <i class="fas fa-ellipsis"></i>
+                    <span>Más...</span>
+                </button>
+                <div class="mobile-subnav-more-menu ${this.mobileSubnavMoreOpen ? 'is-open' : ''}" role="menu" aria-label="Más zonas">
+                    ${layout.overflowItems.map(item => `
+                        <button type="button"
+                                class="mobile-subnav-more-option ${item.id === activeId ? 'active' : ''}"
+                                data-subnav-item="${item.id}"
+                                onclick="Navigation.selectInternal('${sectionName}', '${item.id}')"
+                                role="menuitem"
+                                title="${item.label}">
+                            <i class="fas ${item.icon}"></i>
+                            <span>${item.label}</span>
+                        </button>
+                    `).join('')}
+                </div>
+            </div>
+        ` : '';
+
+        bar.innerHTML = `${visibleHtml}${overflowHtml}`;
+        bar.classList.toggle('has-overflow', Boolean(layout.overflowItems.length));
         bar.classList.add('is-visible');
         document.body.classList.add('has-mobile-subnav');
         this.syncInternalSubnav(sectionName);
+    },
+
+    toggleMobileSubnavMore(event) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        this.mobileSubnavMoreOpen = !this.mobileSubnavMoreOpen;
+        this.renderInternalSubnav(currentSection);
+    },
+
+    closeMobileSubnavMore() {
+        if (!this.mobileSubnavMoreOpen) return;
+        this.mobileSubnavMoreOpen = false;
+        this.renderInternalSubnav(currentSection);
     },
 
     syncInternalSubnav(sectionName = currentSection) {
@@ -1183,9 +1374,20 @@ const Navigation = {
         document.querySelectorAll('[data-subnav-item]').forEach(item => {
             item.classList.toggle('active', item.getAttribute('data-subnav-item') === activeId);
         });
+
+        document.querySelectorAll('[data-subnav-more]').forEach(button => {
+            const wrapper = button.closest('.mobile-subnav-more-wrap');
+            const hasActiveOverflow = Array.from(wrapper?.querySelectorAll('.mobile-subnav-more-option') || [])
+                .some(item => item.getAttribute('data-subnav-item') === activeId);
+            button.classList.toggle('active', hasActiveOverflow);
+            button.classList.toggle('is-open', this.mobileSubnavMoreOpen);
+            button.setAttribute('aria-expanded', this.mobileSubnavMoreOpen ? 'true' : 'false');
+        });
     },
 
     async selectInternal(sectionName, itemId) {
+        this.mobileSubnavMoreOpen = false;
+
         if (currentSection !== sectionName) {
             await this.showSection(sectionName);
         }
@@ -1199,6 +1401,9 @@ const Navigation = {
         await this.runInternalTransition(sectionName, async () => {
             switch (sectionName) {
                 case 'dashboard':
+                    if (typeof Dashboard.rememberMobileZonePriority === 'function') {
+                        Dashboard.rememberMobileZonePriority(itemId);
+                    }
                     Dashboard.filtrarPorZona(itemId);
                     break;
                 case 'tables':
@@ -1760,6 +1965,13 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     });
 
+    // Cerrar dropdown de zonas móviles al tocar fuera
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest?.('#mobile-subnav')) {
+            Navigation.closeMobileSubnavMore();
+        }
+    });
+
     // Cerrar sidebar al hacer click fuera en móvil
     document.addEventListener('click', function(e) {
         if (window.innerWidth <= 768) {
@@ -1774,6 +1986,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 
     // Responsive sidebar
     window.addEventListener('resize', function() {
+        Navigation.closeMobileSubnavMore();
         if (window.innerWidth > 768) {
             Navigation.closeSidebar();
         }
@@ -1809,20 +2022,27 @@ function getOrCreateClientId() {
 
 
 
-function getActiveWorkRole(user = currentUser) {
+function getActiveWorkRoles(user = currentUser) {
     const session = user?.sesion_operativa || {};
-    const activeRole = session.rol_trabajo || user?.rol_trabajo_activo || null;
+    const activeRoles = Array.isArray(session.roles_trabajo_activos)
+        ? session.roles_trabajo_activos.filter(role => role && role.nombre)
+        : [];
 
-    if (activeRole && activeRole.nombre) {
-        return activeRole;
-    }
+    if (activeRoles.length) return activeRoles;
 
-    return null;
+    const legacyRole = session.rol_trabajo || user?.rol_trabajo_activo || null;
+    return legacyRole?.nombre ? [legacyRole] : [];
+}
+
+function getActiveWorkRole(user = currentUser) {
+    return getActiveWorkRoles(user)[0] || null;
 }
 
 function formatActiveWorkRoleLabel(user = currentUser) {
-    const activeRole = getActiveWorkRole(user);
-    if (activeRole?.nombre) return activeRole.nombre;
+    const activeRoles = getActiveWorkRoles(user);
+    if (activeRoles.length === 1) return activeRoles[0].nombre;
+    if (activeRoles.length === 2) return activeRoles.map(role => role.nombre).join(' + ');
+    if (activeRoles.length > 2) return `${activeRoles.length} roles activos`;
 
     const session = user?.sesion_operativa || {};
     const userType = String(user?.tipo || '').trim().toLowerCase();

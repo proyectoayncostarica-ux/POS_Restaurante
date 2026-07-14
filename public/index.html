@@ -14,7 +14,7 @@
     <meta name="msapplication-starturl" content="/POS/">
     <title>MundiPOS</title>
     <link rel="manifest" href="/POS/manifest.webmanifest">
-    <link rel="stylesheet" href="/POS/css/style.css?v=2.2.4.10-fix1-responsables-compartidos">
+    <link rel="stylesheet" href="/POS/css/style.css?v=2.2.4.12-backend-zone-responsibility">
     <link rel="icon" href="/POS/favicon.ico" type="image/x-icon">
     <link rel="shortcut icon" href="/POS/favicon.ico" type="image/x-icon">
     <link rel="apple-touch-icon" href="/POS/assets/icons/mundipos-icon-180.png">
@@ -99,6 +99,9 @@
             <div class="operational-session-footer">
                 <button type="button" class="btn btn-light" onclick="Auth.logout()">
                     <i class="fas fa-arrow-left"></i> Cambiar usuario
+                </button>
+                <button type="button" id="operational-session-enter-btn" class="btn btn-primary" onclick="Auth.submitOperationalRoles()" disabled>
+                    <i class="fas fa-arrow-right-to-bracket"></i> Entrar
                 </button>
             </div>
         </div>
@@ -344,9 +347,9 @@
     </div>
 
     <!-- Scripts -->
-    <script src="js/main.js?v=2.2.4.10-fix1-responsables-compartidos"></script>
-    <script src="js/components/dashboard.js?v=2.2.4.10-fix1-responsables-compartidos"></script>
-    <script src="js/components/tables.js?v=2.2.4.10-fix1-responsables-compartidos"></script>
+    <script src="js/main.js?v=2.2.4.12-backend-zone-responsibility"></script>
+    <script src="js/components/dashboard.js?v=2.2.4.12-backend-zone-responsibility"></script>
+    <script src="js/components/tables.js?v=2.2.4.12-backend-zone-responsibility"></script>
     <script src="js/components/menu.js"></script>
     <script src="js/components/orders.js"></script>
     <script src="js/components/accounts.js"></script>
