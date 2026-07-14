@@ -1,4 +1,4 @@
-const MUNDIPOS_SW_VERSION = 'v2.2.4.13-fix4-merge-ui-schema';
+const MUNDIPOS_SW_VERSION = 'v2.2.4.14-zonas-premium-operativo';
 const APP_SHELL_CACHE = `mundipos-shell-${MUNDIPOS_SW_VERSION}`;
 const RUNTIME_CACHE = `mundipos-runtime-${MUNDIPOS_SW_VERSION}`;
 
@@ -9,20 +9,20 @@ const APP_SHELL_URLS = [
   '/POS/manifest.webmanifest',
   '/POS/favicon.ico',
   '/POS/css/style.css',
-  '/POS/css/style.css?v=2.2.4.13-fix4-merge-ui-schema',
+  '/POS/css/style.css?v=2.2.4.14-zonas-premium-operativo',
   '/POS/js/main.js',
-  '/POS/js/main.js?v=2.2.4.13-fix4-merge-ui-schema',
+  '/POS/js/main.js?v=2.2.4.14-zonas-premium-operativo',
   '/POS/js/components/dashboard.js',
-  '/POS/js/components/dashboard.js?v=2.2.4.13-fix4-merge-ui-schema',
+  '/POS/js/components/dashboard.js?v=2.2.4.14-zonas-premium-operativo',
   '/POS/js/components/tables.js',
-  '/POS/js/components/tables.js?v=2.2.4.13-fix4-merge-ui-schema',
+  '/POS/js/components/tables.js?v=2.2.4.14-zonas-premium-operativo',
   '/POS/js/components/menu.js',
   '/POS/js/components/orders.js',
   '/POS/js/components/accounts.js',
   '/POS/js/components/users.js',
   '/POS/js/components/settings.js',
-  '/POS/js/components/tables.js?v=2.2.4.13-service-integrated',
-  '/POS/js/components/dashboard.js?v=2.2.4.13-service-integrated',
+  '/POS/js/components/tables.js?v=2.2.4.14-zonas-premium-operativo',
+  '/POS/js/components/dashboard.js?v=2.2.4.14-zonas-premium-operativo',
   '/POS/js/components/orders.js?v=2.2.4.13-service-integrated',
   '/POS/assets/brand/mundipos-mark.png',
   '/POS/assets/icons/mundipos-icon-192.png',

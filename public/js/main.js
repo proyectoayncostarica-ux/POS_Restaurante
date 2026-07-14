@@ -1249,6 +1249,11 @@ const Navigation = {
             if (Array.isArray(dynamicItems) && dynamicItems.length) return dynamicItems;
         }
 
+        if (sectionName === 'tables' && typeof Tables !== 'undefined' && typeof Tables.getInternalNavItems === 'function') {
+            const dynamicItems = Tables.getInternalNavItems();
+            if (Array.isArray(dynamicItems) && dynamicItems.length) return dynamicItems;
+        }
+
         return INTERNAL_SUBNAV[sectionName] || [];
     },
 
@@ -1270,7 +1275,7 @@ const Navigation = {
     },
 
     getMobileSubnavLayout(sectionName, items = [], activeId = '') {
-        if (sectionName !== 'dashboard' || items.length <= 4) {
+        if (!['dashboard', 'tables'].includes(sectionName) || items.length <= 4) {
             return { visibleItems: items, overflowItems: [] };
         }
 
@@ -1407,6 +1412,9 @@ const Navigation = {
                     Dashboard.filtrarPorZona(itemId);
                     break;
                 case 'tables':
+                    if (typeof Tables.rememberMobileZonePriority === 'function') {
+                        Tables.rememberMobileZonePriority(itemId);
+                    }
                     Tables.filtrarPorZona(itemId);
                     break;
                 case 'menu':

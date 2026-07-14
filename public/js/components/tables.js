@@ -57,72 +57,304 @@ const Tables = {
         return Number(value) === 1 ? trueLabel : falseLabel;
     },
 
+    safeCssColor(value) {
+        const color = String(value || '').trim();
+        if (/^#[0-9a-fA-F]{3,8}$/.test(color)) return color;
+        return null;
+    },
+
+    getZoneKeyForSeat(mesa = {}) {
+        const dynamicId = Number(mesa.zona_dinamica_id || mesa.zona_id || 0);
+        if (dynamicId > 0) return `zona-${dynamicId}`;
+
+        const zonaSlug = String(mesa.zona_slug || mesa.zona || 'salon').trim().toLowerCase();
+        const tipoSlug = String(mesa.tipo_puesto_slug || mesa.tipo_asiento || 'mesa').trim().toLowerCase();
+
+        if (zonaSlug === 'barra' || (zonaSlug === 'bar' && tipoSlug === 'banco')) return 'bar-banco';
+        if (zonaSlug === 'bar') return 'bar-mesa';
+        return 'salon';
+    },
+
+    getSeatTypeClass(mesa = {}) {
+        const tipoSlug = String(mesa.tipo_puesto_slug || mesa.tipo_asiento || 'mesa').trim().toLowerCase();
+        const zoneKey = this.getZoneKeyForSeat(mesa);
+
+        if (tipoSlug === 'banco' || zoneKey === 'bar-banco') return 'tipo-bar-banco';
+        if (zoneKey === 'salon') return 'tipo-salon';
+        return 'tipo-bar-mesa';
+    },
+
+    getZoneNameForSeat(mesa = {}) {
+        const zone = this.getZoneById(mesa.zona_dinamica_id || mesa.zona_id);
+        if (zone?.nombre) return zone.nombre;
+        if (mesa.zona_nombre) return mesa.zona_nombre;
+
+        const zoneKey = this.getZoneKeyForSeat(mesa);
+        if (zoneKey === 'bar-banco') return 'Barra';
+        if (zoneKey === 'bar-mesa') return 'Bar';
+        return 'Salón';
+    },
+
+    getSeatTypeNameForSeat(mesa = {}) {
+        const type = this.getSeatTypeById(mesa.tipo_puesto_dinamico_id || mesa.tipo_puesto_id);
+        if (type?.nombre) return type.nombre;
+        if (mesa.tipo_puesto_nombre) return mesa.tipo_puesto_nombre;
+
+        const tipoSlug = String(mesa.tipo_puesto_slug || mesa.tipo_asiento || 'mesa').trim().toLowerCase();
+        return tipoSlug === 'banco' ? 'Banco' : 'Mesa';
+    },
+
+    getOperationalZones() {
+        const zonesByKey = new Map();
+        const pushZone = (zone) => {
+            if (!zone) return;
+            const id = Number(zone.id || zone.zona_id || 0);
+            const key = id > 0 ? `zona-${id}` : String(zone.key || zone.id || '').trim();
+            if (!key || key === 'todos' || zonesByKey.has(key)) return;
+
+            zonesByKey.set(key, {
+                id: key,
+                zoneId: id,
+                label: zone.nombre || zone.label || 'Zona',
+                icon: zone.icono || zone.icon || 'fa-location-dot',
+                color: zone.color || '#3498db',
+                orden: Number(zone.orden || 0),
+                puestos_total: Number(zone.puestos_total || 0)
+            });
+        };
+
+        (this.structure?.zonas || [])
+            .filter(zone => Number(zone.activa ?? 1) === 1)
+            .forEach(pushZone);
+
+        (this.data || []).forEach(mesa => {
+            const key = this.getZoneKeyForSeat(mesa);
+            if (zonesByKey.has(key)) return;
+            zonesByKey.set(key, {
+                id: key,
+                zoneId: Number(mesa.zona_dinamica_id || mesa.zona_id || 0),
+                label: this.getZoneNameForSeat(mesa),
+                icon: mesa.zona_icono || 'fa-location-dot',
+                color: mesa.zona_color || '#3498db',
+                orden: 999,
+                puestos_total: 0
+            });
+        });
+
+        return Array.from(zonesByKey.values()).sort((a, b) => {
+            const orderDiff = Number(a.orden || 0) - Number(b.orden || 0);
+            if (orderDiff !== 0) return orderDiff;
+            return String(a.label || '').localeCompare(String(b.label || ''), 'es');
+        });
+    },
+
+    getInternalNavItems() {
+        return this.getMobileOrderedZoneItems().map(zone => ({
+            id: zone.id,
+            label: zone.label,
+            icon: zone.icon || 'fa-layer-group'
+        }));
+    },
+
+    getMobileOrderedZoneItems() {
+        const zones = [
+            { id: 'todos', label: 'Todos', icon: 'fa-border-all', color: '#203247' },
+            ...this.getOperationalZones()
+        ];
+
+        const allZone = zones[0];
+        const zoneItems = zones.filter(zone => zone.id !== allZone.id);
+        const validIds = new Set(zoneItems.map(zone => zone.id));
+        const priorityIds = [];
+
+        const pushPriority = (id) => {
+            if (!id || !validIds.has(id) || priorityIds.includes(id)) return;
+            priorityIds.push(id);
+        };
+
+        this.getMobileOperationalPriorityZoneIds(zoneItems).forEach(pushPriority);
+        this.getStoredMobilePriorityZoneIds().forEach(pushPriority);
+
+        const activeId = this.filtroTipo || 'todos';
+        if (activeId !== allZone.id) pushPriority(activeId);
+
+        const priorityZones = priorityIds.map(id => zoneItems.find(zone => zone.id === id)).filter(Boolean);
+        const remainingZones = zoneItems.filter(zone => !priorityIds.includes(zone.id));
+
+        return [allZone, ...priorityZones, ...remainingZones];
+    },
+
+    getMobilePriorityStorageKey() {
+        const userId = (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.id || currentUser.nombre || 'anon') : 'anon';
+        return `mundipos.tables.mobileZonePriority.${userId}`;
+    },
+
+    getStoredMobilePriorityZoneIds() {
+        try {
+            const raw = localStorage.getItem(this.getMobilePriorityStorageKey());
+            const parsed = raw ? JSON.parse(raw) : [];
+            return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+        } catch (error) {
+            return [];
+        }
+    },
+
+    rememberMobileZonePriority(zoneId) {
+        if (!zoneId || zoneId === 'todos') return;
+
+        const validIds = new Set(this.getOperationalZones().map(zone => zone.id));
+        if (!validIds.has(zoneId)) return;
+
+        try {
+            const current = this.getStoredMobilePriorityZoneIds().filter(id => id !== zoneId);
+            const next = [zoneId, ...current].slice(0, 12);
+            localStorage.setItem(this.getMobilePriorityStorageKey(), JSON.stringify(next));
+        } catch (error) {
+            // Sin almacenamiento local se conserva el orden operativo calculado.
+        }
+    },
+
+    getMobileOperationalPriorityZoneIds(zoneItems = []) {
+        const validIds = new Set(zoneItems.map(zone => zone.id));
+        const zonesByFirstActivity = new Map();
+
+        (this.data || []).forEach((mesa, index) => {
+            const estado = String(mesa.estado || '').toLowerCase();
+            const isActive = estado === 'ocupada' || estado === 'reservada';
+            const canOperate = Number(mesa.puede_operar || 0) === 1 || Number(mesa.soy_responsable || 0) === 1;
+            if (!isActive || !canOperate) return;
+
+            const zoneId = this.getZoneKeyForSeat(mesa);
+            if (!validIds.has(zoneId)) return;
+
+            const parsed = mesa.fecha_apertura ? Date.parse(mesa.fecha_apertura) : NaN;
+            const timestamp = Number.isFinite(parsed) ? parsed : Date.now() + index;
+            const previous = zonesByFirstActivity.get(zoneId);
+            if (!previous || timestamp < previous.timestamp) {
+                zonesByFirstActivity.set(zoneId, { id: zoneId, timestamp });
+            }
+        });
+
+        return Array.from(zonesByFirstActivity.values())
+            .sort((a, b) => a.timestamp - b.timestamp)
+            .map(item => item.id);
+    },
+
+    normalizeActiveFilter() {
+        const validIds = new Set(['todos', ...this.getOperationalZones().map(zone => zone.id)]);
+        if (!validIds.has(this.filtroTipo)) {
+            this.filtroTipo = 'todos';
+        }
+    },
+
+    getCurrentFilterLabel() {
+        if (!this.filtroTipo || this.filtroTipo === 'todos') return 'Todos';
+        const zone = this.getOperationalZones().find(item => item.id === this.filtroTipo);
+        return zone?.label || 'Zona';
+    },
+
+    getOperationalSummary() {
+        const seats = this.getFilteredSeats();
+        const countState = (state) => seats.filter(mesa => String(mesa.estado || '').toLowerCase() === state).length;
+        const activeMine = seats.filter(mesa => Number(mesa.soy_responsable || 0) === 1 && ['ocupada', 'reservada'].includes(String(mesa.estado || '').toLowerCase())).length;
+        const activeAssigned = seats.filter(mesa => Number(mesa.puede_operar || 0) !== 1 && ['ocupada', 'reservada'].includes(String(mesa.estado || '').toLowerCase())).length;
+
+        return {
+            total: seats.length,
+            libres: countState('libre'),
+            ocupadas: countState('ocupada'),
+            reservadas: countState('reservada'),
+            propias: activeMine,
+            bloqueadas: activeAssigned
+        };
+    },
+
+    renderZoneFilters() {
+        const zones = this.getMobileOrderedZoneItems();
+        return `
+            <div class="btn-filtro-zonas internal-tabs zones-operation-tabs" aria-label="Filtros dinámicos de zonas">
+                ${zones.map(zone => {
+                    const color = this.safeCssColor(zone.color);
+                    const style = color ? ` style="--zone-filter-color:${color}"` : '';
+                    return `
+                        <button class="btn btn-zona ${this.filtroTipo === zone.id ? 'active' : ''}"
+                                data-tipo="${this.escapeHtml(zone.id)}"
+                                data-subnav-item="${this.escapeHtml(zone.id)}"
+                                onclick="Navigation.selectInternal('tables', '${this.escapeHtml(zone.id)}')"
+                                title="${this.escapeHtml(zone.label)}"${style}>
+                            <i class="fas ${this.escapeHtml(zone.icon || 'fa-layer-group')}"></i> ${this.escapeHtml(zone.label)}
+                        </button>
+                    `;
+                }).join('')}
+            </div>
+        `;
+    },
+
+    renderOperationSummary(summary = this.getOperationalSummary()) {
+        return `
+            <div class="zones-operation-summary" aria-label="Resumen operativo de zonas">
+                <span class="zone-summary-chip total"><i class="fas fa-layer-group"></i> ${summary.total} puestos</span>
+                <span class="zone-summary-chip libre"><i class="fas fa-circle-check"></i> ${summary.libres} libres</span>
+                <span class="zone-summary-chip ocupada"><i class="fas fa-fire"></i> ${summary.ocupadas} ocupadas</span>
+                <span class="zone-summary-chip reservada"><i class="fas fa-clock"></i> ${summary.reservadas} reservadas</span>
+                ${summary.propias ? `<span class="zone-summary-chip mine"><i class="fas fa-user-check"></i> ${summary.propias} a tu cargo</span>` : ''}
+                ${summary.bloqueadas && !this.isAdmin() ? `<span class="zone-summary-chip locked"><i class="fas fa-lock"></i> ${summary.bloqueadas} asignadas</span>` : ''}
+            </div>
+        `;
+    },
+
+    renderOperationHero() {
+        const zoneLabel = this.getCurrentFilterLabel();
+        return `
+            <section class="zones-operation-shell">
+                <div class="zones-operation-header">
+                    <div>
+                        <span class="zones-admin-eyebrow">Operación de puestos</span>
+                        <h3>${this.escapeHtml(zoneLabel)}</h3>
+                        <p>Abre, reserva y atiende los puestos permitidos para tus roles activos.</p>
+                    </div>
+                    ${this.isAdmin() ? `
+                        <button class="btn btn-success zones-new-seat-btn" onclick="Tables.showCreateModal()">
+                            <i class="fas fa-plus"></i> Nuevo puesto
+                        </button>
+                    ` : ''}
+                </div>
+                ${this.renderZoneFilters()}
+                ${this.renderOperationSummary()}
+                <div class="internal-view-panel" data-internal-panel="tables">
+                    <div class="mesas-grid zones-premium-grid">
+                        ${this.renderMesasGrid()}
+                    </div>
+                </div>
+            </section>
+        `;
+    },
+
     // Renderizar sección de mesas
     render() {
-    const section = document.getElementById('tables-section');
-    this.filtroTipo = this.filtroTipo || 'todos';
+        const section = document.getElementById('tables-section');
+        if (!section) return;
 
-    // Filtros legacy conservados hasta activar navegación dinámica completa en fases posteriores.
-    const filtros = ['todos', 'salon', 'bar-mesa', 'bar-banco'];
-    const iconos = {
-        'todos': 'fa-border-all',
-        'salon': 'fa-chair',
-        'bar-mesa': 'fa-martini-glass-citrus',
-        'bar-banco': 'fa-grip-lines'
-    };
-    const nombres = {
-        'todos': 'Todos',
-        'salon': 'Salón',
-        'bar-mesa': 'Bar',
-        'bar-banco': 'Barra'
-    };
+        this.filtroTipo = this.filtroTipo || 'todos';
+        this.normalizeActiveFilter();
 
-    const botonesFiltro = `
-        <div class="btn-filtro-zonas internal-tabs" aria-label="Filtros de zonas">
-            ${filtros.map(tipo => `
-                <button class="btn btn-zona ${this.filtroTipo === tipo ? 'active' : ''}"
-                        data-tipo="${tipo}"
-                        data-subnav-item="${tipo}"
-                        onclick="Navigation.selectInternal('tables', '${tipo}')">
-                    <i class="fas ${iconos[tipo]}"></i> ${nombres[tipo]}
-                </button>
-            `).join('')}
-        </div>
-    `;
-
-    section.innerHTML = `
-        <div class="section-header">
-            <h2>Gestión de Zonas</h2>
-            <p>Administra la estructura física y operativa del local</p>
-        </div>
-
-        ${this.renderStructureAdminPanel()}
-
-        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-3">
-            <div class="d-flex gap-2">
-                ${this.isAdmin() ? `
-                    <button class="btn btn-success" onclick="Tables.showCreateModal()">
-                        <i class="fas fa-plus"></i> Nuevo puesto
-                    </button>
-                ` : ''}
+        section.innerHTML = `
+            <div class="section-header zones-premium-hero">
+                <div>
+                    <span class="zones-admin-eyebrow">Módulo operativo</span>
+                    <h2>Gestión de Zonas</h2>
+                    <p>Administra la estructura física y opera los puestos por zona, rol y responsabilidad.</p>
+                </div>
+                <div class="zones-premium-hero-badge">
+                    <i class="fas fa-shield-halved"></i>
+                    <span>${this.isAdmin() ? 'Administración + operación' : 'Operación asignada'}</span>
+                </div>
             </div>
 
-            ${botonesFiltro}
-        </div>
-
-        <div class="internal-view-panel" data-internal-panel="tables">
-            <div class="d-flex gap-2 flex-wrap mb-3">
-                <span class="badge badge-success">Libres: ${this.getFilteredSeats().filter(m => m.estado === 'libre').length}</span>
-                <span class="badge badge-danger">Ocupadas: ${this.getFilteredSeats().filter(m => m.estado === 'ocupada').length}</span>
-                <span class="badge badge-warning">Reservadas: ${this.getFilteredSeats().filter(m => m.estado === 'reservada').length}</span>
-            </div>
-
-            <div class="mesas-grid">
-                ${this.renderMesasGrid()}
-            </div>
-        </div>
-    `;
-},
+            ${this.renderStructureAdminPanel()}
+            ${this.renderOperationHero()}
+        `;
+    },
 
     renderStructureAdminPanel() {
     if (!this.isAdmin()) {
@@ -279,36 +511,20 @@ const Tables = {
     const filtro = this.filtroTipo || 'todos';
     let seats = [...this.data];
 
-    if (filtro === 'salon') {
-        seats = seats.filter(m => (m.zona || '').toLowerCase() === 'salon');
-    } else if (filtro === 'bar-mesa') {
-        seats = seats.filter(m =>
-            (m.zona || '').toLowerCase() === 'bar' &&
-            (m.tipo_asiento || '').toLowerCase() === 'mesa'
-        );
-    } else if (filtro === 'bar-banco') {
-        seats = seats.filter(m =>
-            ((m.zona_slug || '').toLowerCase() === 'barra') ||
-            ((m.zona || '').toLowerCase() === 'bar' && (m.tipo_asiento || '').toLowerCase() === 'banco')
-        );
+    if (filtro !== 'todos') {
+        seats = seats.filter(mesa => this.getZoneKeyForSeat(mesa) === filtro);
     }
 
     return seats;
 },
 
 
+
     //Filtrar por Zona
     filtrarPorZona(zonaSeleccionada) {
-    this.filtroTipo = zonaSeleccionada;
-
-    // Quitar clase activa de todos
-    document.querySelectorAll('.btn-zona').forEach(btn => {
-        btn.classList.remove('active');
-    });
-
-    // Activar el botón correcto
-    const activo = document.querySelector(`.btn-zona[data-tipo="${zonaSeleccionada}"]`);
-    if (activo) activo.classList.add('active');
+    this.filtroTipo = zonaSeleccionada || 'todos';
+    this.normalizeActiveFilter();
+    this.rememberMobileZonePriority(this.filtroTipo);
 
     this.render();
     Navigation.syncInternalSubnav('tables');
@@ -317,34 +533,45 @@ const Tables = {
     // Renderizar grid de puestos
     renderMesasGrid() {
     if (this.data.length === 0) {
-        return '<p class="text-center">No hay puestos configurados</p>';
+        return '<div class="zones-empty-operation"><i class="fas fa-chair"></i><span>No hay puestos configurados.</span></div>';
     }
 
     const puestos = this.getFilteredSeats();
 
     if (puestos.length === 0) {
-        return '<p class="text-center">No hay puestos para este filtro</p>';
+        return `<div class="zones-empty-operation"><i class="fas fa-filter"></i><span>No hay puestos para ${this.escapeHtml(this.getCurrentFilterLabel())}.</span></div>`;
     }
 
+    const getActionLabel = (mesa) => {
+        const estado = String(mesa.estado || '').toLowerCase();
+        if (estado === 'libre') return 'Abrir / Reservar';
+        if (estado === 'ocupada') return Number(mesa.puede_operar || 0) === 1 || this.isAdmin() ? 'Agregar productos' : 'Responsable asignado';
+        if (estado === 'reservada') return Number(mesa.puede_operar || 0) === 1 || this.isAdmin() ? 'Crear pedido' : 'Responsable asignado';
+        return 'Ver puesto';
+    };
+
     const renderCard = (mesa) => {
-        const tipoSlug = (mesa.tipo_puesto_slug || mesa.tipo_asiento || 'mesa').toLowerCase();
-        const zonaSlug = (mesa.zona_slug || mesa.zona || 'salon').toLowerCase();
-        const tipoNombre = mesa.tipo_puesto_nombre || (tipoSlug === 'banco' ? 'Banco' : 'Mesa');
-        const zonaNombre = mesa.zona_nombre || (zonaSlug === 'barra' ? 'Barra' : zonaSlug === 'bar' ? 'Bar' : 'Salón');
-        const tipoClase = tipoSlug === 'banco'
-            ? 'tipo-bar-banco'
-            : zonaSlug === 'salon'
-                ? 'tipo-salon'
-                : 'tipo-bar-mesa';
+        const tipoSlug = String(mesa.tipo_puesto_slug || mesa.tipo_asiento || 'mesa').toLowerCase();
+        const tipoNombre = this.getSeatTypeNameForSeat(mesa);
+        const zonaNombre = this.getZoneNameForSeat(mesa);
+        const tipoClase = this.getSeatTypeClass(mesa);
+        const zoneColor = this.safeCssColor(mesa.zona_color || this.getZoneById(mesa.zona_dinamica_id || mesa.zona_id)?.color || '');
+        const zoneStyle = zoneColor ? ` style="--mesa-zone-color:${zoneColor}"` : '';
 
         const estadoClase = mesa.estado === 'reservada' ? 'reservada' : mesa.estado;
         const estadoTexto = String(mesa.estado || '').toUpperCase();
         const puestoTitulo = mesa.nombre_visible || `${tipoNombre} ${mesa.numero}`;
+        const puedeOperar = Number(mesa.puede_operar || 0) === 1 || this.isAdmin() || String(mesa.estado || '').toLowerCase() === 'libre';
+        const assignedText = !puedeOperar && mesa.estado !== 'libre'
+            ? '<span class="mesa-responsable-chip locked"><i class="fas fa-lock"></i> Responsable asignado</span>'
+            : Number(mesa.soy_responsable || 0) === 1
+                ? '<span class="mesa-responsable-chip mine"><i class="fas fa-user-check"></i> A tu cargo</span>'
+                : '';
 
         return `
-        <div class="mesa-card ${estadoClase} ${tipoClase}" onclick="Tables.handleMesaClick(${mesa.id})">
+        <div class="mesa-card zones-premium-card ${estadoClase} ${tipoClase} ${puedeOperar ? '' : 'is-assigned-other'}" onclick="Tables.handleMesaClick(${mesa.id})"${zoneStyle}>
             <div class="mesa-zone-badge">
-                <i class="fas ${this.escapeHtml(mesa.zona_icono || 'fa-location-dot')}"></i>
+                <i class="fas ${this.escapeHtml(mesa.zona_icono || this.getZoneById(mesa.zona_dinamica_id || mesa.zona_id)?.icono || 'fa-location-dot')}"></i>
                 ${this.escapeHtml(zonaNombre)} / ${this.escapeHtml(tipoNombre)}
             </div>
             <div class="mesa-numero">
@@ -352,11 +579,15 @@ const Tables = {
             </div>
             <div class="mesa-estado ${mesa.estado}">${this.escapeHtml(estadoTexto)}</div>
             <div class="mesa-info">
-                <small>Capacidad: ${mesa.capacidad}</small>
-                ${Number(mesa.acepta_reservas) === 1 ? `<br><small>Reservas: Sí</small>` : `<br><small>Reservas: No</small>`}
-                ${Number(mesa.aplica_servicio) === 1 ? `<br><small>Servicio: ${Number(mesa.porcentaje_servicio || 10)}%</small>` : `<br><small>Servicio: No</small>`}
-                ${mesa.cliente_nombre ? `<br><small>Cliente: ${this.escapeHtml(mesa.cliente_nombre)}</small>` : ''}
-                ${mesa.fecha_apertura ? `<br><small>Desde: ${new Date(mesa.fecha_apertura).toLocaleTimeString()}</small>` : ''}
+                <small><i class="fas fa-users"></i> Capacidad: ${mesa.capacidad}</small>
+                ${Number(mesa.acepta_reservas) === 1 ? `<br><small><i class="fas fa-calendar-check"></i> Reservas: Sí</small>` : `<br><small><i class="fas fa-calendar-xmark"></i> Reservas: No</small>`}
+                ${Number(mesa.aplica_servicio) === 1 ? `<br><small><i class="fas fa-percent"></i> Servicio: ${Number(mesa.porcentaje_servicio || 10)}%</small>` : `<br><small><i class="fas fa-percent"></i> Servicio: No</small>`}
+                ${mesa.cliente_nombre ? `<br><small><i class="fas fa-user"></i> Cliente: ${this.escapeHtml(mesa.cliente_nombre)}</small>` : ''}
+                ${mesa.fecha_apertura ? `<br><small><i class="fas fa-clock"></i> Desde: ${new Date(mesa.fecha_apertura).toLocaleTimeString()}</small>` : ''}
+            </div>
+            <div class="mesa-premium-footer">
+                <span class="mesa-action-hint ${puedeOperar ? '' : 'locked'}">${getActionLabel(mesa)}</span>
+                ${assignedText}
             </div>
             <div class="mesa-actions mt-2">
                 ${this.isAdmin() && mesa.estado === 'libre' ? `
@@ -376,6 +607,7 @@ const Tables = {
 
     return puestos.map(renderCard).join('');
 },
+
 
 
     // Renderizar tabla de mesas
@@ -450,7 +682,7 @@ const Tables = {
 
     const esBanco = mesa.zona?.toLowerCase() === 'bar' && mesa.tipo_asiento?.toLowerCase() === 'banco';
 
-    if (mesa.estado !== 'libre' && Number(mesa.puede_operar) !== 1) {
+    if (mesa.estado !== 'libre' && Number(mesa.puede_operar) !== 1 && !this.isAdmin()) {
         Utils.showNotification('Responsable asignado. No puedes operar esta mesa/cuenta con tu usuario actual.', 'info');
         return;
     }

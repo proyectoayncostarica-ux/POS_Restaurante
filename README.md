@@ -544,3 +544,15 @@ Archivos modificados en este fix:
 - Corrige `server/db/database.js` para mantener las tablas/campos de roles, responsabilidad compartida y `mesa_responsables`, integrando además los campos de servicio 10% para pedidos/pagos.
 - Corrige el 500 en `GET /api/tables/structure` provocado por una mezcla incompleta de esquema.
 - Mantiene el Service Worker defensivo y actualiza versionado para evitar caché vieja.
+
+### v2.2.4.14 · Zonas premium operativo/administrativo
+
+- **Objetivo:** separar visualmente el módulo Zonas en dos capas claras: administración del local y operación diaria de puestos.
+- **Administración:** el usuario administrador mantiene el panel de zonas, tipos de puesto y roles de trabajo, con acceso a crear/editar estructura.
+- **Operación:** se agrega un bloque operativo premium con filtros dinámicos por zonas reales, resumen de puestos y grilla de atención.
+- **Filtros dinámicos:** Zonas ya no depende de filtros fijos Salón/Bar/Barra; ahora usa zonas reales permitidas y conserva compatibilidad con datos legacy.
+- **Subnavegación móvil:** el módulo Zonas se integra a la navegación móvil dinámica con **Todos + primeras 3 zonas + Más...**, igual que Dashboard.
+- **Prioridad móvil:** las zonas con puestos activos/responsabilidad del usuario suben automáticamente a las primeras posiciones visibles.
+- **Cards operativas:** las tarjetas de puestos muestran zona/tipo reales, servicio, reservas, estado operativo y responsabilidad sin exponer nombres a usuarios básicos no responsables.
+- **Permisos visuales:** usuarios estándar ven solo la operación permitida; administradores ven administración + operación global.
+- **Alcance:** no cambia base de datos, reglas de responsabilidad, endpoints ni cálculo de servicio 10%.
