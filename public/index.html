@@ -14,7 +14,7 @@
     <meta name="msapplication-starturl" content="/POS/">
     <title>MundiPOS</title>
     <link rel="manifest" href="/POS/manifest.webmanifest">
-    <link rel="stylesheet" href="/POS/css/style.css?v=2.2.4.16-cierre-estabilidad">
+    <link rel="stylesheet" href="/POS/css/style.css?v=2.2.4.17-fix1-dashboard-pc-focus-compact">
     <link rel="icon" href="/POS/favicon.ico" type="image/x-icon">
     <link rel="shortcut icon" href="/POS/favicon.ico" type="image/x-icon">
     <link rel="apple-touch-icon" href="/POS/assets/icons/mundipos-icon-180.png">
@@ -139,6 +139,10 @@
                     </span>
                     <span id="current-datetime" class="current-datetime"></span>
                 </div>
+                <button id="dashboard-fullscreen-btn" class="btn btn-secondary dashboard-fullscreen-btn" type="button" onclick="DashboardFocus.toggle()" aria-label="Activar pantalla completa operativa del Dashboard" title="Pantalla completa">
+                    <i class="fas fa-expand"></i>
+                    <span class="dashboard-fullscreen-label">Pantalla completa</span>
+                </button>
                 <button id="daily-close-btn" class="btn btn-secondary daily-close-btn" type="button" aria-label="Cierre diario" title="Cierre diario">
                     <i class="fas fa-cash-register"></i>
                     <span class="daily-close-label">Cierre diario</span>
@@ -347,13 +351,13 @@
     </div>
 
     <!-- Scripts -->
-    <script src="js/main.js?v=2.2.4.16-cierre-estabilidad"></script>
-    <script src="js/components/dashboard.js?v=2.2.4.16-cierre-estabilidad"></script>
-    <script src="js/components/tables.js?v=2.2.4.16-cierre-estabilidad"></script>
-    <script src="js/components/menu.js?v=2.2.4.16-cierre-estabilidad"></script>
-    <script src="js/components/orders.js?v=2.2.4.16-cierre-estabilidad"></script>
-    <script src="js/components/accounts.js?v=2.2.4.16-cierre-estabilidad"></script>
-    <script src="js/components/users.js?v=2.2.4.16-cierre-estabilidad"></script>
-    <script src="js/components/settings.js?v=2.2.4.16-cierre-estabilidad"></script>
+    <script src="js/main.js?v=2.2.4.17-fix1-dashboard-pc-focus-compact"></script>
+    <script src="js/components/dashboard.js?v=2.2.4.17-fix1-dashboard-pc-focus-compact"></script>
+    <script src="js/components/tables.js?v=2.2.4.17-fix1-dashboard-pc-focus-compact"></script>
+    <script src="js/components/menu.js?v=2.2.4.17-fix1-dashboard-pc-focus-compact"></script>
+    <script src="js/components/orders.js?v=2.2.4.17-fix1-dashboard-pc-focus-compact"></script>
+    <script src="js/components/accounts.js?v=2.2.4.17-fix1-dashboard-pc-focus-compact"></script>
+    <script src="js/components/users.js?v=2.2.4.17-fix1-dashboard-pc-focus-compact"></script>
+    <script src="js/components/settings.js?v=2.2.4.17-fix1-dashboard-pc-focus-compact"></script>
 </body>
 </html>

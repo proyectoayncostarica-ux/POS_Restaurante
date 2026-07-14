@@ -4,6 +4,91 @@ let currentSection = 'dashboard';
 let headerClockTimer = null;
 let lastDesktopDateTime = '';
 let lastMobileDateTime = '';
+
+const DashboardFocus = {
+    isActive: false,
+
+    get button() {
+        return document.getElementById('dashboard-fullscreen-btn');
+    },
+
+    isDesktop() {
+        return window.matchMedia('(min-width: 769px)').matches;
+    },
+
+    toggle() {
+        if (this.isActive) {
+            this.deactivate();
+            return;
+        }
+        this.activate();
+    },
+
+    async activate() {
+        if (!this.isDesktop()) {
+            Utils.showNotification('El modo pantalla completa del Dashboard está disponible en PC.', 'info');
+            return;
+        }
+
+        if (currentSection !== 'dashboard' && typeof Navigation !== 'undefined') {
+            await Navigation.showSection('dashboard');
+        }
+
+        const app = document.getElementById('main-app');
+        if (!app) return;
+
+        this.isActive = true;
+        document.body.classList.add('dashboard-focus-active');
+        app.classList.add('dashboard-focus-mode');
+        this.updateButton();
+    },
+
+    deactivate(showNotice = false) {
+        const app = document.getElementById('main-app');
+        this.isActive = false;
+        document.body.classList.remove('dashboard-focus-active');
+        if (app) app.classList.remove('dashboard-focus-mode');
+        this.updateButton();
+
+        if (showNotice) {
+            Utils.showNotification('Modo pantalla completa desactivado.', 'info');
+        }
+    },
+
+    updateButton() {
+        const btn = this.button;
+        if (!btn) return;
+
+        const shouldShow = this.isDesktop() && currentSection === 'dashboard';
+        btn.hidden = !shouldShow;
+        btn.classList.toggle('active', this.isActive && shouldShow);
+        btn.setAttribute('aria-pressed', this.isActive && shouldShow ? 'true' : 'false');
+        btn.setAttribute('aria-label', this.isActive
+            ? 'Salir de pantalla completa operativa del Dashboard'
+            : 'Activar pantalla completa operativa del Dashboard');
+        btn.title = this.isActive ? 'Salir de pantalla completa' : 'Pantalla completa';
+
+        const icon = btn.querySelector('i');
+        const label = btn.querySelector('.dashboard-fullscreen-label');
+        if (icon) icon.className = this.isActive ? 'fas fa-compress' : 'fas fa-expand';
+        if (label) label.textContent = this.isActive ? 'Salir pantalla completa' : 'Pantalla completa';
+    },
+
+    handleSectionChange(sectionName) {
+        if (sectionName !== 'dashboard' && this.isActive) {
+            this.deactivate();
+        } else {
+            this.updateButton();
+        }
+    },
+
+    handleResize() {
+        if (!this.isDesktop() && this.isActive) {
+            this.deactivate();
+        }
+        this.updateButton();
+    }
+};
 let navigationTransitionId = 0;
 const APP_NAME = 'MundiPOS';
 const INTERNAL_SUBNAV = {
@@ -1169,6 +1254,7 @@ const Navigation = {
             if (isSameSection) {
                 await this.loadSectionContent(sectionName);
                 this.renderInternalSubnav(sectionName);
+                DashboardFocus.handleSectionChange(sectionName);
                 return;
             }
 
@@ -1190,6 +1276,7 @@ const Navigation = {
             currentSection = sectionName;
             await this.loadSectionContent(sectionName);
             this.renderInternalSubnav(sectionName);
+            DashboardFocus.handleSectionChange(sectionName);
 
             if (transitionId !== navigationTransitionId) return;
 
@@ -1223,6 +1310,7 @@ const Navigation = {
         }
 
         currentSection = sectionName;
+        DashboardFocus.handleSectionChange(sectionName);
 
         // Cargar contenido de la sección
         this.loadSectionContent(sectionName);
@@ -2292,3 +2380,16 @@ function updateGreeting() {
         greetingElement.textContent = greeting;
     }
 }
+
+
+window.addEventListener('resize', () => {
+    if (typeof DashboardFocus !== 'undefined') {
+        DashboardFocus.handleResize();
+    }
+});
+
+window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && typeof DashboardFocus !== 'undefined' && DashboardFocus.isActive) {
+        DashboardFocus.deactivate();
+    }
+});

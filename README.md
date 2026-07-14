@@ -598,3 +598,20 @@ Archivos modificados en esta subfase:
 - `public/index.html`
 - `public/service-worker.js`
 
+### v2.2.4.17 · Dashboard PC modo pantalla completa operativa
+
+- **Objetivo:** reducir ruido visual en el Dashboard de PC y dar protagonismo al control de zonas como centro operativo principal.
+- **Header:** se agrega el botón **Pantalla completa** en el header principal. En modo activo el mismo botón permite salir del modo pantalla completa operativa.
+- **Alcance PC:** el modo oculta el sidebar, conserva el header principal y usa todo el ancho disponible para el Dashboard.
+- **Layout operativo:** la primera fila muestra compactos `Vista actual`, `Cuentas pendientes` y `Ventas del día`; la segunda fila muestra los filtros dinámicos de zonas; debajo queda el panel **Control por zona** ocupando el área principal.
+- **Limpieza visual:** en modo pantalla completa se ocultan el saludo contextual, el texto descriptivo del panel, el badge de estado operativo, créditos abiertos y actividad reciente.
+- **Móvil:** no cambia la navegación móvil dinámica ni la operación ya estabilizada.
+- **Sin cambios de negocio:** no modifica backend, permisos, roles, responsabilidad compartida, servicio 10% ni reglas operativas.
+
+### v2.2.4.17 fix1 · Compactación visual del modo pantalla completa en Dashboard PC
+
+- **Problema detectado:** en modo pantalla completa de PC, la primera fila del Dashboard ocupaba demasiada altura y la fila de filtros de zonas quedaba parcialmente recortada.
+- **Corrección aplicada:** la fila superior ahora muestra la información en una sola línea por card, con menor alto, iconos más compactos y badges reducidos.
+- **Filtros de zonas:** la segunda fila queda visible y compacta, manteniendo la operación dinámica por zonas.
+- **Alcance:** ajuste visual exclusivo para PC en modo pantalla completa; no cambia backend, permisos, roles, responsabilidad compartida ni servicio 10%.
+

@@ -1,4 +1,4 @@
-const MUNDIPOS_SW_VERSION = 'v2.2.4.16-cierre-estabilidad';
+const MUNDIPOS_SW_VERSION = 'v2.2.4.17-fix1-dashboard-pc-focus-compact';
 const APP_SHELL_CACHE = `mundipos-shell-${MUNDIPOS_SW_VERSION}`;
 const RUNTIME_CACHE = `mundipos-runtime-${MUNDIPOS_SW_VERSION}`;
 
@@ -9,23 +9,23 @@ const APP_SHELL_URLS = [
   '/POS/manifest.webmanifest',
   '/POS/favicon.ico',
   '/POS/css/style.css',
-  '/POS/css/style.css?v=2.2.4.16-cierre-estabilidad',
+  '/POS/css/style.css?v=2.2.4.17-fix1-dashboard-pc-focus-compact',
   '/POS/js/main.js',
-  '/POS/js/main.js?v=2.2.4.16-cierre-estabilidad',
+  '/POS/js/main.js?v=2.2.4.17-fix1-dashboard-pc-focus-compact',
   '/POS/js/components/dashboard.js',
-  '/POS/js/components/dashboard.js?v=2.2.4.16-cierre-estabilidad',
+  '/POS/js/components/dashboard.js?v=2.2.4.17-fix1-dashboard-pc-focus-compact',
   '/POS/js/components/tables.js',
-  '/POS/js/components/tables.js?v=2.2.4.16-cierre-estabilidad',
+  '/POS/js/components/tables.js?v=2.2.4.17-fix1-dashboard-pc-focus-compact',
   '/POS/js/components/menu.js',
-  '/POS/js/components/menu.js?v=2.2.4.16-cierre-estabilidad',
+  '/POS/js/components/menu.js?v=2.2.4.17-fix1-dashboard-pc-focus-compact',
   '/POS/js/components/orders.js',
-  '/POS/js/components/orders.js?v=2.2.4.16-cierre-estabilidad',
+  '/POS/js/components/orders.js?v=2.2.4.17-fix1-dashboard-pc-focus-compact',
   '/POS/js/components/accounts.js',
-  '/POS/js/components/accounts.js?v=2.2.4.16-cierre-estabilidad',
+  '/POS/js/components/accounts.js?v=2.2.4.17-fix1-dashboard-pc-focus-compact',
   '/POS/js/components/users.js',
-  '/POS/js/components/users.js?v=2.2.4.16-cierre-estabilidad',
+  '/POS/js/components/users.js?v=2.2.4.17-fix1-dashboard-pc-focus-compact',
   '/POS/js/components/settings.js',
-  '/POS/js/components/settings.js?v=2.2.4.16-cierre-estabilidad',
+  '/POS/js/components/settings.js?v=2.2.4.17-fix1-dashboard-pc-focus-compact',
   '/POS/assets/brand/mundipos-mark.png',
   '/POS/assets/icons/mundipos-icon-192.png',
   '/POS/assets/icons/mundipos-maskable-192.png',

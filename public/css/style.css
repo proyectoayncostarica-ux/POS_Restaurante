@@ -8446,3 +8446,313 @@ body {
         grid-template-columns: minmax(0, 1fr);
     }
 }
+
+/* v2.2.4.17 · Dashboard PC modo pantalla completa operativa */
+.dashboard-fullscreen-btn {
+    display: none;
+    align-items: center;
+    gap: 0.45rem;
+    min-height: 42px;
+    padding: 0.58rem 0.78rem;
+    color: #fff;
+    background: rgba(52, 152, 219, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 12px;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
+    white-space: nowrap;
+}
+
+.dashboard-fullscreen-btn:hover,
+.dashboard-fullscreen-btn.active {
+    color: #172033;
+    background: linear-gradient(135deg, #ffffff, #f8c15f);
+    border-color: rgba(243, 156, 18, 0.38);
+    transform: translateY(-1px);
+}
+
+.dashboard-fullscreen-btn[hidden] {
+    display: none !important;
+}
+
+@media (min-width: 769px) {
+    .dashboard-fullscreen-btn:not([hidden]) {
+        display: inline-flex;
+    }
+
+    .app-container.dashboard-focus-mode {
+        grid-template-columns: 0 minmax(0, 1fr);
+    }
+
+    .app-container.dashboard-focus-mode .sidebar,
+    .app-container.dashboard-focus-mode .sidebar-overlay {
+        display: none !important;
+    }
+
+    .app-container.dashboard-focus-mode .main-content {
+        padding: 0.72rem 0.9rem 0.95rem;
+        overflow: hidden;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section.content-section.active {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 0.58rem;
+        overflow: hidden;
+        animation: none;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-hero,
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-credit-card,
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-recent {
+        display: none !important;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-status-strip.dashboard-command-grid {
+        order: 1;
+        position: relative;
+        top: auto;
+        z-index: 1;
+        grid-template-columns: minmax(1.05fr, 1.25fr) repeat(2, minmax(0, 0.72fr));
+        gap: 0.48rem;
+        margin: 0;
+        padding: 0.34rem;
+        border-radius: 14px;
+        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.055);
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-command-card {
+        min-height: 52px;
+        padding: 0.5rem 0.62rem;
+        gap: 0.48rem;
+        border-radius: 12px;
+        box-shadow: 0 5px 14px rgba(15, 23, 42, 0.04);
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-command-icon {
+        width: 34px;
+        height: 34px;
+        flex: 0 0 34px;
+        border-radius: 10px;
+        font-size: 0.82rem;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-command-label {
+        font-size: 0.62rem;
+        letter-spacing: 0.05em;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-command-card strong {
+        font-size: 1.02rem;
+        line-height: 1.05;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-command-card small {
+        margin-top: 0.05rem;
+        font-size: 0.62rem;
+        line-height: 1.05;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section #dashboard-zones-filter.dashboard-dynamic-tabs {
+        order: 2;
+        display: flex !important;
+        margin: 0;
+        padding: 0.36rem;
+        overflow-x: auto;
+        border: 1px solid rgba(44, 62, 80, 0.08);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.94);
+        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.045);
+        scrollbar-width: thin;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section #dashboard-zones-filter.dashboard-dynamic-tabs .btn-zona {
+        min-height: 36px;
+        padding: 0.42rem 0.78rem;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        flex: 0 0 auto;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-operation-panel {
+        order: 3;
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        margin: 0;
+        padding: 0.82rem;
+        overflow: hidden;
+        border-radius: 20px;
+        box-shadow: 0 14px 34px rgba(15, 23, 42, 0.075);
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-operation-panel::before {
+        display: none;
+        content: none;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-zone-summary {
+        flex: 0 0 auto;
+        margin-bottom: 0.72rem;
+        padding-bottom: 0.58rem;
+        border-bottom: 1px solid rgba(44, 62, 80, 0.07);
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-zone-summary h2 {
+        font-size: 1.18rem;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-zone-summary p {
+        font-size: 0.72rem;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-zone-metrics > .dashboard-zone-metric {
+        min-height: 32px;
+        padding: 0.32rem 0.55rem;
+        font-size: 0.7rem;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-zone-metrics > .dashboard-zone-metric i {
+        font-size: 0.76rem;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section #mesas-grid.dashboard-zones-grid,
+    .app-container.dashboard-focus-mode #dashboard-section .mesas-grid.dashboard-zones-grid {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        align-content: start;
+        gap: 0.85rem;
+        overflow-y: auto;
+        padding: 0 0.18rem 0.2rem;
+        margin: 0;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .mesa-card.dashboard-zone-card {
+        min-height: 170px;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-zone-action {
+        margin-top: auto;
+    }
+}
+
+@media (min-width: 1180px) {
+    .app-container.dashboard-focus-mode #dashboard-section #mesas-grid.dashboard-zones-grid,
+    .app-container.dashboard-focus-mode #dashboard-section .mesas-grid.dashboard-zones-grid {
+        grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    }
+}
+
+@media (max-width: 768px) {
+    .dashboard-fullscreen-btn {
+        display: none !important;
+    }
+}
+
+/* v2.2.4.17 fix1 · Compactación del Dashboard PC en modo pantalla completa */
+@media (min-width: 769px) {
+    .app-container.dashboard-focus-mode #dashboard-section.content-section.active {
+        gap: 0.36rem !important;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-status-strip.dashboard-command-grid {
+        min-height: 44px !important;
+        max-height: 48px !important;
+        grid-template-columns: minmax(0, 1.08fr) repeat(2, minmax(0, 0.72fr)) !important;
+        align-items: stretch !important;
+        gap: 0.36rem !important;
+        padding: 0.22rem !important;
+        border-radius: 12px !important;
+        box-shadow: 0 6px 14px rgba(15, 23, 42, 0.045) !important;
+        overflow: visible !important;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-command-card {
+        display: grid !important;
+        grid-template-columns: auto minmax(0, 1fr) !important;
+        align-items: center !important;
+        min-height: 38px !important;
+        height: 38px !important;
+        padding: 0.22rem 0.44rem !important;
+        gap: 0.36rem !important;
+        border-radius: 10px !important;
+        box-shadow: 0 4px 10px rgba(15, 23, 42, 0.035) !important;
+        overflow: hidden !important;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-command-icon {
+        width: 26px !important;
+        height: 26px !important;
+        flex: 0 0 26px !important;
+        border-radius: 8px !important;
+        font-size: 0.68rem !important;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-command-card > div {
+        min-width: 0 !important;
+        display: flex !important;
+        align-items: baseline !important;
+        gap: 0.32rem !important;
+        overflow: hidden !important;
+        white-space: nowrap !important;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-command-label {
+        display: inline-block !important;
+        flex: 0 0 auto !important;
+        font-size: 0.56rem !important;
+        line-height: 1 !important;
+        letter-spacing: 0.055em !important;
+        white-space: nowrap !important;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-command-card strong {
+        display: inline-block !important;
+        flex: 0 0 auto !important;
+        margin: 0 !important;
+        font-size: 0.86rem !important;
+        line-height: 1 !important;
+        white-space: nowrap !important;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-command-card small {
+        display: inline-block !important;
+        min-width: 0 !important;
+        margin: 0 !important;
+        overflow: hidden !important;
+        font-size: 0.58rem !important;
+        line-height: 1 !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section #dashboard-zones-filter.dashboard-dynamic-tabs {
+        min-height: 38px !important;
+        max-height: 42px !important;
+        flex: 0 0 40px !important;
+        align-items: center !important;
+        gap: 0.28rem !important;
+        padding: 0.22rem 0.28rem !important;
+        border-radius: 12px !important;
+        overflow-x: auto !important;
+        overflow-y: hidden !important;
+        box-shadow: 0 5px 14px rgba(15, 23, 42, 0.035) !important;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section #dashboard-zones-filter.dashboard-dynamic-tabs .btn-zona {
+        min-height: 30px !important;
+        padding: 0.28rem 0.66rem !important;
+        border-radius: 999px !important;
+        font-size: 0.72rem !important;
+        line-height: 1 !important;
+    }
+
+    .app-container.dashboard-focus-mode #dashboard-section .dashboard-operation-panel {
+        padding: 0.64rem !important;
+        border-radius: 18px !important;
+    }
+}
+
