@@ -615,21 +615,19 @@ Archivos modificados en esta subfase:
 - **Filtros de zonas:** la segunda fila queda visible y compacta, manteniendo la operación dinámica por zonas.
 - **Alcance:** ajuste visual exclusivo para PC en modo pantalla completa; no cambia backend, permisos, roles, responsabilidad compartida ni servicio 10%.
 
-### v2.2.5 · Normalización y Estabilización del módulo Cuentas / Orders
+### v2.2.5M.2 · Normalización backend de productos operativos
 
-- **Objetivo:** sanear, normalizar y estabilizar el módulo Cuentas, considerado el corazón operativo de MundiPOS.
-- **Alcance:** backend de `server/routes/orders.js`, frontend de `public/js/components/orders.js`, integración con Dashboard, Zonas, Menú, pagos, créditos, servicio 10%, responsabilidad operativa y Realtime.
-- **Documento de auditoría:** `docs/auditoria-v2.2.5.0-modulo-cuentas-orders.md`.
-- **Roadmap oficial:** `docs/roadmap-v2.2.5-normalizacion-cuentas.md`.
-- **Dinámica:** cada subfase se ejecutará como `v2.2.5.x`; cada bug derivado se marcará como `fixN`; cada subfase validada se commiteará y pusheará antes de continuar.
-- **Prioridad:** primero backend seguro, luego productos/precios/presentaciones, después carrito único, UI unificada, pagos/crédito/servicio, Realtime y cierre.
-- **Alcance inicial:** fase documental; no cambia lógica, UI, base de datos ni endpoints.
+- **Objetivo:** preparar Menú como fuente backend confiable para Cuentas / Orders antes de migrar la lógica de productos en `orders.js`.
+- **Endpoint agregado:** `GET /api/menu/operational-products`.
+- **Contrato:** el endpoint entrega productos listos para operación con categoría, subcategoría, imagen, cocina/comanda, precio base, precio operativo, presentaciones y resumen de validez.
+- **Precios:** productos sin presentación usan `productos.precio`; productos con presentación usan `presentaciones_producto.precio` por cada presentación válida.
+- **Cocina:** `es_cocina` se normaliza también como `requiere_comanda` para que Cuentas no tenga que inferirlo.
+- **Diagnóstico:** el endpoint puede incluir productos inválidos con `?include_invalid=1`, mostrando `bloqueos_operativos`.
+- **Alcance:** no cambia UI, no cambia Cuentas todavía, no cambia base de datos y no modifica el flujo operativo actual.
 
-### v2.2.5M.0 · Auditoría técnica del módulo Menú
+Archivos modificados en esta subfase:
 
-- **Objetivo:** verificar si Menú debe estabilizarse antes de continuar con la normalización profunda del módulo Cuentas / Orders.
-- **Conclusión:** Menú es la fuente de verdad para productos, precios, presentaciones, imágenes, categorías y productos de cocina; Cuentas depende directamente de esos datos para crear pedidos, agregar productos, calcular precios y generar comandas.
-- **Documento creado:** `docs/auditoria-v2.2.5-menu-base.md`.
-- **Hallazgos principales:** falta un contrato operativo Menú → Cuentas, hay inconsistencias en cocina/presentaciones, existen funciones legacy o incompletas y Menú necesita protección/normalización backend antes de estabilizar Orders.
-- **Alcance:** fase documental; no cambia código, UI, base de datos ni endpoints.
-- **Siguiente paso recomendado:** crear `docs/roadmap-v2.2.5M-normalizacion-menu.md` para ejecutar la normalización base de Menú antes de continuar con Cuentas.
+- `README.md`
+- `docs/avance-v2.2.5M.2-productos-operativos.md`
+- `server/routes/menu.js`
+

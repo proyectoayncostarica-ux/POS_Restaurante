@@ -93,6 +93,194 @@ async function validarCategoria(categoriaId, subcategoriaId, esCocina) {
     return null;
 }
 
+
+function moneyNumber(value, fallback = 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeProductImage(product) {
+    return product?.imagen || product?.imagen_url || null;
+}
+
+function normalizePresentationForOperation(row) {
+    const precio = moneyNumber(row.precio, 0);
+    return {
+        id: Number(row.presentacion_id || row.id),
+        presentacion_id: Number(row.presentacion_id || row.id),
+        producto_presentacion_id: row.producto_presentacion_id ? Number(row.producto_presentacion_id) : null,
+        nombre: row.nombre,
+        tipo: row.tipo || 'tamaño',
+        cantidad: row.cantidad || null,
+        precio,
+        precio_operativo: precio,
+        activo: Number(row.activo) === 1 ? 1 : 0,
+        imagen: row.imagen || null,
+        disponible_operacion: precio > 0 ? 1 : 0
+    };
+}
+
+function buildOperationalCategoryList(categories, products, includeEmpty = false) {
+    const counters = new Map();
+
+    products.forEach(product => {
+        const categoriaId = Number(product.categoria_id);
+        const subcategoriaId = product.subcategoria_id ? Number(product.subcategoria_id) : null;
+        counters.set(categoriaId, (counters.get(categoriaId) || 0) + 1);
+        if (subcategoriaId) {
+            counters.set(subcategoriaId, (counters.get(subcategoriaId) || 0) + 1);
+        }
+    });
+
+    return categories
+        .map(category => ({
+            id: Number(category.id),
+            nombre: category.nombre,
+            parent_id: category.parent_id ? Number(category.parent_id) : null,
+            tipo: category.parent_id ? 'subcategoria' : 'principal',
+            categoria_padre: category.categoria_padre || null,
+            permite_cocina: Number(category.permite_cocina) === 1 ? 1 : 0,
+            total_productos_operativos: counters.get(Number(category.id)) || 0
+        }))
+        .filter(category => includeEmpty || category.total_productos_operativos > 0 || category.tipo === 'principal');
+}
+
+async function buildOperationalMenuPayload(options = {}) {
+    const includeInvalid = options.includeInvalid === true;
+    const includeEmptyCategories = options.includeEmptyCategories === true;
+
+    const categories = await database.all(`
+        SELECT c.id, c.nombre, c.parent_id, c.permite_cocina, p.nombre AS categoria_padre
+        FROM categorias c
+        LEFT JOIN categorias p ON c.parent_id = p.id
+        ORDER BY c.parent_id IS NOT NULL, c.parent_id, c.nombre
+    `);
+
+    const products = await database.all(`
+        SELECT
+            p.id,
+            p.nombre,
+            p.descripcion,
+            COALESCE(p.precio, 0) AS precio,
+            p.categoria_id,
+            p.subcategoria_id,
+            p.es_cocina,
+            p.imagen,
+            c.nombre AS categoria_nombre,
+            c.permite_cocina AS categoria_permite_cocina,
+            s.nombre AS subcategoria_nombre,
+            s.permite_cocina AS subcategoria_permite_cocina
+        FROM productos p
+        JOIN categorias c ON p.categoria_id = c.id
+        LEFT JOIN categorias s ON p.subcategoria_id = s.id
+        ORDER BY c.nombre, COALESCE(s.nombre, ''), p.nombre
+    `);
+
+    const presentationRows = await database.all(`
+        SELECT
+            pp.producto_id,
+            pp.id AS producto_presentacion_id,
+            pp.presentacion_id,
+            pr.nombre,
+            pr.tipo,
+            pr.cantidad,
+            COALESCE(pp.precio, 0) AS precio,
+            pp.activo,
+            pp.imagen
+        FROM presentaciones_producto pp
+        JOIN presentaciones pr ON pp.presentacion_id = pr.id
+        WHERE pp.activo = 1 AND pr.activo = 1
+        ORDER BY pr.nombre
+    `);
+
+    const presentationsByProduct = new Map();
+    presentationRows.forEach(row => {
+        const productId = Number(row.producto_id);
+        if (!presentationsByProduct.has(productId)) {
+            presentationsByProduct.set(productId, []);
+        }
+        presentationsByProduct.get(productId).push(normalizePresentationForOperation(row));
+    });
+
+    const normalizedProducts = products.map(product => {
+        const productId = Number(product.id);
+        const precioBase = moneyNumber(product.precio, 0);
+        const presentaciones = presentationsByProduct.get(productId) || [];
+        const presentacionesValidas = presentaciones.filter(presentation => presentation.disponible_operacion === 1);
+        const tienePresentaciones = presentacionesValidas.length > 0;
+        const bloqueos = [];
+        let precioOperativo = null;
+        let origenPrecio = 'presentacion';
+        let precioMinimo = null;
+        let precioMaximo = null;
+
+        if (tienePresentaciones) {
+            const precios = presentacionesValidas.map(presentation => presentation.precio_operativo);
+            precioMinimo = Math.min(...precios);
+            precioMaximo = Math.max(...precios);
+        } else if (precioBase > 0) {
+            precioOperativo = precioBase;
+            precioMinimo = precioBase;
+            precioMaximo = precioBase;
+            origenPrecio = 'producto';
+        } else {
+            origenPrecio = 'sin_precio_valido';
+            bloqueos.push('Producto sin precio operativo válido');
+        }
+
+        if (presentaciones.length > 0 && presentacionesValidas.length === 0) {
+            bloqueos.push('Producto con presentaciones sin precio operativo válido');
+        }
+
+        const categoriaNombre = product.subcategoria_nombre || product.categoria_nombre;
+        const operativo = bloqueos.length === 0 ? 1 : 0;
+
+        return {
+            id: productId,
+            producto_id: productId,
+            nombre: product.nombre,
+            descripcion: product.descripcion || '',
+            imagen: normalizeProductImage(product),
+            imagen_url: normalizeProductImage(product),
+            categoria_id: Number(product.categoria_id),
+            categoria_nombre: product.categoria_nombre,
+            subcategoria_id: product.subcategoria_id ? Number(product.subcategoria_id) : null,
+            subcategoria_nombre: product.subcategoria_nombre || null,
+            categoria_operativa: categoriaNombre,
+            es_cocina: Number(product.es_cocina) === 1 ? 1 : 0,
+            requiere_comanda: Number(product.es_cocina) === 1 ? 1 : 0,
+            tiene_presentaciones: tienePresentaciones ? 1 : 0,
+            precio_base: precioBase,
+            precio: precioOperativo ?? precioBase,
+            precio_operativo: precioOperativo,
+            precio_minimo: precioMinimo,
+            precio_maximo: precioMaximo,
+            origen_precio: origenPrecio,
+            presentaciones: presentacionesValidas,
+            total_presentaciones: presentacionesValidas.length,
+            disponible_operacion: operativo,
+            bloqueos_operativos: bloqueos
+        };
+    });
+
+    const operationalProducts = includeInvalid
+        ? normalizedProducts
+        : normalizedProducts.filter(product => product.disponible_operacion === 1);
+
+    return {
+        version_contrato: 'v2.2.5M.2',
+        generado_en: new Date().toISOString(),
+        categorias: buildOperationalCategoryList(categories, operationalProducts, includeEmptyCategories),
+        productos: operationalProducts,
+        resumen: {
+            total_productos: products.length,
+            total_productos_operativos: normalizedProducts.filter(product => product.disponible_operacion === 1).length,
+            total_productos_invalidos: normalizedProducts.filter(product => product.disponible_operacion !== 1).length,
+            total_categorias: categories.length
+        }
+    };
+}
+
 // Obtener todas las categorías
 router.get('/categories', async (req, res) => {
     try {
@@ -195,6 +383,29 @@ router.delete('/categories/:id', async (req, res) => {
     } catch (error) {
         if (transactionStarted) await database.run('ROLLBACK').catch(() => {});
         console.error('Error eliminando categoría:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+
+
+// Obtener productos normalizados para operación de Cuentas/Orders
+router.get('/operational-products', async (req, res) => {
+    try {
+        const includeInvalid = parseBoolean(req.query.include_invalid);
+        const includeEmptyCategories = parseBoolean(req.query.include_empty_categories);
+        const payload = await buildOperationalMenuPayload({ includeInvalid, includeEmptyCategories });
+
+        res.json({
+            success: true,
+            data: payload,
+            categorias: payload.categorias,
+            productos: payload.productos,
+            resumen: payload.resumen,
+            version_contrato: payload.version_contrato
+        });
+    } catch (error) {
+        console.error('Error obteniendo productos operativos:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
