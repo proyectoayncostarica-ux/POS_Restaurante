@@ -3,191 +3,117 @@ const database = require("../db/database");
 
 const router = express.Router();
 
-function isAdminSession(req) {
-  return req.session?.userType === 'administrador';
+
+function clampServicePercentage(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number) || number < 0) return 0;
+    if (number > 100) return 100;
+    return number;
 }
 
-function getSessionUserId(req) {
-  return Number(req.session?.userId || 0);
+function calculateService(subtotal, aplicaServicio, porcentajeServicio) {
+    const cleanSubtotal = Number(subtotal) || 0;
+    const cleanPercentage = clampServicePercentage(porcentajeServicio);
+    const service = aplicaServicio ? cleanSubtotal * (cleanPercentage / 100) : 0;
+    return {
+        subtotal: cleanSubtotal,
+        aplica_servicio: aplicaServicio ? 1 : 0,
+        porcentaje_servicio: aplicaServicio ? cleanPercentage : 0,
+        monto_servicio: service,
+        total_con_servicio: cleanSubtotal + service
+    };
 }
 
-function getSessionActiveWorkRoleIds(req) {
-  const multiIds = Array.isArray(req.session?.activeWorkRoleIds) ? req.session.activeWorkRoleIds : [];
-  const ids = multiIds.map(id => Number(id)).filter(id => Number.isFinite(id) && id > 0);
-  if (ids.length) return [...new Set(ids)];
-  const legacyId = Number(req.session?.activeWorkRoleId || 0);
-  return legacyId > 0 ? [legacyId] : [];
+async function getSeatServicePolicy(mesaId) {
+    const row = await database.get(`
+        SELECT
+            m.id,
+            m.aplica_servicio_override,
+            m.porcentaje_servicio_override,
+            z.aplica_servicio AS zona_aplica_servicio,
+            z.porcentaje_servicio AS zona_porcentaje_servicio
+        FROM mesas m
+        LEFT JOIN zonas z ON z.id = m.zona_id
+        WHERE m.id = ?
+    `, [mesaId]);
+
+    const aplica = row?.aplica_servicio_override !== null && typeof row?.aplica_servicio_override !== 'undefined'
+        ? Number(row.aplica_servicio_override) === 1
+        : Number(row?.zona_aplica_servicio || 0) === 1;
+
+    const porcentajeRaw = row?.porcentaje_servicio_override !== null && typeof row?.porcentaje_servicio_override !== 'undefined'
+        ? row.porcentaje_servicio_override
+        : row?.zona_porcentaje_servicio;
+
+    return {
+        aplica_servicio: aplica ? 1 : 0,
+        porcentaje_servicio: aplica ? clampServicePercentage(porcentajeRaw ?? 10) : 0
+    };
 }
 
+async function resolveOrderServicePolicy(order) {
+    if (order && order.aplica_servicio !== null && typeof order.aplica_servicio !== 'undefined') {
+        return {
+            aplica_servicio: Number(order.aplica_servicio) === 1 ? 1 : 0,
+            porcentaje_servicio: Number(order.aplica_servicio) === 1
+                ? clampServicePercentage(order.porcentaje_servicio ?? 10)
+                : 0
+        };
+    }
 
-async function getSessionPermittedZoneIds(req) {
-  if (isAdminSession(req)) return null;
-
-  const roleIds = getSessionActiveWorkRoleIds(req);
-  if (!roleIds.length || !getSessionUserId(req)) return [];
-
-  const placeholders = roleIds.map(() => '?').join(',');
-  const rows = await database.all(`
-    SELECT DISTINCT z.id
-    FROM rol_trabajo_zonas rtz
-    INNER JOIN roles_trabajo rt ON rt.id = rtz.rol_trabajo_id AND rt.activo = 1
-    INNER JOIN zonas z ON z.id = rtz.zona_id AND z.activa = 1
-    INNER JOIN usuario_roles_trabajo urt ON urt.rol_trabajo_id = rt.id AND urt.usuario_id = ?
-    WHERE rtz.rol_trabajo_id IN (${placeholders})
-  `, [getSessionUserId(req), ...roleIds]);
-
-  return rows.map(row => Number(row.id)).filter(id => id > 0);
+    return getSeatServicePolicy(order.mesa_id);
 }
 
-async function canAccessMesaZone(req, mesa = {}) {
-  if (isAdminSession(req)) return true;
+async function updateOrderServiceTotals(pedidoId) {
+    const pedido = await database.get('SELECT * FROM pedidos WHERE id = ?', [pedidoId]);
+    if (!pedido) return null;
 
-  const zonaId = Number(mesa.zona_id || mesa.zona_dinamica_id || 0);
-  if (!zonaId || !getSessionUserId(req)) return false;
+    const subtotalRow = await database.get(`
+        SELECT COALESCE(SUM(precio_unitario * cantidad), 0) AS subtotal
+        FROM pedido_productos
+        WHERE pedido_id = ?
+    `, [pedidoId]);
 
-  const zoneIds = await getSessionPermittedZoneIds(req);
-  return Array.isArray(zoneIds) && zoneIds.includes(zonaId);
+    const policy = await resolveOrderServicePolicy(pedido);
+    const totals = calculateService(subtotalRow?.subtotal || 0, Number(policy.aplica_servicio) === 1, policy.porcentaje_servicio);
+
+    await database.run(`
+        UPDATE pedidos
+        SET total = ?,
+            aplica_servicio = ?,
+            porcentaje_servicio = ?,
+            monto_servicio = ?,
+            total_con_servicio = ?
+        WHERE id = ?
+    `, [
+        totals.subtotal,
+        totals.aplica_servicio,
+        totals.porcentaje_servicio,
+        totals.monto_servicio,
+        totals.total_con_servicio,
+        pedidoId
+    ]);
+
+    return totals;
 }
 
-async function requireMesaZoneAccess(req, res, mesa = {}) {
-  if (await canAccessMesaZone(req, mesa)) return true;
+function enrichOrderWithService(order = {}) {
+    const subtotal = Number(order.total) || 0;
+    const aplica = Number(order.aplica_servicio || 0) === 1;
+    const porcentaje = aplica ? clampServicePercentage(order.porcentaje_servicio ?? 10) : 0;
+    const servicio = Number.isFinite(Number(order.monto_servicio)) ? Number(order.monto_servicio) : (aplica ? subtotal * (porcentaje / 100) : 0);
+    const totalConServicio = Number.isFinite(Number(order.total_con_servicio)) && order.total_con_servicio !== null
+        ? Number(order.total_con_servicio)
+        : subtotal + servicio;
 
-  res.status(403).json({
-    error: 'No tienes un rol de trabajo activo para operar esta zona.',
-    code: 'ZONE_NOT_ALLOWED'
-  });
-  return false;
-}
-
-async function appendOrderListAccessFilter(req, whereParts, params) {
-  if (isAdminSession(req)) return;
-
-  const zoneIds = await getSessionPermittedZoneIds(req);
-  if (!zoneIds.length) {
-    whereParts.push('1 = 0');
-    return;
-  }
-
-  whereParts.push(`m.zona_id IN (${zoneIds.map(() => '?').join(',')})`);
-  params.push(...zoneIds);
-  whereParts.push(`(
-    p.estado <> 'pendiente'
-    OR EXISTS (
-      SELECT 1 FROM mesa_responsables mr_access
-      WHERE mr_access.mesa_id = p.mesa_id
-        AND mr_access.usuario_id = ?
-    )
-  )`);
-  params.push(getSessionUserId(req));
-}
-
-async function canReadPedido(req, pedido = {}) {
-  if (isAdminSession(req)) return true;
-  if (!(await canAccessMesaZone(req, pedido))) return false;
-
-  if (String(pedido.estado || '').toLowerCase() !== 'pendiente') return true;
-
-  const summary = await getMesaResponsibilitySummary(pedido.mesa_id, getSessionUserId(req));
-  return summary.soy_responsable;
-}
-
-async function requirePedidoReadAccess(req, res, pedido = {}) {
-  if (await canReadPedido(req, pedido)) return true;
-
-  res.status(403).json({
-    error: 'No tienes permiso para consultar esta cuenta desde tu rol operativo actual.',
-    code: 'ORDER_NOT_ALLOWED'
-  });
-  return false;
-}
-
-async function getSessionActiveWorkRoleIdForMesa(req, mesaId) {
-  const roleIds = getSessionActiveWorkRoleIds(req);
-  if (!roleIds.length) return null;
-
-  const mesa = await database.get('SELECT zona_id FROM mesas WHERE id = ?', [mesaId]);
-  const zonaId = Number(mesa?.zona_id || 0);
-  if (!zonaId) return roleIds[0];
-
-  const placeholders = roleIds.map(() => '?').join(',');
-  const role = await database.get(`
-    SELECT rtz.rol_trabajo_id
-    FROM rol_trabajo_zonas rtz
-    WHERE rtz.zona_id = ?
-      AND rtz.rol_trabajo_id IN (${placeholders})
-    ORDER BY rtz.rol_trabajo_id ASC
-    LIMIT 1
-  `, [zonaId, ...roleIds]);
-
-  return Number(role?.rol_trabajo_id || roleIds[0]) || null;
-}
-
-async function getMesaResponsibilitySummary(mesaId, currentUserId = 0) {
-  const summary = await database.get(`
-    SELECT
-      COUNT(DISTINCT mr.usuario_id) AS responsables_total,
-      SUM(CASE WHEN mr.usuario_id = ? THEN 1 ELSE 0 END) AS soy_responsable
-    FROM mesa_responsables mr
-    INNER JOIN usuarios u ON u.id = mr.usuario_id AND u.activo = 1
-    WHERE mr.mesa_id = ?
-  `, [Number(currentUserId || 0), mesaId]);
-
-  return {
-    responsables_total: Number(summary?.responsables_total || 0),
-    soy_responsable: Number(summary?.soy_responsable || 0) > 0
-  };
-}
-
-async function canOperateMesa(req, mesaId) {
-  if (isAdminSession(req)) return true;
-
-  const mesa = await database.get('SELECT id, zona_id, estado FROM mesas WHERE id = ?', [mesaId]);
-  if (!mesa || !(await canAccessMesaZone(req, mesa))) return false;
-
-  const summary = await getMesaResponsibilitySummary(mesaId, getSessionUserId(req));
-  return summary.soy_responsable;
-}
-
-async function requireMesaOperationAccess(req, res, mesaId) {
-  const mesa = await database.get('SELECT id, zona_id, estado FROM mesas WHERE id = ?', [mesaId]);
-  if (!mesa) {
-    res.status(404).json({ error: 'Mesa no encontrada' });
-    return false;
-  }
-
-  if (!isAdminSession(req) && !(await canAccessMesaZone(req, mesa))) {
-    return requireMesaZoneAccess(req, res, mesa);
-  }
-
-  if (await canOperateMesa(req, mesaId)) return true;
-  res.status(403).json({
-    error: 'Responsable asignado. No puedes operar esta mesa/cuenta con tu usuario actual.',
-    code: 'MESA_ASSIGNED_TO_OTHER_USER'
-  });
-  return false;
-}
-
-async function ensureMesaResponsibility(mesaId, req, actionLabel = 'responsable_mesa_asignado_pedido') {
-  const userId = getSessionUserId(req);
-  if (!userId) return;
-
-  const summary = await getMesaResponsibilitySummary(mesaId, userId);
-  if (summary.soy_responsable || summary.responsables_total > 0) return;
-
-  await database.run(`
-    INSERT OR IGNORE INTO mesa_responsables (
-      mesa_id, usuario_id, rol_trabajo_id, asignado_por_usuario_id, fecha_asignacion
-    ) VALUES (?, ?, ?, ?, ?)
-  `, [mesaId, userId, await getSessionActiveWorkRoleIdForMesa(req, mesaId), userId, new Date().toISOString()]);
-
-  await database.run(
-    'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
-    [actionLabel, userId, `Usuario asignado como responsable operativo de mesa/puesto #${mesaId}`, new Date().toISOString()]
-  );
-}
-
-async function clearMesaResponsibilities(mesaId) {
-  await database.run('DELETE FROM mesa_responsables WHERE mesa_id = ?', [mesaId]);
+    return {
+        ...order,
+        subtotal,
+        aplica_servicio: aplica ? 1 : 0,
+        porcentaje_servicio: porcentaje,
+        monto_servicio: servicio,
+        total_con_servicio: totalConServicio
+    };
 }
 
 
@@ -195,41 +121,34 @@ async function clearMesaResponsibilities(mesaId) {
 router.get("/", async (req, res) => {
     try {
         const { estado, mesa_id } = req.query;
-        const whereParts = [];
-        const params = [];
-
+        
+        let whereClause = "";
+        let params = [];
+        
         if (estado) {
-            whereParts.push("p.estado = ?");
+            whereClause += " WHERE p.estado = ?";
             params.push(estado);
         }
-
+        
         if (mesa_id) {
-            whereParts.push("p.mesa_id = ?");
+            whereClause += estado ? " AND p.mesa_id = ?" : " WHERE p.mesa_id = ?";
             params.push(mesa_id);
         }
-
-        await appendOrderListAccessFilter(req, whereParts, params);
-        const whereClause = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
 
         const pedidos = await database.all(`
             SELECT p.*, 
                 m.numero as mesa_numero,
                 m.tipo_asiento as mesa_tipo,
-                m.zona_id,
-                z.nombre as zona_nombre,
-                tp.nombre as tipo_puesto_nombre,
                 u.nombre as usuario_nombre
 
             FROM pedidos p
             JOIN mesas m ON p.mesa_id = m.id
-            LEFT JOIN zonas z ON z.id = m.zona_id
-            LEFT JOIN tipos_puesto tp ON tp.id = m.tipo_puesto_id
             JOIN usuarios u ON p.usuario_id = u.id
             ${whereClause}
             ORDER BY p.fecha DESC
         `, params);
         
-        res.json({ success: true, data: pedidos });
+        res.json({ success: true, data: pedidos.map(enrichOrderWithService) });
     } catch (error) {
         console.error("Error obteniendo pedidos:", error);
         res.status(500).json({ error: "Error interno del servidor" });
@@ -245,8 +164,6 @@ router.get("/:id", async (req, res) => {
     SELECT p.*, 
            m.numero as mesa_numero,
            m.tipo_asiento as mesa_tipo,
-           m.zona_id,
-           m.tipo_puesto_id,
            COALESCE(p.cliente_nombre, m.cliente_nombre) as cliente_nombre,
            u.nombre as usuario_nombre
     FROM pedidos p
@@ -258,8 +175,6 @@ router.get("/:id", async (req, res) => {
         if (!pedido) {
             return res.status(404).json({ error: "Pedido no encontrado" });
         }
-
-        if (!(await requirePedidoReadAccess(req, res, pedido))) return;
 
 const productos = await database.all(`
   SELECT 
@@ -278,11 +193,12 @@ WHERE pp.pedido_id = ?
 `, [id]);
 
 
+const serviceTotals = await updateOrderServiceTotals(pedido.id);
+if (serviceTotals) Object.assign(pedido, serviceTotals);
 pedido.productos = productos;
 
-
         
-        res.json({ success: true, data: pedido });
+        res.json({ success: true, data: enrichOrderWithService(pedido) });
     } catch (error) {
         console.error("Error obteniendo pedido:", error);
         res.status(500).json({ error: "Error interno del servidor" });
@@ -311,9 +227,6 @@ router.post("/", async (req, res) => {
       });
     }
 
-    if (!(await requireMesaOperationAccess(req, res, mesa_id))) return;
-    await ensureMesaResponsibility(mesa_id, req);
-
     const pedidoPendienteExistente = await database.get(
       "SELECT id FROM pedidos WHERE mesa_id = ? AND estado = ? LIMIT 1",
       [mesa_id, "pendiente"]
@@ -327,6 +240,7 @@ router.post("/", async (req, res) => {
     }
 
     const userId = req.session?.userId || null;
+    const servicePolicy = await getSeatServicePolicy(mesa_id);
 
     // Calcular total
     let total = 0;
@@ -385,11 +299,27 @@ router.post("/", async (req, res) => {
       });
     }
 
-    // Crear pedido
+    const serviceTotals = calculateService(total, Number(servicePolicy.aplica_servicio) === 1, servicePolicy.porcentaje_servicio);
+
+    // Crear pedido con snapshot de servicio según la zona/puesto actual
     const pedidoResult = await database.run(
-      `INSERT INTO pedidos (mesa_id, usuario_id, rol_trabajo_id, fecha, estado, total, cliente_nombre)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [mesa_id, userId, await getSessionActiveWorkRoleIdForMesa(req, mesa_id), new Date().toISOString(), "pendiente", total, mesa.cliente_nombre]
+      `INSERT INTO pedidos (
+          mesa_id, usuario_id, fecha, estado, total, cliente_nombre,
+          aplica_servicio, porcentaje_servicio, monto_servicio, total_con_servicio
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        mesa_id,
+        userId,
+        new Date().toISOString(),
+        "pendiente",
+        serviceTotals.subtotal,
+        mesa.cliente_nombre,
+        serviceTotals.aplica_servicio,
+        serviceTotals.porcentaje_servicio,
+        serviceTotals.monto_servicio,
+        serviceTotals.total_con_servicio
+      ]
     );
 
     const pedidoId = pedidoResult.id;
@@ -435,7 +365,11 @@ router.post("/", async (req, res) => {
       success: true,
       data: {
         id: pedidoId,
-        total,
+        total: serviceTotals.total_con_servicio,
+        subtotal: serviceTotals.subtotal,
+        servicio: serviceTotals.monto_servicio,
+        aplica_servicio: serviceTotals.aplica_servicio,
+        porcentaje_servicio: serviceTotals.porcentaje_servicio,
         comanda_id: comandaId,
         requiere_comanda: productosCocina.length > 0
       }
@@ -464,8 +398,6 @@ router.post("/:id/products", async (req, res) => {
         if (!pedido) {
             return res.status(400).json({ error: "Pedido no encontrado o ya está procesado" });
         }
-
-        if (!(await requireMesaOperationAccess(req, res, pedido.mesa_id))) return;
 
         // Obtener zona (mesa) relacionada para personalizar historial
         const zona = await database.get("SELECT numero, zona, tipo_asiento FROM mesas WHERE id = ?", [pedido.mesa_id]);
@@ -543,11 +475,8 @@ for (const item of productosValidados) {
 }
 
 
-        // Actualizar total del pedido
-        await database.run(
-            "UPDATE pedidos SET total = total + ? WHERE id = ?",
-            [totalAdicional, id]
-        );
+        // Recalcular subtotal y servicio del pedido con el snapshot guardado al abrir la cuenta
+        const serviceTotals = await updateOrderServiceTotals(id);
 
         // Verificar si hay productos de cocina para generar comanda adicional
         const productosCocina = productosValidados.filter(item => item.es_cocina);
@@ -571,6 +500,11 @@ for (const item of productosValidados) {
             success: true,
             data: {
                 total_adicional: totalAdicional,
+                subtotal: serviceTotals?.subtotal || 0,
+                servicio: serviceTotals?.monto_servicio || 0,
+                total: serviceTotals?.total_con_servicio || 0,
+                aplica_servicio: serviceTotals?.aplica_servicio || 0,
+                porcentaje_servicio: serviceTotals?.porcentaje_servicio || 0,
                 comanda_id: comandaId,
                 requiere_comanda: productosCocina.length > 0
             }
@@ -592,8 +526,6 @@ router.put("/:pedido_id/products/:producto_id", async (req, res) => {
         if (!pedido) {
             return res.status(400).json({ error: "Pedido no encontrado o ya está procesado" });
         }
-
-        if (!(await requireMesaOperationAccess(req, res, pedido.mesa_id))) return;
 
         // Obtener el producto actual en el pedido
         const productoActual = await database.get(`
@@ -641,14 +573,8 @@ router.put("/:pedido_id/products/:producto_id", async (req, res) => {
             [nuevo_producto_id, nuevoPrecio, pedido_id, producto_id]
         );
 
-        // Recalcular total del pedido
-        const nuevoTotal = await database.get(`
-            SELECT SUM(precio_unitario * cantidad) as total
-            FROM pedido_productos
-            WHERE pedido_id = ?
-        `, [pedido_id]);
-
-        await database.run("UPDATE pedidos SET total = ? WHERE id = ?", [nuevoTotal.total, pedido_id]);
+        // Recalcular subtotal y servicio del pedido con el snapshot guardado al abrir la cuenta
+        await updateOrderServiceTotals(pedido_id);
 
         // Obtener tipo y número de la zona (mesa) para historial
         const zona = await database.get("SELECT numero, zona, tipo_asiento FROM mesas WHERE id = ?", [pedido.mesa_id]);
@@ -678,8 +604,7 @@ router.put("/:pedido_id/products/:producto_id", async (req, res) => {
 router.post("/:id/pay", async (req, res) => {
     try {
         const { id } = req.params;
-        const { metodo_pago, productos_divididos, aplicar_servicio, admin_pass } = req.body;
-        const aplicarServicioReal = !!aplicar_servicio;
+        const { metodo_pago, productos_divididos, admin_pass } = req.body;
 
         if (!metodo_pago) {
             return res.status(400).json({ error: "Método de pago es requerido" });
@@ -697,7 +622,8 @@ router.post("/:id/pay", async (req, res) => {
             return res.status(400).json({ error: "Pedido no encontrado o ya está procesado" });
         }
 
-        if (!(await requireMesaOperationAccess(req, res, pedido.mesa_id))) return;
+        const syncedTotals = await updateOrderServiceTotals(id);
+        if (syncedTotals) Object.assign(pedido, syncedTotals);
 
         const nombreZona = pedido.zona?.toLowerCase() === 'bar'
         ? (pedido.tipo_asiento?.toLowerCase() === 'banco' ? 'banco' : 'mesa')
@@ -716,9 +642,14 @@ router.post("/:id/pay", async (req, res) => {
             montoAPagar = productosSeleccionados[0].subtotal || 0;
         }
 
-        const subtotal = montoAPagar;
-        const servicio = aplicarServicioReal ? subtotal * 0.10 : 0;
-        const total = subtotal + servicio;
+        const servicePayment = calculateService(
+            montoAPagar,
+            Number(pedido.aplica_servicio) === 1,
+            pedido.porcentaje_servicio
+        );
+        const subtotal = servicePayment.subtotal;
+        const servicio = servicePayment.monto_servicio;
+        const total = servicePayment.total_con_servicio;
 
         // 🔐 PROCESO DE CRÉDITO
         if (metodo_pago === 'credito') {
@@ -734,7 +665,6 @@ router.post("/:id/pay", async (req, res) => {
 
             // 2. Liberar la mesa
             await database.run("UPDATE mesas SET estado = ?, cliente_nombre = NULL, fecha_apertura = NULL, cantidad_personas = NULL, hora_estimada = NULL WHERE id = ?", ["libre", pedido.mesa_id]);
-            await clearMesaResponsibilities(pedido.mesa_id);
 
             // 3. Registrar en historial
             await database.run(
@@ -764,6 +694,8 @@ router.post("/:id/pay", async (req, res) => {
                     servicio,
                     total,
                     metodo_pago,
+                    aplica_servicio: servicePayment.aplica_servicio,
+                    porcentaje_servicio: servicePayment.porcentaje_servicio,
                     mesa_numero: pedido.mesa_numero,
                     mensaje: `Saldo pendiente de pago - ₡${Number(total).toLocaleString('es-CR', { minimumFractionDigits: 2 })}`
 
@@ -773,8 +705,20 @@ router.post("/:id/pay", async (req, res) => {
 
         // 🟢 SI NO ES CRÉDITO, PROCESAR COMO PAGO NORMAL
         await database.run(
-            "INSERT INTO pagos (pedido_id, metodo_pago, monto, fecha) VALUES (?, ?, ?, ?)",
-            [id, metodo_pago, total, new Date().toISOString()]
+            `INSERT INTO pagos (
+                pedido_id, metodo_pago, monto, subtotal, servicio,
+                porcentaje_servicio, aplica_servicio, fecha
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                id,
+                metodo_pago,
+                total,
+                subtotal,
+                servicio,
+                servicePayment.porcentaje_servicio,
+                servicePayment.aplica_servicio,
+                new Date().toISOString()
+            ]
         );
 
         if (!productos_divididos || productos_divididos.length === 0) {
@@ -783,7 +727,6 @@ router.post("/:id/pay", async (req, res) => {
                 "UPDATE mesas SET estado = ?, cliente_nombre = NULL, fecha_apertura = NULL, cantidad_personas = NULL, hora_estimada = NULL WHERE id = ?",
                 ["libre", pedido.mesa_id]
             );
-            await clearMesaResponsibilities(pedido.mesa_id);
         }
 
         await database.run(
@@ -798,6 +741,8 @@ router.post("/:id/pay", async (req, res) => {
                 servicio,
                 total,
                 metodo_pago,
+                aplica_servicio: servicePayment.aplica_servicio,
+                porcentaje_servicio: servicePayment.porcentaje_servicio,
                 mesa_numero: pedido.mesa_numero
             }
         });

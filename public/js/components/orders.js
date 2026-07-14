@@ -561,10 +561,11 @@ productos.forEach((item, i) => {
             const order = response.data;
             const isBarra = order.mesa_tipo?.toLowerCase() === 'barra';
 
-            const subtotal = order.total;
-            const aplicarServicioInicial = !isBarra;
-            const servicio = aplicarServicioInicial ? subtotal * 0.10 : 0;
-            const total = subtotal + servicio;
+            const subtotal = Number(order.subtotal ?? order.total ?? 0);
+            const aplicaServicio = Number(order.aplica_servicio || 0) === 1;
+            const porcentajeServicio = Number(order.porcentaje_servicio || 0);
+            const servicio = Number(order.monto_servicio || 0);
+            const total = Number(order.total_con_servicio ?? (subtotal + servicio));
 
             const nombreZona = isBarra ? 'Banco' : 'Mesa';
 
@@ -581,7 +582,7 @@ productos.forEach((item, i) => {
                             <span>${Utils.formatCurrency(subtotal)}</span>
                         </div>
                         <div class="d-flex justify-content-between">
-                            <span>Servicio (10%):</span>
+                            <span>Servicio (<span id="pago-servicio-porcentaje">${porcentajeServicio}</span>%):</span>
                             <span id="pago-servicio">${Utils.formatCurrency(servicio)}</span>
                         </div>
                         <hr>
@@ -602,16 +603,11 @@ productos.forEach((item, i) => {
                             </select>
                         </div>
 
-                        ${!isBarra ? `
-                        <div class="form-group text-center">
-                            <div class="form-check d-inline-flex align-items-center justify-content-center gap-2">
-                                <input type="checkbox" class="form-check-input" id="aplicar-servicio" checked onchange="Orders.updatePaymentTotal(${subtotal})">
-                                <label class="form-check-label" for="aplicar-servicio">
-                                    Aplicar 10% de servicio
-                                </label>
-                            </div>
+                        <div class="service-policy-note">
+                            ${aplicaServicio ? `Servicio aplicado automáticamente según configuración de la zona/puesto.` : `Esta cuenta no aplica servicio según configuración.`}
                         </div>
-                        ` : ''}
+                        <input type="hidden" id="aplicar-servicio" value="${aplicaServicio ? '1' : '0'}">
+                        <input type="hidden" id="porcentaje-servicio" value="${porcentajeServicio}">
                     </form>
                 </div>
             `, [
@@ -631,10 +627,10 @@ productos.forEach((item, i) => {
     },
 
     updatePaymentTotal(subtotal) {
-        const checkbox = document.getElementById('aplicar-servicio');
-        const aplicarServicio = checkbox ? checkbox.checked : false;
-        const servicio = aplicarServicio ? subtotal * 0.10 : 0;
-        const total = subtotal + servicio;
+        const aplicaServicio = document.getElementById('aplicar-servicio')?.value === '1';
+        const porcentajeServicio = Number(document.getElementById('porcentaje-servicio')?.value || 0);
+        const servicio = aplicaServicio ? (Number(subtotal) || 0) * (porcentajeServicio / 100) : 0;
+        const total = (Number(subtotal) || 0) + servicio;
 
         const servicioElem = document.getElementById('pago-servicio');
         const totalElem = document.getElementById('pago-total');
@@ -653,7 +649,7 @@ productos.forEach((item, i) => {
 
         const formData = new FormData(form);
         const metodo = formData.get('metodo_pago');
-        const aplicarServicio = document.getElementById('aplicar-servicio')?.checked || false;
+        const aplicarServicio = document.getElementById('aplicar-servicio')?.value === '1';
 
         // Si el método es crédito, se debe validar con contraseña de administrador
         if (metodo === 'credito') {
@@ -1005,8 +1001,16 @@ productos.forEach((item, i) => {
                             </tbody>
                             <tfoot>
                                 <tr>
+                                    <th colspan="3">Subtotal</th>
+                                    <th>${Utils.formatCurrency(order.subtotal ?? order.total)}</th>
+                                </tr>
+                                <tr>
+                                    <th colspan="3">Servicio (${Number(order.porcentaje_servicio || 0)}%)</th>
+                                    <th>${Utils.formatCurrency(order.monto_servicio || 0)}</th>
+                                </tr>
+                                <tr>
                                     <th colspan="3">Total</th>
-                                    <th>${Utils.formatCurrency(order.total)}</th>
+                                    <th>${Utils.formatCurrency(order.total_con_servicio ?? order.total)}</th>
                                 </tr>
                             </tfoot>
                         </table>

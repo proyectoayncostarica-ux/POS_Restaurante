@@ -132,6 +132,7 @@ class Database {
                 nombre_visible TEXT,
                 acepta_reservas_override INTEGER,
                 aplica_servicio_override INTEGER,
+                porcentaje_servicio_override REAL,
                 activo INTEGER NOT NULL DEFAULT 1,
                 cliente_nombre TEXT,
                 fecha_apertura TEXT,
@@ -194,6 +195,10 @@ class Database {
                 estado TEXT NOT NULL CHECK(estado IN ('pendiente', 'pagado', 'cancelado', 'credito')),
                 total REAL NOT NULL DEFAULT 0,
                 cliente_nombre TEXT,
+                aplica_servicio INTEGER,
+                porcentaje_servicio REAL,
+                monto_servicio REAL NOT NULL DEFAULT 0,
+                total_con_servicio REAL,
                 FOREIGN KEY (mesa_id) REFERENCES mesas (id) ON DELETE RESTRICT,
                 FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE RESTRICT,
                 FOREIGN KEY (rol_trabajo_id) REFERENCES roles_trabajo (id) ON DELETE SET NULL
@@ -231,6 +236,10 @@ class Database {
                 pedido_id INTEGER NOT NULL,
                 metodo_pago TEXT NOT NULL CHECK(metodo_pago IN ('efectivo', 'tarjeta', 'credito')),
                 monto REAL NOT NULL,
+                subtotal REAL,
+                servicio REAL NOT NULL DEFAULT 0,
+                porcentaje_servicio REAL,
+                aplica_servicio INTEGER,
                 fecha TEXT NOT NULL,
                 FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE CASCADE
             )`,
@@ -360,6 +369,7 @@ class Database {
         await this.ensureColumn('mesas', 'nombre_visible', 'TEXT');
         await this.ensureColumn('mesas', 'acepta_reservas_override', 'INTEGER');
         await this.ensureColumn('mesas', 'aplica_servicio_override', 'INTEGER');
+        await this.ensureColumn('mesas', 'porcentaje_servicio_override', 'REAL');
         await this.ensureColumn('mesas', 'activo', 'INTEGER NOT NULL DEFAULT 1');
         await this.ensureColumn('mesas', 'cliente_nombre', 'TEXT');
         await this.ensureColumn('mesas', 'fecha_apertura', 'TEXT');
@@ -382,6 +392,15 @@ class Database {
         await this.ensureColumn('pedidos', 'cliente_nombre', 'TEXT');
         await this.ensureColumn('pedidos', 'rol_trabajo_id', 'INTEGER');
         await this.run('CREATE INDEX IF NOT EXISTS idx_pedidos_rol_trabajo ON pedidos(rol_trabajo_id)');
+        await this.ensureColumn('pedidos', 'aplica_servicio', 'INTEGER');
+        await this.ensureColumn('pedidos', 'porcentaje_servicio', 'REAL');
+        await this.ensureColumn('pedidos', 'monto_servicio', 'REAL NOT NULL DEFAULT 0');
+        await this.ensureColumn('pedidos', 'total_con_servicio', 'REAL');
+        await this.ensureColumn('pagos', 'subtotal', 'REAL');
+        await this.ensureColumn('pagos', 'servicio', 'REAL NOT NULL DEFAULT 0');
+        await this.ensureColumn('pagos', 'porcentaje_servicio', 'REAL');
+        await this.ensureColumn('pagos', 'aplica_servicio', 'INTEGER');
+        await this.backfillOrderServiceTotals();
         await this.ensureColumn('pedido_productos', 'creado_en', 'TEXT DEFAULT CURRENT_TIMESTAMP');
         await this.ensureColumn('pedido_productos', 'presentacion_id', 'INTEGER');
         await this.ensureColumn('cuentas_credito', 'pedido_id', 'INTEGER');
@@ -470,10 +489,14 @@ class Database {
             estado TEXT NOT NULL CHECK(estado IN ('pendiente', 'pagado', 'cancelado', 'credito')),
             total REAL NOT NULL DEFAULT 0,
             cliente_nombre TEXT,
+            aplica_servicio INTEGER,
+            porcentaje_servicio REAL,
+            monto_servicio REAL NOT NULL DEFAULT 0,
+            total_con_servicio REAL,
             FOREIGN KEY (mesa_id) REFERENCES mesas (id) ON DELETE RESTRICT,
             FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE RESTRICT,
             FOREIGN KEY (rol_trabajo_id) REFERENCES roles_trabajo (id) ON DELETE SET NULL
-        )`, ['id', 'mesa_id', 'usuario_id', 'rol_trabajo_id', 'fecha', 'estado', 'total', 'cliente_nombre']);
+        )`, ['id', 'mesa_id', 'usuario_id', 'rol_trabajo_id', 'fecha', 'estado', 'total', 'cliente_nombre', 'aplica_servicio', 'porcentaje_servicio', 'monto_servicio', 'total_con_servicio']);
 
         await this.rebuildTable('pedido_productos', `CREATE TABLE pedido_productos_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -494,9 +517,13 @@ class Database {
             pedido_id INTEGER NOT NULL,
             metodo_pago TEXT NOT NULL CHECK(metodo_pago IN ('efectivo', 'tarjeta', 'credito')),
             monto REAL NOT NULL,
+            subtotal REAL,
+            servicio REAL NOT NULL DEFAULT 0,
+            porcentaje_servicio REAL,
+            aplica_servicio INTEGER,
             fecha TEXT NOT NULL,
             FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE CASCADE
-        )`, ['id', 'pedido_id', 'metodo_pago', 'monto', 'fecha']);
+        )`, ['id', 'pedido_id', 'metodo_pago', 'monto', 'subtotal', 'servicio', 'porcentaje_servicio', 'aplica_servicio', 'fecha']);
 
         await this.rebuildTable('cuentas_credito', `CREATE TABLE cuentas_credito_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -812,6 +839,19 @@ class Database {
         }
     }
 
+
+    async backfillOrderServiceTotals() {
+        const columns = await this.getColumns('pedidos');
+        if (!columns.includes('monto_servicio') || !columns.includes('total_con_servicio')) return;
+
+        await this.run(`
+            UPDATE pedidos
+            SET monto_servicio = COALESCE(monto_servicio, 0),
+                total_con_servicio = COALESCE(total_con_servicio, total + COALESCE(monto_servicio, 0))
+            WHERE total_con_servicio IS NULL
+               OR monto_servicio IS NULL
+        `);
+    }
 
     async ensureMesaResponsibilityConsistency() {
         // Compatibilidad: las cuentas pendientes antiguas se enlazan al usuario que creó el pedido

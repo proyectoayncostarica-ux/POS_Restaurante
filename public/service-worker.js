@@ -1,4 +1,4 @@
-const MUNDIPOS_SW_VERSION = 'v2.2.4.12-backend-zone-responsibility';
+const MUNDIPOS_SW_VERSION = 'v2.2.4.13-fix4-merge-ui-schema';
 const APP_SHELL_CACHE = `mundipos-shell-${MUNDIPOS_SW_VERSION}`;
 const RUNTIME_CACHE = `mundipos-runtime-${MUNDIPOS_SW_VERSION}`;
 
@@ -9,19 +9,21 @@ const APP_SHELL_URLS = [
   '/POS/manifest.webmanifest',
   '/POS/favicon.ico',
   '/POS/css/style.css',
-  '/POS/css/style.css?v=2.2.4.12-backend-zone-responsibility',
+  '/POS/css/style.css?v=2.2.4.13-fix4-merge-ui-schema',
   '/POS/js/main.js',
-  '/POS/js/main.js?v=2.2.4.12-backend-zone-responsibility',
+  '/POS/js/main.js?v=2.2.4.13-fix4-merge-ui-schema',
   '/POS/js/components/dashboard.js',
-  '/POS/js/components/dashboard.js?v=2.2.4.12-backend-zone-responsibility',
+  '/POS/js/components/dashboard.js?v=2.2.4.13-fix4-merge-ui-schema',
   '/POS/js/components/tables.js',
-  '/POS/js/components/tables.js?v=2.2.4.12-backend-zone-responsibility',
+  '/POS/js/components/tables.js?v=2.2.4.13-fix4-merge-ui-schema',
   '/POS/js/components/menu.js',
   '/POS/js/components/orders.js',
   '/POS/js/components/accounts.js',
   '/POS/js/components/users.js',
-  '/POS/js/components/users.js?v=2.2.4.7-user-work-roles',
   '/POS/js/components/settings.js',
+  '/POS/js/components/tables.js?v=2.2.4.13-service-integrated',
+  '/POS/js/components/dashboard.js?v=2.2.4.13-service-integrated',
+  '/POS/js/components/orders.js?v=2.2.4.13-service-integrated',
   '/POS/assets/brand/mundipos-mark.png',
   '/POS/assets/icons/mundipos-icon-192.png',
   '/POS/assets/icons/mundipos-maskable-192.png',
@@ -31,8 +33,8 @@ const APP_SHELL_URLS = [
 
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(APP_SHELL_CACHE)
-      .then(cache => cacheShellFiles(cache))
+    cacheShellFiles()
+      .catch(error => console.warn('MundiPOS PWA: precaché parcial.', error))
       .then(() => self.skipWaiting())
   );
 });
@@ -45,6 +47,7 @@ self.addEventListener('activate', event => {
           .filter(cacheName => cacheName.startsWith('mundipos-') && ![APP_SHELL_CACHE, RUNTIME_CACHE].includes(cacheName))
           .map(cacheName => caches.delete(cacheName))
       ))
+      .catch(error => console.warn('MundiPOS PWA: limpieza de caché parcial.', error))
       .then(() => self.clients.claim())
   );
 });
@@ -56,40 +59,53 @@ self.addEventListener('message', event => {
 });
 
 self.addEventListener('fetch', event => {
-  const { request } = event;
-  const url = new URL(request.url);
+  const request = event.request;
 
-  if (request.method !== 'GET') return;
+  if (!request || request.method !== 'GET') return;
+
+  let url;
+  try {
+    url = new URL(request.url);
+  } catch (error) {
+    return;
+  }
+
   if (url.origin !== self.location.origin) return;
 
-  if (url.pathname.startsWith('/api/')) {
-    event.respondWith(networkOnly(request));
-    return;
-  }
-
-  if (request.mode === 'navigate') {
-    event.respondWith(navigationHandler(request));
-    return;
-  }
-
-  if (url.pathname.startsWith('/POS/css/') || url.pathname.startsWith('/POS/js/')) {
-    event.respondWith(networkFirstAsset(request));
-    return;
-  }
-
-  if (url.pathname.startsWith('/POS/')) {
-    event.respondWith(staleWhileRevalidate(request));
-  }
+  event.respondWith(respondSafely(request, url));
 });
 
-async function cacheShellFiles(cache) {
+async function respondSafely(request, url) {
+  try {
+    let response;
+
+    if (url.pathname.startsWith('/api/')) {
+      response = await networkOnly(request);
+    } else if (request.mode === 'navigate') {
+      response = await navigationHandler(request, url);
+    } else if (url.pathname.startsWith('/POS/css/') || url.pathname.startsWith('/POS/js/')) {
+      response = await networkFirstAsset(request);
+    } else if (url.pathname.startsWith('/POS/')) {
+      response = await staleWhileRevalidate(request);
+    } else {
+      response = await fetch(request);
+    }
+
+    return ensureResponse(response, request);
+  } catch (error) {
+    console.warn('MundiPOS PWA: respuesta fallback por error en fetch.', error);
+    return emergencyFallback(request);
+  }
+}
+
+async function cacheShellFiles() {
+  const cache = await caches.open(APP_SHELL_CACHE);
   const results = await Promise.allSettled(
-    APP_SHELL_URLS.map(async url => {
-      const response = await fetch(url, { cache: 'reload' });
-      if (!response.ok) {
-        throw new Error(`${url} respondió ${response.status}`);
+    APP_SHELL_URLS.map(async assetUrl => {
+      const response = await fetch(assetUrl, { cache: 'reload' });
+      if (isCacheableResponse(response)) {
+        await cache.put(assetUrl, response.clone());
       }
-      await cache.put(url, response);
     })
   );
 
@@ -100,65 +116,155 @@ async function cacheShellFiles(cache) {
 }
 
 async function networkOnly(request) {
-  return fetch(request);
+  try {
+    return await fetch(request);
+  } catch (error) {
+    return jsonUnavailableResponse();
+  }
 }
 
 async function navigationHandler(request) {
-  const url = new URL(request.url);
-
-  if (!url.pathname.startsWith('/POS')) {
-    return fetch(request);
-  }
-
   try {
     const response = await fetch(request, { cache: 'no-store', redirect: 'follow' });
 
-    if (response && response.ok && response.type === 'basic') {
+    if (isCacheableResponse(response)) {
       const cache = await caches.open(RUNTIME_CACHE);
-      await cache.put('/POS/', response.clone());
+      await cache.put('/POS/', response.clone()).catch(() => null);
     }
 
     return response;
   } catch (error) {
-    const cachedApp = await caches.match('/POS/');
-    if (cachedApp) return cachedApp;
-
-    const offline = await caches.match('/POS/offline.html');
-    return offline || new Response('MundiPOS no está disponible sin conexión al servidor local.', {
-      status: 503,
-      statusText: 'Offline',
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' }
-    });
+    return navigationFallback(request);
   }
 }
-
 
 async function networkFirstAsset(request) {
   try {
     const response = await fetch(request, { cache: 'no-store' });
-    if (response && response.ok) {
+
+    if (isCacheableResponse(response)) {
       const cache = await caches.open(RUNTIME_CACHE);
-      await cache.put(request, response.clone());
+      await cache.put(request, response.clone()).catch(() => null);
     }
+
     return response;
   } catch (error) {
-    const cached = await caches.match(request);
+    const cached = await caches.match(request).catch(() => null);
     if (cached) return cached;
-    return caches.match('/POS/offline.html');
+    return emergencyFallback(request);
   }
 }
 
 async function staleWhileRevalidate(request) {
-  const cached = await caches.match(request);
-  const networkPromise = fetch(request)
-    .then(response => {
-      if (response && response.ok) {
-        const copy = response.clone();
-        caches.open(RUNTIME_CACHE).then(cache => cache.put(request, copy));
-      }
-      return response;
-    })
-    .catch(() => null);
+  const cached = await caches.match(request).catch(() => null);
+  if (cached) {
+    fetchAndCache(request).catch(() => null);
+    return cached;
+  }
 
-  return cached || networkPromise || caches.match('/POS/offline.html');
+  try {
+    return await fetchAndCache(request);
+  } catch (error) {
+    return emergencyFallback(request);
+  }
+}
+
+async function fetchAndCache(request) {
+  const response = await fetch(request);
+
+  if (isCacheableResponse(response)) {
+    const cache = await caches.open(RUNTIME_CACHE);
+    await cache.put(request, response.clone()).catch(() => null);
+  }
+
+  return response;
+}
+
+async function navigationFallback(request) {
+  const cachedNavigation = await caches.match('/POS/').catch(() => null);
+  if (cachedNavigation) return cachedNavigation;
+
+  const cachedIndex = await caches.match('/POS/index.html').catch(() => null);
+  if (cachedIndex) return cachedIndex;
+
+  const offline = await caches.match('/POS/offline.html').catch(() => null);
+  if (offline) return offline;
+
+  return new Response(`<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MundiPOS sin conexión</title>
+</head>
+<body style="font-family: system-ui, sans-serif; padding: 2rem; color: #203247;">
+  <h1>MundiPOS no está disponible</h1>
+  <p>No se pudo conectar con el servidor local. Reinicia la aplicación e inténtalo de nuevo.</p>
+</body>
+</html>`, {
+    status: 503,
+    statusText: 'Service Unavailable',
+    headers: { 'Content-Type': 'text/html; charset=utf-8' }
+  });
+}
+
+async function emergencyFallback(request) {
+  const destination = request.destination || '';
+  let pathname = '';
+
+  try {
+    pathname = new URL(request.url).pathname;
+  } catch (error) {
+    pathname = '';
+  }
+
+  if (request.mode === 'navigate' || destination === 'document') {
+    return navigationFallback(request);
+  }
+
+  if (destination === 'style' || pathname.endsWith('.css')) {
+    return new Response('/* MundiPOS: hoja de estilos no disponible temporalmente. */', {
+      status: 503,
+      statusText: 'Service Unavailable',
+      headers: { 'Content-Type': 'text/css; charset=utf-8' }
+    });
+  }
+
+  if (destination === 'script' || pathname.endsWith('.js')) {
+    return new Response('console.warn("MundiPOS: script no disponible temporalmente.");', {
+      status: 503,
+      statusText: 'Service Unavailable',
+      headers: { 'Content-Type': 'application/javascript; charset=utf-8' }
+    });
+  }
+
+  if (pathname.startsWith('/api/')) {
+    return jsonUnavailableResponse();
+  }
+
+  return new Response('MundiPOS no está disponible temporalmente.', {
+    status: 503,
+    statusText: 'Service Unavailable',
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+  });
+}
+
+function ensureResponse(response, request) {
+  if (response instanceof Response) {
+    return response;
+  }
+
+  return emergencyFallback(request);
+}
+
+function isCacheableResponse(response) {
+  return response instanceof Response && response.ok && response.type === 'basic';
+}
+
+function jsonUnavailableResponse() {
+  return new Response(JSON.stringify({ error: 'Servidor local no disponible temporalmente' }), {
+    status: 503,
+    statusText: 'Service Unavailable',
+    headers: { 'Content-Type': 'application/json; charset=utf-8' }
+  });
 }

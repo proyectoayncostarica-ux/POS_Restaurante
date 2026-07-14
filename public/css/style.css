@@ -8037,3 +8037,16 @@ body {
         letter-spacing: -0.03em;
     }
 }
+
+/* v2.2.4.13 · Servicio integrado a pedidos/cuentas */
+.service-policy-note {
+    margin-top: 0.75rem;
+    padding: 0.72rem 0.85rem;
+    border: 1px solid rgba(52, 152, 219, 0.14);
+    border-radius: 16px;
+    color: rgba(44, 62, 80, 0.76);
+    background: rgba(235, 247, 255, 0.72);
+    font-size: 0.84rem;
+    font-weight: 800;
+    line-height: 1.35;
+}

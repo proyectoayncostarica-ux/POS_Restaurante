@@ -487,176 +487,60 @@ En Windows también puedes usar `Inicio_Servidor.bat`. En Linux/macOS puedes usa
 - Se actualizó el versionado de `style.css` y `service-worker.js` para invalidar caché móvil/PWA.
 
 
-### v2.2.4.5 · Administración de zonas y tipos de puesto
+### v2.2.4.13 · Servicio 10% integrado a pedidos/cuentas
 
-- **Objetivo:** iniciar la administración real de la estructura dinámica del local sin romper la operación actual ni activar aún roles de trabajo, permisos por acción o Dashboard dinámico.
-- **Backend:** se agregaron endpoints administrativos para crear/actualizar zonas dinámicas y tipos de puesto: `POST /api/tables/zones`, `PUT /api/tables/zones/:id`, `POST /api/tables/seat-types` y `PUT /api/tables/seat-types/:id`.
-- **Restricción temporal:** estos endpoints requieren usuario administrador; los usuarios estándar mantienen la vista operativa sin herramientas de administración estructural.
-- **Puestos dinámicos:** el endpoint `POST /api/tables` ahora acepta `zona_id` y `tipo_puesto_id`, manteniendo compatibilidad con `tipo_zona` y `tipo_asiento` legacy.
-- **Numeración:** `GET /api/tables/next-numero` ahora soporta numeración dinámica por `zona_id` + `tipo_puesto_id`, conservando compatibilidad con la numeración legacy.
-- **Frontend Zonas:** el módulo muestra un panel administrativo para zonas y tipos de puesto, además de un modal dinámico para crear nuevos puestos seleccionando zona/tipo reales.
-- **Reglas operativas:** no se permite desactivar una zona con puestos ocupados/reservados ni desactivar un tipo de puesto que aún tenga puestos activos.
-- **Compatibilidad:** Salón, Bar, Barra, Mesa y Banco siguen funcionando como antes; las nuevas zonas/tipos personalizados quedan visibles al menos en la vista “Todos” hasta que se active navegación dinámica en fases posteriores.
-- **PWA/cache:** se actualizó el versionado de `style.css` y `service-worker.js` para evitar estilos o JS antiguos en móvil.
-- **Pendiente:** roles de trabajo, asignación de zonas a usuarios, navegación inferior dinámica y Dashboard dinámico se mantienen para subfases posteriores según roadmap.
+- **Servicio por configuración:** el servicio se calcula desde la configuración de la zona y del puesto, no desde una decisión manual al momento de cobrar.
+- **Snapshot por cuenta:** al crear un pedido/cuenta se guardan `aplica_servicio` y `porcentaje_servicio` dentro del pedido para que cambios futuros en la zona o puesto no alteren cuentas ya abiertas.
+- **Totales persistidos:** se agregan campos de subtotal, servicio y total con servicio para pedidos y pagos.
+- **Cobro:** el backend calcula el servicio real al pagar usando el snapshot guardado en el pedido. El frontend solo muestra el desglose.
+- **Crédito:** las cuentas enviadas a crédito guardan el total incluyendo servicio cuando aplique.
+- **Dashboard:** los montos de cuentas activas usan el total con servicio cuando la cuenta aplica servicio.
+- **Compatibilidad:** cuentas antiguas sin snapshot se recalculan de forma defensiva y no se rompe la operación existente.
+- **UI:** el modal de pago muestra el servicio aplicado automáticamente y elimina la decisión manual de aplicar/no aplicar servicio.
 
-### v2.2.4.6 · Roles de trabajo vinculados a zonas existentes
+Archivos modificados en esta subfase:
 
-- **Objetivo:** crear la base de roles de trabajo operativos sin permitir asignaciones a zonas inexistentes o inactivas.
-- **Backend:** se agregaron las tablas `roles_trabajo` y `rol_trabajo_zonas` para separar el rol operativo del usuario de su rol de sistema.
-- **Validación central:** un rol de trabajo solo puede crearse o editarse seleccionando zonas activas existentes en `zonas`; no se aceptan zonas escritas manualmente como texto libre.
-- **Endpoints:** se agregaron `GET /api/tables/work-roles`, `POST /api/tables/work-roles` y `PUT /api/tables/work-roles/:id` para administrar roles de trabajo desde el módulo Zonas.
-- **Estructura dinámica:** `GET /api/tables/structure` ahora devuelve `roles_trabajo` con sus zonas asociadas, preparando la futura asignación a usuarios.
-- **Protección de consistencia:** no se permite desactivar una zona que esté vinculada a roles de trabajo activos.
-- **Frontend Zonas:** el panel administrativo ahora incluye la columna Roles de trabajo, con creación/edición mediante selector de zonas reales activas.
-- **Restricción temporal:** solo administradores pueden crear o editar roles de trabajo; todavía no se asignan usuarios ni se filtran Dashboard/Zonas por rol activo.
-- **Compatibilidad:** la operación actual de abrir/reservar/cerrar puestos no cambia en esta subfase.
-- **Pendiente:** asignar roles de trabajo a usuarios, seleccionar rol operativo al iniciar sesión y filtrar Dashboard/Zonas según zonas permitidas queda para subfases posteriores.
+- `README.md`
+- `server/db/database.js`
+- `server/routes/orders.js`
+- `server/routes/dashboard.js`
+- `public/js/components/orders.js`
+- `public/css/style.css`
+- `public/index.html`
+- `public/service-worker.js`
 
-### v2.2.4.6 fix1 · Corrección visual del panel administrativo de Zonas
+### v2.2.4.13 fix1 · Respuesta segura del Service Worker/PWA
 
-- **Problema detectado:** en móvil, las columnas administrativas de Zonas, Tipos de puesto y Roles de trabajo podían sobreponerse porque una regla posterior restauraba el grid de tres columnas. Además, los botones de acción quedaban visualmente desordenados entre PC y móvil.
-- **Corrección aplicada:** el panel administrativo ahora usa una columna en móvil, tarjetas compactas sin desbordes y los botones **Nueva zona**, **Nuevo tipo** y **Nuevo rol** quedan en una sola línea horizontal.
-- **PC:** los botones administrativos quedan alineados de forma uniforme y las tres columnas mantienen un layout ordenado.
-- **Móvil:** se evita la superposición de columnas, se reduce el tamaño de tarjetas/badges y se mantiene la operación sin cambios.
-- **Alcance:** ajuste visual únicamente; no cambia endpoints, base de datos, permisos ni lógica operativa.
+- **Problema detectado:** después del login, la PWA podía quedar en pantalla blanca con `TypeError: Failed to convert value to 'Response'` dentro de `service-worker.js`.
+- **Causa:** algunos manejadores del Service Worker podían resolver `null` o `undefined` cuando una petición navegacional o de asset fallaba y no existía una respuesta cacheada disponible.
+- **Corrección aplicada:** todos los flujos `navigation`, `networkFirstAsset`, `staleWhileRevalidate` y API devuelven siempre un objeto `Response` válido, incluso si el servidor local no responde temporalmente.
+- **Alcance:** corrección PWA/cache únicamente; no cambia servicio 10%, base de datos, pedidos, cuentas ni endpoints de negocio.
+- **Versionado:** `service-worker.js` queda en `v2.2.4.13-fix1-pwa-response-fallback` para forzar actualización de caché.
 
-### v2.2.4.7 · Usuarios con rol de sistema y roles de trabajo
+Archivos modificados en este fix:
 
-- Se agrega el vínculo entre usuarios y roles de trabajo mediante la tabla `usuario_roles_trabajo`.
-- El rol de sistema sigue usando el campo compatible `usuarios.tipo`:
-  - `administrador` para acceso administrativo completo.
-  - `basico` como usuario estándar operativo.
-- El módulo **Usuarios** ahora permite asignar uno o varios roles de trabajo existentes a cada usuario.
-- Los usuarios estándar deben tener al menos un rol de trabajo activo con zonas activas.
-- Los administradores pueden existir sin roles de trabajo, manteniendo el bootstrap inicial y la administración general del sistema.
-- Los endpoints de usuarios devuelven `roles_trabajo` asociados a cada usuario.
-- `POST /api/users` y `PUT /api/users/:id` aceptan `roles_trabajo_ids`.
-- Nuevo endpoint administrativo: `GET /api/users/work-roles` para listar roles disponibles para asignación.
-- `POST /api/auth/login` y `GET /api/auth/verify` ahora incluyen los roles de trabajo asignados en el usuario autenticado.
-- No se activa todavía selección de rol activo al iniciar sesión, filtro operativo por rol, Dashboard dinámico ni restricciones backend por zona. Eso queda para las siguientes subfases.
+- `README.md`
+- `public/service-worker.js`
 
-### v2.2.4.7 fix1 · Footer visible en modal Nuevo Rol de trabajo
+### v2.2.4.13 fix2 · Service Worker seguro y empaquetado en ruta correcta
 
-- **Problema detectado:** en PC, el modal **Nuevo Rol de trabajo** podía superar el alto visible de la pantalla y dejar fuera del viewport los botones **Cancelar** y **Crear rol**.
-- **Corrección aplicada:** los modales de estructura ahora usan layout vertical con alto máximo, cuerpo desplazable y footer fijo dentro del modal.
-- **Resultado esperado:** los botones del footer permanecen visibles en PC y móvil, incluso cuando hay varias zonas disponibles para seleccionar.
-- **Alcance:** corrección visual únicamente; no cambia base de datos, endpoints, validaciones ni permisos.
+- **Problema detectado:** la PWA seguía mostrando pantalla blanca con `Failed to convert value to 'Response'` durante la navegación `/POS/?source=pwa`.
+- **Causa:** el Service Worker podía quedar activo con una versión previa o no recibir el archivo en la ruta real `public/service-worker.js`, dejando una promesa de `FetchEvent` sin una `Response` válida.
+- **Corrección aplicada:** se reemplazó el manejador `fetch` por una envoltura defensiva `respondSafely()` que siempre devuelve una instancia `Response` para navegación, assets y API.
+- **Empaquetado:** este fix incluye el archivo en `public/service-worker.js` para que se sobrescriba la ruta servida por `/POS/service-worker.js`.
+- **Alcance:** no cambia la lógica de servicio 10%, pedidos, cuentas, base de datos ni endpoints de negocio.
 
-### v2.2.4.8 · Sesión operativa activa
+### v2.2.4.13 fix3 · Recuperación de markup operativo del index
 
-- **Objetivo:** preparar la sesión operativa real separando el usuario autenticado del rol de trabajo activo elegido para trabajar en el turno o dispositivo actual.
-- **Backend Auth:** `POST /api/auth/login` y `GET /api/auth/verify` ahora devuelven el bloque `sesion_operativa` con estado, modo, rol activo y roles disponibles.
-- **Selección de rol:** si un usuario tiene más de un rol de trabajo activo con zonas activas, la app muestra una pantalla intermedia para seleccionar el rol operativo antes de entrar al POS.
-- **Auto-selección:** si el usuario tiene un único rol de trabajo activo con zonas activas, ese rol se activa automáticamente en la sesión.
-- **Administradores:** un administrador puede operar sin rol de trabajo asignado; si tiene varios roles disponibles, puede elegir el rol con el que trabajará.
-- **Usuarios estándar:** un usuario estándar sin rol de trabajo activo con zonas activas no puede iniciar operación y recibe un mensaje para solicitar asignación administrativa.
-- **Nuevo endpoint:** `GET /api/auth/operational-session` permite consultar la sesión operativa actual.
-- **Nuevo endpoint:** `POST /api/auth/operational-session` permite seleccionar el rol de trabajo activo de la sesión actual.
-- **Frontend:** se agrega una pantalla premium de selección de rol operativo con botón para cambiar de usuario.
-- **Alcance:** todavía no filtra Dashboard/Zonas por zonas permitidas ni muestra el rol activo en Header; eso queda para v2.2.4.9/v2.2.4.10.
-- **PWA/cache:** se actualizó el versionado de `style.css`, `main.js` y `service-worker.js` para evitar caché antigua.
+- **Problema detectado:** después de iniciar sesión la pantalla quedaba en blanco sin errores visibles de consola.
+- **Causa:** el `public/index.html` incluido en la fase de servicio 10% había quedado desactualizado y sobrescribía markup crítico de fases anteriores, incluyendo la pantalla de selección operativa multirrol y elementos del header de roles.
+- **Corrección aplicada:** se recupera el `index.html` actualizado con sesión operativa multirrol, header con rol activo y cambio de rol, manteniendo el versionado de la fase de servicio 10%.
+- **Alcance:** no cambia base de datos, endpoints, pedidos, cuentas ni cálculo del servicio; corrige la pantalla blanca causada por markup faltante.
 
-### v2.2.4.9 · Header con rol de sistema y rol de trabajo activo
+### v2.2.4.13 fix4 · Recuperación visual y mezcla segura de esquema
 
-- El header principal ahora muestra el rol de sistema del usuario autenticado: **Admin** o **Estándar**.
-- El header también muestra el rol de trabajo activo de la sesión operativa, cuando existe.
-- Si un administrador ingresa sin rol de trabajo, el header indica **Sin rol operativo** sin bloquear la administración.
-- En PC se muestran usuario, rol de sistema, rol de trabajo activo y fecha/hora.
-- En móvil se priorizan los roles activos en un bloque compacto para evitar romper el layout del header.
-- No se activan todavía filtros por zonas permitidas ni restricciones backend por zona; eso corresponde a subfases posteriores.
-
-### v2.2.4.9 fix1 · Cambio de rol operativo desde Header
-
-- **Ajuste no previsto en roadmap:** se permite cambiar el rol de trabajo activo sin cerrar sesión.
-- **Móvil:** el badge compacto de rol sistema / rol trabajo activo del Header abre el selector de cambio de rol.
-- **PC:** se agrega un nuevo badge **Cambio de Rol** dentro del Header con la misma función.
-- **Regla operativa crítica:** no se permite cambiar de rol si el rol actual tiene cuentas pendientes o consumos activos en sus zonas.
-- **Backend Auth:** se agrega `GET /api/auth/operational-session/change-status` para consultar si el cambio está permitido y se endurece `POST /api/auth/operational-session` para bloquear el cambio con HTTP 409 cuando existan cuentas pendientes o puestos ocupados del rol actual.
-- **Frontend:** se agrega modal premium de cambio de rol con estado bloqueado, roles disponibles y mensajes operativos claros.
-- **Alcance:** no activa todavía filtros por zonas permitidas ni restricciones globales por zona; mantiene intacta la lógica de apertura/cierre de cuentas.
-
-### v2.2.4.9 fix2 · Corrección de consulta para cambio de rol desde Header
-
-- **Problema detectado:** el botón/badge de cambio de rol podía consultar `GET /api/auth/operational-session/change-status` y recibir 404 si el backend no exponía la ruta cargada en el proceso activo o si había una desincronización temporal entre frontend y backend.
-- **Corrección aplicada:** el frontend ahora consulta el estado especializado cuando está disponible y usa `GET /api/auth/operational-session` como respaldo compatible para abrir el modal sin romper la experiencia.
-- **Regla crítica conservada:** el backend mantiene el bloqueo en `POST /api/auth/operational-session` con HTTP 409 cuando el rol actual tiene cuentas pendientes o puestos ocupados.
-- **Alcance:** no cambia base de datos ni permisos; solo estabiliza el flujo de consulta y conserva el endpoint especializado.
-
-### v2.2.4.10 · Dashboard dinámico por zonas permitidas
-
-- **Objetivo:** hacer que el Dashboard lea zonas dinámicas reales y respete las zonas permitidas por el rol de trabajo activo.
-- **Backend Dashboard:** `GET /api/dashboard` ahora determina el alcance operativo desde la sesión actual:
-  - usuario con rol de trabajo activo: solo zonas activas/visibles asignadas a ese rol;
-  - administrador sin rol operativo: todas las zonas activas/visibles en Dashboard;
-  - usuario sin rol operativo válido: no expone puestos operativos.
-- **Filtros dinámicos:** el Dashboard devuelve `dashboardZonas`, `dashboardScope` y `zonasResumen` con claves dinámicas `zona-{id}` para reemplazar la lógica fija Salón/Bar/Barra.
-- **Cards operativas:** las tarjetas del Dashboard muestran `zona_nombre`, `tipo_puesto_nombre` y `nombre_visible` cuando existen; por ejemplo, **Terraza / Sillón 1** ya no se normaliza visualmente como **Salón / Mesa 1**.
-- **Métricas por alcance:** cuentas pendientes, cuentas pagadas del día, ventas de contado y últimas cuentas pagadas se calculan sobre las zonas permitidas del Dashboard.
-- **Subnavegación Dashboard:** los filtros superiores de PC y la subnavegación móvil del Dashboard se alimentan de las zonas permitidas/visibles para el rol activo.
-- **Compatibilidad:** se conserva respaldo para claves legacy `salon`, `bar-mesa` y `bar-banco` cuando falte metadata dinámica.
-- **Alcance pendiente:** Zonas, Pedidos, Cuentas y restricciones backend globales por zona se mantienen para fases posteriores; esta subfase se concentra en el Dashboard.
-
-### v2.2.4.10 fix1 · Responsabilidad compartida y cambio de rol seguro
-
-- **Objetivo:** evitar que las mesas/cuentas activas queden huérfanas al permitir múltiples responsables operativos por mesa y corregir el cambio de rol para que libere responsabilidades compartidas sin abandonar cuentas pendientes.
-- **Base de datos:** se agrega la tabla `mesa_responsables` para vincular una mesa/cuenta activa con uno o varios usuarios responsables. También se agrega `pedidos.rol_trabajo_id` para guardar el rol operativo usado al crear el pedido.
-- **Asignación por defecto:** al abrir o reservar una mesa, el usuario que realiza la acción queda asignado automáticamente como responsable inicial.
-- **Responsabilidad compartida:** un administrador puede agregar o quitar responsables desde el módulo **Zonas**, usando el botón **Reasignar mesa** en el footer del modal de mesa ocupada/reservada.
-- **Usuarios válidos:** la reasignación solo muestra usuarios activos compatibles con la zona del puesto: administradores activos o usuarios con un rol de trabajo activo vinculado a esa zona.
-- **Dashboard:** se mantiene la operación rápida sin minimodales nuevos; el administrador puede operar cualquier mesa normalmente. Un usuario estándar no responsable no ve nombres de responsables y solo recibe el estado genérico **Responsable asignado**.
-- **Zonas/Pedidos:** un usuario estándar solo puede operar, agregar productos, editar productos o cobrar mesas/cuentas donde esté asignado como responsable. El administrador conserva intervención operativa completa.
-- **Cambio de rol:** los usuarios estándar deben contar con autorización por contraseña de administrador para cambiar de rol. Si el usuario está asignado a mesas compartidas, el cambio lo libera automáticamente de esas mesas y deja a los demás responsables activos.
-- **Bloqueo sin excepción:** si el usuario es el único responsable activo de una mesa/cuenta pendiente, el cambio de rol se bloquea aunque se ingrese contraseña de administrador. Primero debe cerrarse la cuenta o agregarse otro responsable desde **Zonas**.
-- **Auditoría:** los cambios de responsables, liberaciones automáticas por cambio de rol, autorizaciones, rechazos y bloqueos se registran en `historial_transacciones` para los reportes existentes.
-- **Endpoints nuevos:** `GET /api/tables/:id/responsibles` lista usuarios asignables y responsables actuales; `PUT /api/tables/:id/responsibles` reemplaza la lista de responsables de una mesa/cuenta activa.
-- **Compatibilidad:** las cuentas antiguas sin responsables se completan defensivamente con el usuario creador del pedido cuando exista información suficiente, sin borrar datos existentes.
-
-### v2.2.4.10 fix2 · Corrección de migración de columna rol_trabajo_id
-
-- **Problema detectado:** en bases existentes, el índice `idx_pedidos_rol_trabajo` podía intentar crearse antes de que la migración agregara la columna `pedidos.rol_trabajo_id`, provocando error de arranque `SQLITE_ERROR: no such column: rol_trabajo_id`.
-- **Corrección aplicada:** el índice de `pedidos.rol_trabajo_id` se crea ahora después de verificar/agregar la columna correspondiente durante la migración de esquema.
-- **Alcance:** corrección de arranque/migración únicamente; no cambia UI, permisos, endpoints ni lógica operativa.
-
-
-### v2.2.4.11 · Navegación inferior móvil dinámica y sesión multirrol
-
-- **Navegación inferior móvil del Dashboard:** se mantiene visible `Todos` más las primeras tres zonas operativas y, cuando hay más zonas, se muestra el botón **Más...** al lado derecho.
-- **Dropdown hacia arriba:** el botón **Más...** despliega las zonas faltantes hacia arriba para mejorar la operabilidad en móvil.
-- **Promoción dinámica de zonas:** cuando una zona se selecciona desde **Más...** o tiene actividad operativa/responsabilidad del usuario, se prioriza para aparecer entre las zonas visibles principales.
-- **Sesión operativa multirrol:** la pantalla **Selecciona tu rol de trabajo** ahora permite escoger uno o varios roles mediante checkbox.
-- **Opción Todos:** permite activar todos los roles de trabajo disponibles para el usuario.
-- **Footer de sesión operativa:** se agregan los botones **Cambiar usuario** y **Entrar**.
-- **Cambio de rol desde Header:** ahora permite seleccionar varios roles activos; usuarios estándar siguen requiriendo autorización de administrador cuando cambian su selección activa.
-- **Responsabilidad segura:** si al cambiar roles el usuario deja zonas donde tenía mesas compartidas, se libera automáticamente de esas responsabilidades; si quedaría como responsable único fuera de sus nuevos roles, el cambio se bloquea.
-- **Dashboard dinámico:** el alcance de zonas permitidas se calcula por la unión de todos los roles activos seleccionados.
-- **Compatibilidad:** se mantiene `rol_trabajo` como primer rol activo para código legacy y se agrega `roles_trabajo_activos` para la nueva operación multirrol.
-
-### v2.2.4.11 fix1 · Corrección de selección multirrol en sesión operativa
-
-- **Problema detectado:** al entrar desde el modal **Selecciona tu Rol de trabajo**, el frontend enviaba la selección multirrol pero una ruta backend anterior podía interpretar la petición como si faltara `rol_trabajo_id`, provocando `400 Bad Request` con el mensaje `Debe seleccionar un rol de trabajo válido`.
-- **Corrección aplicada:** la petición ahora envía los IDs en formato multirrol y también mantiene campos legacy compatibles (`rol_trabajo_id` / `roleId`) para evitar fallos de transición.
-- **Backend:** la normalización de roles acepta arrays, valores únicos, strings JSON y listas separadas por coma.
-- **Resultado esperado:** el botón **Entrar** permite seleccionar uno, varios o todos los roles disponibles sin error 400.
-- **Alcance:** no cambia permisos, zonas, Dashboard ni reglas de responsabilidad; solo corrige la entrega/lectura de roles activos.
-
-### v2.2.4.11 fix2 · Responsables reasignables solo con sesión operativa activa
-
-- **Problema detectado:** el modal de reasignación de mesa en Zonas mostraba usuarios activos en base de datos aunque no tuvieran sesión iniciada ni rol de trabajo activo en ese momento.
-- **Corrección aplicada:** ahora solo aparecen usuarios con sesión operativa activa y con al menos un rol activo que incluya la zona de la mesa/banco/sillón.
-- **Regla por zona:** si un usuario tiene roles disponibles pero no tiene activo un rol que cubra la zona de la mesa, no aparece como asignable.
-- **Regla por sesión:** usuarios sin sesión iniciada o sin selección operativa activa no aparecen como responsables asignables, aunque estén activos en la base de datos.
-- **Seguridad adicional:** el cambio de rol ya considera si los otros responsables tienen sesión operativa activa en la zona antes de liberar al usuario que cambia de rol, evitando dejar mesas activas sin responsable operativo real.
-- **Alcance:** no cambia la UI ni la base de datos; solo endurece la validación backend para reasignaciones y cambio seguro de rol.
-
-### v2.2.4.12 · Restricciones backend por zona y responsabilidad
-
-- **Objetivo:** endurecer las validaciones del backend para que las zonas permitidas y la responsabilidad compartida no dependan únicamente de la interfaz.
-- **Zonas permitidas:** usuarios básicos/estándar solo pueden consultar y operar puestos dentro de las zonas cubiertas por sus roles de trabajo activos en la sesión operativa actual.
-- **Administrador:** conserva operación global sobre las mesas/cuentas; las restricciones estrictas por zona aplican a usuarios estándar.
-- **Módulo Zonas:** `GET /api/tables` y `GET /api/tables/:id` filtran/validan por zonas permitidas para usuarios estándar. La estructura pública para estándar solo expone zonas/tipos relacionados con sus zonas activas y no entrega roles de trabajo administrativos.
-- **Operación de mesas:** abrir, reservar, pasar de reservada a ocupada, cerrar/liberar y consultar mesas específicas ahora validan backend por zona activa además de responsabilidad asignada cuando corresponde.
-- **Pedidos/Cuentas activas:** crear pedido, agregar productos, editar productos, cobrar y consultar pedidos pendientes validan que el usuario estándar tenga zona activa compatible y esté asignado como responsable de la mesa/cuenta.
-- **Listados de pedidos:** usuarios estándar solo reciben pedidos dentro de sus zonas activas; los pedidos pendientes además requieren responsabilidad asignada.
-- **Errores operativos:** se agregan respuestas 403 con códigos `ZONE_NOT_ALLOWED`, `MESA_ASSIGNED_TO_OTHER_USER` u `ORDER_NOT_ALLOWED` según el caso.
-- **Compatibilidad:** no cambia base de datos ni UI operativa; refuerza reglas backend sobre la estructura creada en fases anteriores.
+- Corrige la regresión visual causada por un CSS de v2.2.4.13 que no incluía los estilos acumulados de sesión operativa multirrol, cambio de rol, navegación móvil dinámica y responsabilidad compartida.
+- Restaura `public/css/style.css` desde la base visual estable de v2.2.4.11 y conserva el bloque visual del servicio 10%.
+- Corrige `server/db/database.js` para mantener las tablas/campos de roles, responsabilidad compartida y `mesa_responsables`, integrando además los campos de servicio 10% para pedidos/pagos.
+- Corrige el 500 en `GET /api/tables/structure` provocado por una mezcla incompleta de esquema.
+- Mantiene el Service Worker defensivo y actualiza versionado para evitar caché vieja.
