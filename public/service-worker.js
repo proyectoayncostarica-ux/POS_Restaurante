@@ -1,4 +1,4 @@
-const MUNDIPOS_SW_VERSION = 'v2.2.5M.9-fix1-menu-polish';
+const MUNDIPOS_SW_VERSION = 'v2.2.5M.10-menu-cierre';
 const APP_SHELL_CACHE = `mundipos-shell-${MUNDIPOS_SW_VERSION}`;
 const RUNTIME_CACHE = `mundipos-runtime-${MUNDIPOS_SW_VERSION}`;
 
@@ -9,23 +9,23 @@ const APP_SHELL_URLS = [
   '/POS/manifest.webmanifest',
   '/POS/favicon.ico',
   '/POS/css/style.css',
-  '/POS/css/style.css?v=2.2.5M.8-menu-orders-integration',
+  '/POS/css/style.css?v=2.2.5M.10-menu-cierre',
   '/POS/js/main.js',
-  '/POS/js/main.js?v=2.2.5M.8-menu-orders-integration',
+  '/POS/js/main.js?v=2.2.5M.10-menu-cierre',
   '/POS/js/components/dashboard.js',
-  '/POS/js/components/dashboard.js?v=2.2.5M.8-menu-orders-integration',
+  '/POS/js/components/dashboard.js?v=2.2.5M.10-menu-cierre',
   '/POS/js/components/tables.js',
-  '/POS/js/components/tables.js?v=2.2.5M.8-menu-orders-integration',
+  '/POS/js/components/tables.js?v=2.2.5M.10-menu-cierre',
   '/POS/js/components/menu.js',
-  '/POS/js/components/menu.js?v=2.2.5M.8-menu-orders-integration',
+  '/POS/js/components/menu.js?v=2.2.5M.10-menu-cierre',
   '/POS/js/components/orders.js',
-  '/POS/js/components/orders.js?v=2.2.5M.8-menu-orders-integration',
+  '/POS/js/components/orders.js?v=2.2.5M.10-menu-cierre',
   '/POS/js/components/accounts.js',
-  '/POS/js/components/accounts.js?v=2.2.5M.8-menu-orders-integration',
+  '/POS/js/components/accounts.js?v=2.2.5M.10-menu-cierre',
   '/POS/js/components/users.js',
-  '/POS/js/components/users.js?v=2.2.5M.8-menu-orders-integration',
+  '/POS/js/components/users.js?v=2.2.5M.10-menu-cierre',
   '/POS/js/components/settings.js',
-  '/POS/js/components/settings.js?v=2.2.5M.8-menu-orders-integration',
+  '/POS/js/components/settings.js?v=2.2.5M.10-menu-cierre',
   '/POS/assets/brand/mundipos-mark.png',
   '/POS/assets/icons/mundipos-icon-192.png',
   '/POS/assets/icons/mundipos-maskable-192.png',
