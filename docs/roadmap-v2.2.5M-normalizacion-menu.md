@@ -547,3 +547,54 @@ Commit sugerido:
 ```powershell
 git commit -m "v2.2.5M.7 fix2: compacta resumen movil y reordena subcategorias"
 ```
+
+
+## v2.2.5M.9 · Pruebas Menú → Cuentas
+
+### Objetivo
+
+Validar mediante una matriz de pruebas que Cuentas/Orders consume correctamente el contrato operativo de Menú implementado en `v2.2.5M.8`.
+
+Esta fase no debe introducir nueva lógica funcional; su función es confirmar estabilidad, documentar resultados y dejar listo el camino para `v2.2.5M.10 · Cierre Menú base`.
+
+### Matriz mínima obligatoria
+
+- producto sin presentación;
+- producto con presentación;
+- presentaciones filtradas por producto;
+- producto directo sin subcategoría;
+- producto con subcategoría;
+- producto de cocina y comanda;
+- agregar producto a cuenta existente;
+- agregar producto con presentación a cuenta existente;
+- producto inactivo;
+- categoría inactiva;
+- subcategoría inactiva;
+- presentación inactiva;
+- relación producto-presentación inactiva;
+- precio operativo inválido;
+- usuario estándar operando;
+- usuario administrador administrando.
+
+### Archivos esperados
+
+- `README.md`
+- `docs/avance-v2.2.5M.9-pruebas-menu-cuentas.md`
+- `docs/roadmap-v2.2.5M-normalizacion-menu.md`
+
+### Validación técnica
+
+```powershell
+node --check server/routes/menu.js
+node --check server/routes/orders.js
+node --check public/js/components/orders.js
+node --check public/js/components/menu.js
+node --check public/service-worker.js
+node --check server/app.js
+```
+
+### Commit sugerido
+
+```powershell
+git commit -m "v2.2.5M.9: documenta pruebas Menu Cuentas"
+```

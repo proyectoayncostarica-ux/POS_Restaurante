@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 2.0
 - **Estado de producto:** versión funcional operativa en proceso de estabilización
-- **Línea de trabajo actual:** v2.2.5M.8 · Integración Menú → Cuentas
+- **Línea de trabajo actual:** v2.2.5M.9 · Pruebas Menú → Cuentas
 
 La versión visible para usuarios, configuración pública y metadata base de la app debe mantenerse como **2.0** hasta que se decida publicar una nueva versión funcional mayor. Las líneas internas **v2.1** y **v2.2** no representan todavía una versión visible para usuarios finales; representan etapas trazables de estabilización.
 
@@ -788,3 +788,19 @@ Archivos modificados en esta subfase:
 - `public/js/components/orders.js`
 - `public/index.html`
 - `public/service-worker.js`
+
+
+### v2.2.5M.9 · Pruebas Menú → Cuentas
+
+- **Objetivo:** documentar y ejecutar la matriz de pruebas funcionales del contrato Menú → Cuentas antes del cierre de Menú base.
+- **Alcance:** fase de validación y trazabilidad; no introduce lógica nueva, no cambia backend, no cambia frontend operativo ni modifica cache/PWA.
+- **Contrato probado:** Cuentas debe consumir productos operativos desde Menú, respetando estados activos/inactivos, grupos de presentación, presentaciones asignadas, precios reales y marca de cocina/comanda.
+- **Casos principales:** producto sin presentación, producto con presentación, precios por presentación, productos directos sin subcategoría, productos de cocina, agregar productos a cuenta existente y filtros por categoría/subcategoría.
+- **Casos de bloqueo:** producto inactivo, categoría inactiva, subcategoría inactiva, presentación inactiva, relación producto-presentación inactiva y precio operativo inválido.
+- **Resultado esperado:** si todos los casos pasan, Menú queda listo para cierre documental en `v2.2.5M.10 · Cierre Menú base`.
+
+Archivos modificados en esta subfase:
+
+- `README.md`
+- `docs/avance-v2.2.5M.9-pruebas-menu-cuentas.md`
+- `docs/roadmap-v2.2.5M-normalizacion-menu.md`
