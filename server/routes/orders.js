@@ -24,6 +24,130 @@ function calculateService(subtotal, aplicaServicio, porcentajeServicio) {
     };
 }
 
+function isActive(value) {
+    return Number(value ?? 1) === 1;
+}
+
+async function getOperationalProductForOrder(productoId) {
+    const product = await database.get(`
+        SELECT
+            p.*,
+            COALESCE(p.activo, 1) AS producto_activo,
+            c.nombre AS categoria_nombre,
+            COALESCE(c.activa, 1) AS categoria_activa,
+            s.nombre AS subcategoria_nombre,
+            COALESCE(s.activa, 1) AS subcategoria_activa
+        FROM productos p
+        JOIN categorias c ON p.categoria_id = c.id
+        LEFT JOIN categorias s ON p.subcategoria_id = s.id
+        WHERE p.id = ?
+    `, [productoId]);
+
+    if (!product) {
+        return { ok: false, error: `Producto con ID ${productoId} no encontrado` };
+    }
+
+    if (!isActive(product.producto_activo)) {
+        return { ok: false, error: `El producto ${product.nombre} está inactivo` };
+    }
+
+    if (!isActive(product.categoria_activa)) {
+        return { ok: false, error: `La categoría de ${product.nombre} está inactiva` };
+    }
+
+    if (product.subcategoria_id && !isActive(product.subcategoria_activa)) {
+        return { ok: false, error: `La subcategoría de ${product.nombre} está inactiva` };
+    }
+
+    return { ok: true, product };
+}
+
+async function getOperationalPresentationForOrder(productoId, presentacionId) {
+    return database.get(`
+        SELECT
+            pp.id AS producto_presentacion_id,
+            pp.producto_id,
+            pp.presentacion_id,
+            pp.precio,
+            COALESCE(pp.activo, 1) AS relacion_activa,
+            pr.nombre AS presentacion_nombre,
+            pr.cantidad AS presentacion_cantidad,
+            pr.tipo_presentacion_id,
+            COALESCE(pr.activo, 1) AS presentacion_activa,
+            p.tipo_presentacion_id AS producto_tipo_presentacion_id
+        FROM presentaciones_producto pp
+        JOIN presentaciones pr ON pp.presentacion_id = pr.id
+        JOIN productos p ON p.id = pp.producto_id
+        WHERE pp.producto_id = ?
+          AND (pp.id = ? OR pp.presentacion_id = ?)
+          AND COALESCE(pp.activo, 1) = 1
+          AND COALESCE(pr.activo, 1) = 1
+          AND COALESCE(pp.precio, 0) > 0
+          AND (p.tipo_presentacion_id IS NULL OR pr.tipo_presentacion_id = p.tipo_presentacion_id)
+        LIMIT 1
+    `, [productoId, presentacionId, presentacionId]);
+}
+
+async function validateOrderProductItem(item) {
+    const productoId = parseInt(item?.producto_id, 10);
+    const cantidad = parseInt(item?.cantidad, 10);
+
+    if (!productoId || !cantidad || cantidad <= 0) {
+        return { ok: false, skip: true };
+    }
+
+    const productResult = await getOperationalProductForOrder(productoId);
+    if (!productResult.ok) {
+        return productResult;
+    }
+
+    const product = productResult.product;
+    let precioUnitario = Number(product.precio || 0);
+    let presentacionId = null;
+
+    if (item.presentacion_id !== null && typeof item.presentacion_id !== 'undefined') {
+        const presentation = await getOperationalPresentationForOrder(productoId, item.presentacion_id);
+
+        if (!presentation) {
+            return { ok: false, error: `Presentación no válida para el producto ${product.nombre}` };
+        }
+
+        precioUnitario = Number(presentation.precio || 0);
+        presentacionId = Number(presentation.presentacion_id);
+    } else {
+        const hasOperationalPresentations = await database.get(`
+            SELECT 1 AS exists_flag
+            FROM presentaciones_producto pp
+            JOIN presentaciones pr ON pp.presentacion_id = pr.id
+            WHERE pp.producto_id = ?
+              AND COALESCE(pp.activo, 1) = 1
+              AND COALESCE(pr.activo, 1) = 1
+              AND COALESCE(pp.precio, 0) > 0
+            LIMIT 1
+        `, [productoId]);
+
+        if (hasOperationalPresentations) {
+            return { ok: false, error: `Debe seleccionar una presentación para ${product.nombre}` };
+        }
+
+        if (!Number.isFinite(precioUnitario) || precioUnitario <= 0) {
+            return { ok: false, error: `El producto ${product.nombre} no tiene precio operativo válido` };
+        }
+    }
+
+    return {
+        ok: true,
+        item: {
+            producto_id: productoId,
+            cantidad,
+            precio_unitario: precioUnitario,
+            precio_original: precioUnitario,
+            presentacion_id: presentacionId,
+            es_cocina: Number(product.es_cocina) === 1 ? 1 : 0
+        }
+    };
+}
+
 async function getSeatServicePolicy(mesaId) {
     const row = await database.get(`
         SELECT
@@ -247,56 +371,18 @@ router.post("/", async (req, res) => {
     const productosValidados = [];
 
     for (const item of productos) {
-      const { producto_id, cantidad, presentacion_id, precio } = item;
-
-      if (!producto_id || !cantidad || cantidad <= 0) continue;
-
-      let precioUnitario = 0;
-      let es_cocina = 0;
-
-      if (typeof presentacion_id !== 'undefined' && presentacion_id !== null) {
-        const result = await database.get(
-          `SELECT pp.precio, p.es_cocina, pp.producto_id, pp.presentacion_id
-           FROM presentaciones_producto pp
-           JOIN productos p ON p.id = pp.producto_id
-           WHERE pp.producto_id = ?
-             AND pp.activo = 1
-             AND (pp.id = ? OR pp.presentacion_id = ?)`,
-          [producto_id, presentacion_id, presentacion_id]
-        );
-        if (!result) continue;
-        precioUnitario = result.precio;
-        es_cocina = result.es_cocina;
-        item.presentacion_id = result.presentacion_id;
-      } else if (typeof precio !== 'undefined' && Number.isFinite(Number(precio))) {
-        const producto = await database.get(
-          `SELECT es_cocina FROM productos WHERE id = ?`,
-          [producto_id]
-        );
-        if (!producto) continue;
-        precioUnitario = parseFloat(precio);
-        es_cocina = producto.es_cocina;
-      } else {
-        const producto = await database.get(
-          `SELECT precio, es_cocina FROM productos WHERE id = ?`,
-          [producto_id]
-        );
-        if (!producto) continue;
-        precioUnitario = producto.precio;
-        es_cocina = producto.es_cocina;
+      const validation = await validateOrderProductItem(item);
+      if (validation.skip) continue;
+      if (!validation.ok) {
+        return res.status(400).json({ error: validation.error || 'Producto no válido para operación' });
       }
 
+      total += validation.item.precio_unitario * validation.item.cantidad;
+      productosValidados.push(validation.item);
+    }
 
-      total += precioUnitario * cantidad;
-
-      productosValidados.push({
-        producto_id,
-        cantidad,
-        precio_unitario: precioUnitario,
-        precio_original: precioUnitario,
-        presentacion_id: (typeof item.presentacion_id !== 'undefined') ? item.presentacion_id : null,
-        es_cocina
-      });
+    if (productosValidados.length === 0) {
+      return res.status(400).json({ error: 'No hay productos operativos válidos para crear el pedido' });
     }
 
     const serviceTotals = calculateService(total, Number(servicePolicy.aplica_servicio) === 1, servicePolicy.porcentaje_servicio);
@@ -409,46 +495,19 @@ router.post("/:id/products", async (req, res) => {
         const productosValidados = [];
 
         for (const item of productos) {
-            const producto = await database.get("SELECT * FROM productos WHERE id = ?", [item.producto_id]);
-            if (!producto) {
-                return res.status(400).json({ error: `Producto con ID ${item.producto_id} no encontrado` });
+            const validation = await validateOrderProductItem(item);
+            if (validation.skip) continue;
+            if (!validation.ok) {
+                return res.status(400).json({ error: validation.error || 'Producto no válido para operación' });
             }
 
-            let precioUnitario = Number.isFinite(Number(item.precio)) ? Number(item.precio) : producto.precio;
-            let presentacionId = item.presentacion_id ?? null;
-
-            if (presentacionId !== null && typeof presentacionId !== 'undefined') {
-                const presentacion = await database.get(`
-                    SELECT pp.precio, pp.presentacion_id
-                    FROM presentaciones_producto pp
-                    WHERE pp.producto_id = ?
-                      AND pp.activo = 1
-                      AND (pp.id = ? OR pp.presentacion_id = ?)
-                `, [item.producto_id, presentacionId, presentacionId]);
-
-                if (!presentacion) {
-                    return res.status(400).json({ error: `Presentación no válida para el producto ${producto.nombre}` });
-                }
-
-                precioUnitario = presentacion.precio;
-                presentacionId = presentacion.presentacion_id;
-            }
-
-            const cantidad = parseInt(item.cantidad, 10);
-            if (!cantidad || cantidad <= 0) continue;
-
-            const subtotal = precioUnitario * cantidad;
+            const subtotal = validation.item.precio_unitario * validation.item.cantidad;
             totalAdicional += subtotal;
+            productosValidados.push(validation.item);
+        }
 
-            productosValidados.push({
-                producto_id: item.producto_id,
-                cantidad,
-                precio_unitario: precioUnitario,
-                precio_original: precioUnitario,
-                es_cocina: producto.es_cocina,
-                presentacion_id: presentacionId
-            });
-
+        if (productosValidados.length === 0) {
+            return res.status(400).json({ error: 'No hay productos operativos válidos para agregar al pedido' });
         }
 
         // Agregar productos al pedido

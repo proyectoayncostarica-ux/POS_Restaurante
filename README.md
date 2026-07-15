@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 2.0
 - **Estado de producto:** versión funcional operativa en proceso de estabilización
-- **Línea de trabajo actual:** v2.2.5M.7 · Normalización visual final de Menú
+- **Línea de trabajo actual:** v2.2.5M.8 · Integración Menú → Cuentas
 
 La versión visible para usuarios, configuración pública y metadata base de la app debe mantenerse como **2.0** hasta que se decida publicar una nueva versión funcional mayor. Las líneas internas **v2.1** y **v2.2** no representan todavía una versión visible para usuarios finales; representan etapas trazables de estabilización.
 
@@ -761,5 +761,30 @@ Archivos modificados en este fix:
 - `docs/roadmap-v2.2.5M-normalizacion-menu.md`
 - `public/js/components/menu.js`
 - `public/css/style.css`
+- `public/index.html`
+- `public/service-worker.js`
+
+### v2.2.5M.8 · Integración Menú → Cuentas
+
+- **Objetivo:** hacer que Cuentas/Orders consuma el contrato operativo de Menú como fuente de verdad, evitando que el flujo de pedidos use productos inactivos, precios base incorrectos o presentaciones no válidas.
+- **Carga operativa:** `orders.js` deja de cargar productos desde `/api/menu/products` y pasa a usar `/api/menu/operational-products`.
+- **Separación de responsabilidades:** Orders sincroniza internamente `Menu.categories` y `Menu.products` solo con datos operativos para reutilizar el selector existente, pero ya no ejecuta `Menu.load()` ni renderiza Menú administrativo desde Cuentas.
+- **Productos con presentación:** el modal de pedido usa las presentaciones operativas del contrato Menú; si necesita fallback, consulta `/api/menu/products/:id/presentaciones` y filtra solo asignadas/disponibles.
+- **Precios:** el frontend ya no envía precios calculados al backend para crear o agregar pedidos. El backend vuelve a resolver precio base o precio de presentación desde SQLite.
+- **Seguridad backend:** `server/routes/orders.js` valida producto activo, categoría activa, subcategoría activa, presentación activa, relación activa y precio operativo mayor a cero antes de insertar en `pedido_productos`.
+- **Agregar productos a cuenta existente:** el flujo deja de usar el selector plano legacy y reutiliza el selector visual por categorías/subcategorías, incluyendo productos con presentación.
+- **Productos sin subcategoría:** Orders ahora permite operar productos directos de una categoría aunque existan subcategorías, mediante la opción `Sin subcategoría`.
+- **Cocina/comanda:** se mantiene la detección desde Menú/SQLite para generar comanda cuando el producto operativo es de cocina.
+- **Imagen:** se conserva temporalmente la imagen del producto. La regla de imagen por presentación queda pendiente para una subfase posterior cuando se defina el nuevo modelo visual de imágenes.
+- **Cache/PWA:** `index.html` y `service-worker.js` avanzan a `v2.2.5M.8-menu-orders-integration`.
+
+Archivos modificados en esta subfase:
+
+- `README.md`
+- `docs/avance-v2.2.5M.8-integracion-menu-cuentas.md`
+- `docs/roadmap-v2.2.5M-normalizacion-menu.md`
+- `server/routes/menu.js`
+- `server/routes/orders.js`
+- `public/js/components/orders.js`
 - `public/index.html`
 - `public/service-worker.js`

@@ -5,18 +5,128 @@ const Orders = {
     tables: [],
     currentView: 'pending', // 'pending', 'paid', 'all'
     selectedOrder: null,
+    operationalMenu: null,
+    menuContractVersion: null,
+
+    getOperationalPayload(response) {
+        return response?.data || response || {};
+    },
+
+    normalizeImageUrl(image) {
+        if (!image) return `${window.location.origin}/uploads/ImagenGenerica.jpg`;
+        if (/^https?:\/\//i.test(image)) return image;
+        return image.startsWith('/')
+            ? `${window.location.origin}${image}`
+            : `${window.location.origin}/${image}`;
+    },
+
+    productHasPresentations(product) {
+        return Number(product?.tiene_presentaciones) === 1
+            || Number(product?.total_presentaciones || 0) > 0
+            || (Array.isArray(product?.presentaciones) && product.presentaciones.length > 0);
+    },
+
+    formatOperationalProductPrice(product) {
+        if (this.productHasPresentations(product)) {
+            const min = Number(product?.precio_minimo ?? product?.precio_operativo ?? 0);
+            const max = Number(product?.precio_maximo ?? min);
+
+            if (min > 0 && max > 0 && min !== max) {
+                return `${Utils.formatCurrency(min)} - ${Utils.formatCurrency(max)}`;
+            }
+
+            if (min > 0) {
+                return `Desde ${Utils.formatCurrency(min)}`;
+            }
+
+            return 'Elegir presentación';
+        }
+
+        return Utils.formatCurrency(Number(product?.precio_operativo ?? product?.precio ?? 0));
+    },
+
+    getOperationalProducts() {
+        return (this.products || []).filter(product => Number(product?.disponible_operacion ?? 1) === 1);
+    },
+
+    getProductUnitPrice(product) {
+        return Number(product?.precio_operativo ?? product?.precio ?? 0);
+    },
+
+    syncMenuOperationalState(payload = {}) {
+        const categorias = payload.categorias || [];
+        const productos = payload.productos || [];
+
+        this.operationalMenu = payload;
+        this.menuContractVersion = payload.version_contrato || null;
+        this.products = productos;
+
+        if (typeof Menu !== 'undefined') {
+            Menu.categories = categorias;
+            Menu.products = productos;
+        }
+    },
+
+    async loadOperationalMenu() {
+        const response = await Utils.request('/menu/operational-products');
+        const payload = this.getOperationalPayload(response);
+        this.syncMenuOperationalState(payload);
+        return payload;
+    },
+
+    buildSelectedProductsPayload() {
+        const productos = [];
+
+        for (const [key, item] of Object.entries(this.selectedProducts || {})) {
+            if (typeof item === 'object') {
+                let productoId = item.producto_id;
+                if (!productoId) {
+                    const keyParts = String(key).split('_');
+                    productoId = parseInt(keyParts[0], 10);
+                } else {
+                    productoId = parseInt(productoId, 10);
+                }
+
+                const cantidad = parseInt(item.cantidad, 10);
+                if (!productoId || !cantidad || cantidad <= 0) continue;
+
+                const productoPayload = {
+                    producto_id: productoId,
+                    cantidad
+                };
+
+                if (item.presentacion_id !== undefined && item.presentacion_id !== null) {
+                    productoPayload.presentacion_id = parseInt(item.presentacion_id, 10);
+                }
+
+                productos.push(productoPayload);
+            } else {
+                const productoId = parseInt(key, 10);
+                const cantidad = parseInt(item, 10);
+                if (!productoId || !cantidad || cantidad <= 0) continue;
+
+                productos.push({
+                    producto_id: productoId,
+                    cantidad
+                });
+            }
+        }
+
+        return productos;
+    },
 
     // Cargar datos de pedidos
     async load() {
         try {
-            const [ordersResponse, productsResponse, tablesResponse] = await Promise.all([
+            const [ordersResponse, menuResponse, tablesResponse] = await Promise.all([
                 Utils.request('/orders'),
-                Utils.request('/menu/products'),
+                Utils.request('/menu/operational-products'),
                 Utils.request('/tables')
             ]);
-            
+
+            const operationalPayload = this.getOperationalPayload(menuResponse);
             this.orders = ordersResponse.data;
-            this.products = productsResponse.data;
+            this.syncMenuOperationalState(operationalPayload);
             this.tables = tablesResponse.data;
             this.render();
         } catch (error) {
@@ -345,11 +455,14 @@ const Orders = {
         'modal-lg'
     );
 
-    // Inicializar pestañas visuales y total
-    Menu.load().then(() => {
+    // Inicializar pestañas visuales y total desde el contrato operativo de Menú
+    this.loadOperationalMenu().then(() => {
         Orders.loadTabsUI();
         this.updateOrderTotal();
-        Orders.refreshCreateOrderModalUI(); 
+        Orders.refreshOrderModalUI();
+    }).catch(error => {
+        console.error('Error cargando menú operativo para pedido:', error);
+        Utils.showNotification('Error cargando el menú operativo', 'error');
     });
     },
 
@@ -461,60 +574,12 @@ const Orders = {
     return;
   }
 
-  const productos = [];
-    for (const [key, item] of Object.entries(this.selectedProducts)) {
-  if (typeof item === 'object') {
-    // 🔧 Extraer producto_id desde item o desde la clave (soporta "5_2" o "12")
-    let productoId = item.producto_id;
-    if (!productoId) {
-      const keyParts = key.split('_');
-      productoId = parseInt(keyParts[0]); // ejemplo: "5_2" → 5
-    } else {
-      productoId = parseInt(productoId);
-    }
-
-    const cantidad = parseInt(item.cantidad);
-    if (!productoId || !cantidad || cantidad <= 0) continue;
-
-    const productoPayload = {
-    producto_id: productoId,
-    cantidad,
-    precio: item.precio // ✅ incluir precio usado
-    };
-
-    if (item.presentacion_id !== undefined && item.presentacion_id !== null) {
-      productoPayload.presentacion_id = item.presentacion_id;
-    }
-
-
-    productos.push(productoPayload);
-  } else {
-    const productoId = parseInt(key);
-    const cantidad = parseInt(item);
-    if (!productoId || !cantidad || cantidad <= 0) continue;
-
-    productos.push({
-      producto_id: productoId,
-      cantidad
-    });
-  }
-    }
-
+  const productos = this.buildSelectedProductsPayload();
 
   if (productos.length === 0) {
     Utils.showNotification('Por favor agregue al menos un producto válido', 'warning');
     return;
   }
-  // 🧪 VALIDACIÓN PREVIA EN CONSOLA
-console.log('%c🟢 Validación de productos antes de enviar al backend:', 'color: green; font-weight: bold;');
-productos.forEach((item, i) => {
-  console.log(`Producto ${i + 1}:`, {
-    producto_id: item.producto_id,
-    presentacion_id: item.presentacion_id ?? '(sin presentación)',
-    cantidad: item.cantidad,
-    precio: item.precio
-  });
-});
 
   try {
         const response = await Utils.request('/orders', {
@@ -750,74 +815,70 @@ productos.forEach((item, i) => {
         this.finalizePayment(orderId, metodo_pago, aplicar_servicio, pass);
     },
 
-    // Mostrar modal para agregar productos
-    async showAddProductsModal(orderId) {
+    // Mostrar modal para agregar productos a una cuenta existente
+    async showAddProductsModal(orderId, preserveSelection = false) {
         try {
             const response = await Utils.request(`/orders/${orderId}`);
             const order = response.data;
-            //this.modalContext = 'agregar';
-            // Obtener tipo y número para el botón
+            await this.loadOperationalMenu();
+
+            this.modalContext = 'agregar';
+            this.orderIdActual = orderId;
+            this.mesaIdActual = order.mesa_id || null;
+            if (!preserveSelection) {
+                this.selectedProducts = {};
+            }
+
             const tipoZona = order.zona?.toLowerCase() === 'bar'
-        ? (order.tipo_asiento?.toLowerCase() === 'banco' ? 'Banco' : 'Mesa')
-        : 'Mesa';
+                ? (order.tipo_asiento?.toLowerCase() === 'banco' ? 'Banco' : 'Mesa')
+                : 'Mesa';
 
-    const textoBoton = `Agregar a ${tipoZona} ${order.mesa_numero}`;
-
-
-            const modalContent = `
+            Utils.showModal(`Agregar productos / ${tipoZona} ${order.mesa_numero}`, `
                 <form id="add-products-form">
                     <div class="form-group">
-                        <label>Productos a Agregar *</label>
-                        <div id="add-products-list">
-                            <div class="product-selector">
-                                <select class="product-select" onchange="Orders.updateProductPrice(this)">
-                                    <option value="">Seleccione un producto</option>
-                                    ${this.products.map(product => `
-                                        <option value="${product.id}" data-price="${product.precio}" data-cocina="${product.es_cocina}">
-                                            ${product.nombre} - ${Utils.formatCurrency(product.precio)}
-                                        </option>
-                                    `).join('')}
-                                </select>
-                                <input type="number" class="product-quantity" min="1" value="1" placeholder="Cant." onchange="Orders.calculateTotal()">
-                                <span class="product-price">$0.00</span>
-                                <button type="button" class="btn btn-danger btn-sm" onclick="Orders.removeProductRow(this)">
-                                    <i class="fas fa-trash"></i>
-                                </button>
-                            </div>
-                        </div>
-
-                        <div class="d-flex justify-content-between align-items-center mt-3">
-                            <button type="button" class="btn btn-secondary btn-sm" onclick="Orders.addProductRowToList()">
-                                <i class="fas fa-plus"></i> Más Producto
-                            </button>
-                            <button type="button" class="btn btn-warning text-white btn-sm" onclick="Orders.viewOrder(${orderId})">
-                                <i class="fas fa-eye"></i> Ver Pedido
-                            </button>
-                        </div>
-
-                        <div class="order-total mt-3">
-                            <strong>Total Adicional: <span id="add-order-total">$0.00</span></strong>
+                        <div id="pedido-ui-dinamico">
+                            <div id="pedido-tabs" class="tabs"></div>
+                            <div id="pedido-subcategorias" class="subcategorias"></div>
+                            <div id="pedido-productos" class="productos-grid" style="min-height: 200px;"></div>
                         </div>
                     </div>
-                </form>
-            `;
 
-            Utils.showModal('Agregar Productos al Pedido', modalContent, [
+                    <div class="order-total mt-3 mb-1">
+                        <strong>Total adicional: <span id="order-total">$0.00</span></strong>
+                    </div>
+                </form>
+            `, [
                 {
-                    text: 'Cancelar',
-                    class: 'btn-light'
+                    text: 'Agregar Productos',
+                    class: 'btn-success',
+                    onclick: () => Orders.showOrderSummaryModal()
                 },
                 {
-                    text: textoBoton,
-                    class: 'btn-success',
-                    onclick: `Orders.addProductsToOrder(${orderId})`
+                    text: 'Ver Pedido',
+                    class: 'btn-warning text-white',
+                    align: 'left',
+                    onclick: () => Orders.viewOrder(orderId)
+                },
+                {
+                    text: 'Cancelar',
+                    class: 'btn-light',
+                    align: 'right',
+                    onclick: () => {
+                        Orders.selectedProducts = {};
+                        Utils.hideModal();
+                    }
                 }
-            ]);
-                if (typeof Dashboard?.refreshData === 'function') {
-                    Dashboard.refreshData(order.mesa_id); // ⚠️ Requiere que tengas acceso al mesa_id
-                }
+            ], 'modal-lg');
 
+            Orders.loadTabsUI();
+            Orders.updateOrderTotal();
+            Orders.refreshOrderModalUI();
+
+            if (typeof Dashboard?.refreshData === 'function') {
+                Dashboard.refreshData(order.mesa_id);
+            }
         } catch (error) {
+            console.error('Error cargando pedido para agregar productos:', error);
             Utils.showNotification('Error cargando pedido', 'error');
         }
     },
@@ -865,33 +926,7 @@ productos.forEach((item, i) => {
 
     // Agregar productos al pedido
     async addProductsToOrder(orderId) {
-        // Recopilar productos (sumar cantidades de productos repetidos)
-        const productosMap = new Map();
-        const productSelectors = document.querySelectorAll('#add-products-list .product-selector');
-
-        productSelectors.forEach(selector => {
-            const select = selector.querySelector('.product-select');
-            const quantityInput = selector.querySelector('.product-quantity');
-
-            const value = select?.value;
-            const quantity = parseInt(quantityInput?.value || '0');
-
-            if (value && quantity > 0) {
-                const productoId = parseInt(value);
-
-                if (productosMap.has(productoId)) {
-                    const cantidadActual = productosMap.get(productoId);
-                    productosMap.set(productoId, cantidadActual + quantity);
-                } else {
-                    productosMap.set(productoId, quantity);
-                }
-            }
-        });
-
-        const productos = Array.from(productosMap.entries()).map(([producto_id, cantidad]) => ({
-            producto_id,
-            cantidad
-        }));
+        const productos = this.buildSelectedProductsPayload();
 
         if (productos.length === 0) {
             Utils.showNotification('Por favor agregue al menos un producto', 'warning');
@@ -905,8 +940,10 @@ productos.forEach((item, i) => {
             });
 
             Utils.hideModal();
+            this.selectedProducts = {};
+            this.orderIdActual = null;
+            this.modalContext = null;
 
-            // Verificar si requiere comanda
             if (response.data.requiere_comanda) {
                 const confirmed = await Utils.confirm(
                     '¿Desea imprimir la comanda para cocina?',
@@ -1022,6 +1059,33 @@ productos.forEach((item, i) => {
         }
     },
 
+    renderOrderProductCards(products = []) {
+        const operationalProducts = products.filter(product => Number(product?.disponible_operacion ?? 1) === 1);
+
+        if (operationalProducts.length === 0) {
+            return `<p class="text-muted">No hay productos operativos disponibles</p>`;
+        }
+
+        return operationalProducts.map(product => {
+            const imagen = this.normalizeImageUrl(product.imagen || product.imagen_url);
+            const precioTexto = this.formatOperationalProductPrice(product);
+
+            return `
+                <div class="producto-card" onclick="Orders.agregarProductoTemporal(${product.id})" style="position: relative;">
+                    <img src="${imagen}" alt="${product.nombre}" class="producto-img" style="max-width: 100%; height: 100px; object-fit: cover; border-radius: 8px; margin-bottom: 5px;" onerror="this.src='${window.location.origin}/uploads/ImagenGenerica.jpg'">
+                    <div class="producto-nombre">${product.nombre}</div>
+                    <div class="producto-precio">${precioTexto}</div>
+                    ${this.productHasPresentations(product)
+                        ? `<div class="badge badge-info badge-presentacion" title="Tiene presentaciones"><i class="fas fa-layer-group"></i></div>`
+                        : ''}
+                    ${Number(product.es_cocina) === 1
+                        ? `<div class="badge badge-warning badge-cocina" title="Producto de cocina"><i class="fas fa-fire"></i></div>`
+                        : ''}
+                </div>
+            `;
+        }).join('');
+    },
+
     //Carga Pestañas en Modal       
     loadTabsUI() {
   // Categorías del menú
@@ -1089,11 +1153,9 @@ productos.forEach((item, i) => {
     btn.classList.toggle("active", btn.dataset.id == categoriaId);
   });
 
-  // Subcategorías
-  const subcategorias = Menu.categories.filter(c => c.tipo === 'subcategoria' && c.parent_id === categoriaId);
-  const productos = Menu.products.filter(p =>
-    p.categoria_id === categoriaId || subcategorias.some(sc => sc.id === p.subcategoria_id)
-  );
+  const subcategorias = (Menu.categories || []).filter(c => c.tipo === 'subcategoria' && Number(c.parent_id) === Number(categoriaId));
+  const productosCategoria = this.getOperationalProducts().filter(p => Number(p.categoria_id) === Number(categoriaId));
+  const productosSinSubcategoria = productosCategoria.filter(p => !p.subcategoria_id);
 
   if (subcategorias.length > 0) {
     const subcatHtml = subcategorias.map(sc => {
@@ -1134,53 +1196,51 @@ productos.forEach((item, i) => {
       `;
     }).join('');
 
-    subcatContainer.innerHTML = `<div class="mb-2"><strong>Subcategorías:</strong><br>${subcatHtml}</div>`;
+    const sinSubcategoriaHtml = productosSinSubcategoria.length > 0
+      ? `
+        <button type="button" class="btn btn-outline-secondary btn-sm me-2 mb-2 d-inline-flex align-items-center"
+                data-id="sin-subcategoria"
+                onclick="Orders.selectSubcategoria(null, ${categoriaId})">
+          <span class="me-1">📦</span>
+          <span>Sin subcategoría</span>
+        </button>
+      `
+      : '';
+
+    subcatContainer.innerHTML = `<div class="mb-2"><strong>Subcategorías:</strong><br>${subcatHtml}${sinSubcategoriaHtml}</div>`;
+
+    productosContainer.innerHTML = `
+      <div class="alert alert-info d-flex align-items-center gap-2" role="alert">
+        <i class="fas fa-hand-pointer"></i>
+        Selecciona una subcategoría para ver los productos disponibles.
+      </div>
+    `;
+    return;
   }
 
-  // Alerta en espera
-  productosContainer.innerHTML = `
-    <div class="alert alert-info d-flex align-items-center gap-2" role="alert">
-      <i class="fas fa-hand-pointer"></i>
-      Selecciona una subcategoría para ver los productos disponibles.
-    </div>
-  `;
+  productosContainer.innerHTML = this.renderOrderProductCards(productosCategoria);
     },
 
     //Selecciona Botón de Subcategoría
     selectSubcategoria(subId, categoriaId) {
     const botones = document.querySelectorAll("#pedido-subcategorias button");
     botones.forEach(btn => {
-        btn.classList.toggle("active", btn.dataset.id == subId);
+        const matches = subId === null
+            ? btn.dataset.id === 'sin-subcategoria'
+            : Number(btn.dataset.id) === Number(subId);
+        btn.classList.toggle("active", matches);
     });
 
-    const productos = Menu.products.filter(p => p.subcategoria_id === subId);
+    const productos = this.getOperationalProducts().filter(p => {
+        if (subId === null || typeof subId === 'undefined') {
+            return Number(p.categoria_id) === Number(categoriaId) && !p.subcategoria_id;
+        }
+
+        return Number(p.subcategoria_id) === Number(subId);
+    });
 
     const productosContainer = document.getElementById("pedido-productos");
-    if (productos.length === 0) {
-        productosContainer.innerHTML = `<p class="text-muted">No hay productos en esta subcategoría</p>`;
-        return;
-    }
-
-    productosContainer.innerHTML = productos.map(p => {
-        const imagen = p.imagen
-            ? `${window.location.origin}${p.imagen}`
-            : `${window.location.origin}/uploads/ImagenGenerica.jpg`;
-
-        return `
-        <div class="producto-card" onclick="Orders.agregarProductoTemporal(${p.id})" style="position: relative;">
-            <img src="${imagen}" alt="${p.nombre}" class="producto-img" style="max-width: 100%; height: 100px; object-fit: cover; border-radius: 8px; margin-bottom: 5px;">
-            
-            <div class="producto-nombre">${p.nombre}</div>
-            <div class="producto-precio">${Utils.formatCurrency(p.precio)}</div>
-
-            ${p.tiene_presentaciones
-                ? `<div class="badge badge-info badge-presentacion" title="Tiene presentaciones">
-                        <i class="fas fa-layer-group"></i>
-                  </div>`
-                : ''}
-        </div>
-        `;
-    }).join('');
+    productosContainer.innerHTML = this.renderOrderProductCards(productos);
 },
 
     //Guarda producto antes de crear Pedido
@@ -1193,8 +1253,8 @@ productos.forEach((item, i) => {
     return;
   }
 
-  // Si el producto tiene presentaciones, abrir el modal correspondiente
-  if (producto.tiene_presentaciones) {
+  // Si el producto tiene presentaciones operativas, abrir el selector correspondiente
+  if (this.productHasPresentations(producto)) {
     this.showPresentacionesSelector(producto);
     return;
   }
@@ -1209,7 +1269,7 @@ productos.forEach((item, i) => {
   }
 
   this.updateOrderTotal();
-  this.refreshCreateOrderModalUI();
+  this.refreshOrderModalUI();
     },
 
     //Actualiza el total del pedido
@@ -1223,7 +1283,7 @@ productos.forEach((item, i) => {
       const productoId = parseInt(key);
       const producto = Menu.products.find(p => p.id === productoId);
       if (producto) {
-        total += producto.precio * item;
+        total += this.getProductUnitPrice(producto) * item;
       }
     }
   }
@@ -1242,7 +1302,7 @@ productos.forEach((item, i) => {
   const cantidad = typeof item === 'object' ? item.cantidad : item;
   const precio = typeof item === 'object'
     ? item.precio
-    : (Menu.products.find(p => p.id == productoKey)?.precio || 0);
+    : this.getProductUnitPrice(Menu.products.find(p => p.id == productoKey));
 
   const cantidadCell = document.querySelector(`#row-prod-${productoKey} .prod-cantidad`);
   if (cantidadCell) {
@@ -1267,7 +1327,7 @@ productos.forEach((item, i) => {
       const productoId = parseInt(key);
       const producto = Menu.products.find(p => p.id === productoId);
       if (producto) {
-        total += producto.precio * item;
+        total += this.getProductUnitPrice(producto) * item;
       }
     }
   }
@@ -1328,7 +1388,7 @@ productos.forEach((item, i) => {
       const producto = Menu.products.find(p => p.id === productoId);
       if (!producto) continue;
 
-      const subtotal = producto.precio * item;
+      const subtotal = this.getProductUnitPrice(producto) * item;
 
       contenido += `
         <tr id="row-prod-${key}">
@@ -1361,6 +1421,8 @@ productos.forEach((item, i) => {
     </div>
   `;
 
+  const isAddingToExistingOrder = this.modalContext === 'agregar' && this.orderIdActual;
+
   Utils.showModal('Resumen del Pedido', contenido, [
     {
       text: 'Seguir Agregando',
@@ -1369,29 +1431,38 @@ productos.forEach((item, i) => {
       onclick: () => {
         Utils.hideModal();
         setTimeout(() => {
-          Orders.showCreateOrderModal(Orders.mesaIdActual);
+          if (isAddingToExistingOrder) {
+            Orders.showAddProductsModal(Orders.orderIdActual, true);
+          } else {
+            Orders.showCreateOrderModal(Orders.mesaIdActual);
+          }
         }, 50);
       }
     },
     {
-      text: 'Cancelar Pedido',
+      text: isAddingToExistingOrder ? 'Cancelar Agregado' : 'Cancelar Pedido',
       class: 'btn-danger',
       align: 'left',
       onclick: async () => {
-        const confirmed = await Utils.confirm('¿Desea cancelar la orden?', 'Cancelar Pedido');
+        const confirmed = await Utils.confirm(
+          isAddingToExistingOrder ? '¿Desea cancelar los productos seleccionados?' : '¿Desea cancelar la orden?',
+          isAddingToExistingOrder ? 'Cancelar Agregado' : 'Cancelar Pedido'
+        );
         if (!confirmed) return;
 
         this.selectedProducts = {};
         this.updateOrderTotal();
         Utils.hideModal();
-        Utils.showNotification('Pedido cancelado', 'info');
+        Utils.showNotification(isAddingToExistingOrder ? 'Productos seleccionados descartados' : 'Pedido cancelado', 'info');
       }
     },
     {
-      text: 'Crear Pedido',
+      text: isAddingToExistingOrder ? 'Agregar Productos' : 'Crear Pedido',
       class: 'btn-success',
       align: 'right',
-      onclick: () => this.createOrder()
+      onclick: () => isAddingToExistingOrder
+        ? this.addProductsToOrder(this.orderIdActual)
+        : this.createOrder()
     }
   ]);
     },
@@ -1445,12 +1516,82 @@ productos.forEach((item, i) => {
       const productoId = parseInt(key);
       const producto = Menu.products.find(p => p.id === productoId);
       if (producto) {
-        total += producto.precio * item;
+        total += this.getProductUnitPrice(producto) * item;
       }
     }
   }
 
   return total;
+    },
+
+    refreshOrderModalUI() {
+  if (this.modalContext === 'agregar') {
+    this.refreshAddProductsModalUI();
+    return;
+  }
+
+  this.refreshCreateOrderModalUI();
+    },
+
+    refreshAddProductsModalUI() {
+  const total = this.getTotalSeleccionado();
+  const orderId = this.orderIdActual;
+
+  const totalSpan = document.getElementById("order-total");
+  if (totalSpan) {
+    totalSpan.textContent = Utils.formatCurrency(total);
+  }
+
+  const cantidadProductos = Object.values(this.selectedProducts || {}).reduce((acc, val) => {
+    const cantidad = typeof val === 'object' ? parseInt(val.cantidad || 0, 10) : parseInt(val || 0, 10);
+    return acc + (isNaN(cantidad) ? 0 : cantidad);
+  }, 0);
+
+  const footer = document.querySelector(".modal-footer");
+  if (!footer) return;
+
+  footer.innerHTML = "";
+
+  const row = document.createElement("div");
+  row.className = "d-flex w-100 align-items-center justify-content-between flex-wrap gap-2";
+
+  const groupLeft = document.createElement("div");
+  groupLeft.className = "d-flex align-items-center gap-2 flex-wrap";
+
+  const btnAgregar = document.createElement("button");
+  btnAgregar.className = "btn btn-success";
+  btnAgregar.innerHTML = cantidadProductos > 0
+    ? `Agregar Productos (${cantidadProductos})`
+    : "Agregar Productos";
+  btnAgregar.onclick = () => Orders.showOrderSummaryModal();
+  groupLeft.appendChild(btnAgregar);
+
+  if (orderId) {
+    const btnVer = document.createElement("button");
+    btnVer.className = "btn btn-warning text-white";
+    btnVer.innerHTML = `<i class="fas fa-eye"></i> Ver Pedido`;
+    btnVer.onclick = () => Orders.viewOrder(orderId);
+    groupLeft.appendChild(btnVer);
+  }
+
+  const mensaje = document.createElement("div");
+  mensaje.className = "mensaje-liberacion text-muted small d-flex align-items-center gap-1 flex-grow-1";
+  if (total > 0) {
+    mensaje.innerHTML = `<i class="fas fa-receipt"></i> Total adicional: ${Utils.formatCurrency(total)}`;
+  }
+
+  const btnCancelar = document.createElement("button");
+  btnCancelar.className = "btn btn-light";
+  btnCancelar.innerHTML = "Cancelar";
+  btnCancelar.onclick = () => {
+    Orders.selectedProducts = {};
+    Utils.hideModal();
+  };
+
+  row.appendChild(groupLeft);
+  row.appendChild(mensaje);
+  row.appendChild(btnCancelar);
+  footer.appendChild(row);
     },
 
     refreshCreateOrderModalUI() {
@@ -1543,42 +1684,44 @@ productos.forEach((item, i) => {
     this.presentacionesSeleccionadas = {};
   }
 
-  // Inicializar selección
   this.presentacionesSeleccionadas[productoId] = {
     nombreProducto: producto.nombre,
     presentaciones: {}
   };
 
-  // Consultar presentaciones desde backend
-  Utils.request(`/menu/products/${productoId}/presentaciones`).then(response => {
-    const { presentaciones } = response.data;
-    const asignadas = (presentaciones || []).filter(p => p.asignada);
+  const renderSelector = (presentacionesOperativas) => {
+    const asignadas = (presentacionesOperativas || []).filter(p => {
+      const disponible = Number(p.disponible_operacion ?? 1) === 1;
+      const asignada = p.asignada === undefined ? true : Number(p.asignada) === 1;
+      return disponible && asignada;
+    });
 
     if (asignadas.length === 0) {
-      Utils.showNotification("Este producto no tiene presentaciones asignadas.", "info");
+      Utils.showNotification("Este producto no tiene presentaciones operativas asignadas.", "info");
       return;
     }
 
-    // Generar cards con escape seguro (evita problemas con comillas)
     const cardsHTML = asignadas.map(p => {
-      const nombreSafe = encodeURIComponent(p.nombre);
-      const cantidadSafe = encodeURIComponent(p.cantidad);
+      const nombreSafe = encodeURIComponent(p.nombre || 'Presentación');
+      const cantidadSafe = encodeURIComponent(p.cantidad || '');
+      const precio = Number(p.precio_operativo ?? p.precio ?? 0);
+      const presentacionKey = Number(p.producto_presentacion_id || p.id || p.presentacion_id);
 
       return `
         <div class="producto-card" onclick="Orders.agregarPresentacion(
           ${productoId},
-          ${p.id},
+          ${presentacionKey},
           decodeURIComponent('${nombreSafe}'),
-          ${p.precio},
+          ${precio},
           decodeURIComponent('${cantidadSafe}')
         )">
           <div class="producto-nombre">${p.nombre}</div>
-          <div class="producto-precio">₡${parseFloat(p.precio).toFixed(2)}</div>
+          <div class="producto-precio">${Utils.formatCurrency(precio)}</div>
+          ${p.tipo_presentacion_nombre ? `<small class="text-muted">${p.tipo_presentacion_nombre}</small>` : ''}
         </div>
       `;
     }).join('');
 
-    // Mostrar el modal
     Utils.showModal(`Seleccionar presentaciones para: ${producto.nombre}`, `
       <div id="selector-presentaciones-grid" class="productos-grid mb-3">
         ${cardsHTML}
@@ -1606,6 +1749,16 @@ productos.forEach((item, i) => {
         onclick: `Orders.cancelarSeleccionPresentaciones(${productoId})`
       }
     ], 'modal-lg');
+  };
+
+  if (Array.isArray(producto.presentaciones) && producto.presentaciones.length > 0) {
+    renderSelector(producto.presentaciones);
+    return;
+  }
+
+  Utils.request(`/menu/products/${productoId}/presentaciones`).then(response => {
+    const payload = response.data || response;
+    renderSelector(payload.presentaciones || []);
   }).catch(error => {
     console.error("Error cargando presentaciones:", error);
     Utils.showNotification("Error cargando presentaciones del producto", "error");
@@ -1775,13 +1928,17 @@ productos.forEach((item, i) => {
 
   // Refrescar interfaz
   this.updateOrderTotal();
-  this.refreshCreateOrderModalUI();
+  this.refreshOrderModalUI();
   Utils.hideModal();
 
-  // Si está en contexto de creación, volver a mostrar modal
-  if (this.modalContext === 'nuevo' && this.mesaIdActual !== null) {
+  // Volver al modal operativo correspondiente después del selector de presentaciones
+  if (this.modalContext === 'agregar' && this.orderIdActual) {
     setTimeout(() => {
-      this.showCreateOrderModal(this.mesaIdActual);
+      this.showAddProductsModal(this.orderIdActual, true);
+    }, 200);
+  } else if (this.modalContext === 'nuevo') {
+    setTimeout(() => {
+      this.showCreateOrderModal(this.mesaIdActual ?? null);
     }, 200);
   }
     },

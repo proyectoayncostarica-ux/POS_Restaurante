@@ -413,26 +413,44 @@ git commit -m "v2.2.5M.7 fix1: corrige modales y subnavegacion movil de Menu"
 
 ### Objetivo
 
-Con Menú ya normalizado, migrar Cuentas / Orders para consumir la fuente de verdad de Menú de forma limpia.
+Con Menú ya normalizado, migrar Cuentas / Orders para consumir la fuente de verdad de Menú de forma limpia y operativa.
 
-### Alcance previsto
+### Alcance aplicado
 
-- Revisar consumo actual de `orders.js`.
-- Migrar la carga de productos al contrato operativo de Menú.
-- Validar productos con y sin presentación.
-- Validar precios de presentación.
-- Validar cocina/comandas.
-- Revisar la nueva regla de imagen cuando un producto tiene presentación activa.
-- Evitar que Orders reconstruya lógica que ya pertenece a Menú.
+- `orders.js` carga productos/categorías desde `/api/menu/operational-products`.
+- Orders deja de ejecutar `Menu.load()` desde el modal de pedidos para evitar datos administrativos o inactivos.
+- Se reutiliza el selector visual por categorías/subcategorías tanto para nuevo pedido como para agregar productos a una cuenta existente.
+- Los productos con presentación muestran solo presentaciones operativas asignadas al producto.
+- Los precios visibles salen de `precio_operativo`, `precio_minimo` y `precio_maximo`.
+- El payload enviado al backend ya no incluye precio calculado por frontend.
+- `server/routes/orders.js` vuelve a resolver el precio desde SQLite y valida estados activos.
+- Se soportan productos directos de categoría aunque existan subcategorías, mediante opción `Sin subcategoría`.
+- Se mantiene cocina/comanda desde el producto validado.
+
+### Imagen
+
+La nueva regla de imagen por presentación queda pendiente para una subfase posterior. En esta fase se conserva la imagen del producto para no mezclar integración operativa con rediseño del modelo visual de imágenes.
 
 ### Criterio de éxito
 
-- Orders consume productos activos desde Menú sin duplicar lógica.
-- Productos con presentación muestran solo sus presentaciones asignadas.
-- Precios salen desde la relación correcta.
+- Orders consume productos activos desde Menú sin duplicar lógica administrativa.
+- Productos inactivos o ligados a categorías/subcategorías inactivas no aparecen ni pasan validación backend.
+- Productos con presentación exigen presentación válida.
+- Precios salen desde `productos.precio` o `presentaciones_producto.precio`, no desde el frontend.
+- Agregar productos a cuentas existentes soporta productos con presentación.
 - Cocina/comanda sigue funcionando.
-- Imágenes quedan alineadas con la regla final producto/presentación.
 - No se rompen cuentas existentes.
+
+### Archivos esperados
+
+- `README.md`
+- `docs/avance-v2.2.5M.8-integracion-menu-cuentas.md`
+- `docs/roadmap-v2.2.5M-normalizacion-menu.md`
+- `server/routes/menu.js`
+- `server/routes/orders.js`
+- `public/js/components/orders.js`
+- `public/index.html`
+- `public/service-worker.js`
 
 ### Commit sugerido
 

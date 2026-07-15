@@ -557,7 +557,7 @@ async function buildOperationalMenuPayload(options = {}) {
         : normalizedProducts.filter(product => product.disponible_operacion === 1);
 
     return {
-        version_contrato: 'v2.2.5M.6',
+        version_contrato: 'v2.2.5M.8',
         generado_en: new Date().toISOString(),
         categorias: buildOperationalCategoryList(categories, operationalProducts, includeEmptyCategories),
         productos: operationalProducts,
