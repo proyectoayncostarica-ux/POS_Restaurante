@@ -5,13 +5,29 @@ const Menu = {
     presentations: [],
     currentView: 'products', // 'products' o 'categories'
 
+    isActive(value) {
+        return Number(value ?? 1) === 1;
+    },
+
+    renderStatusBadge(value) {
+        return this.isActive(value)
+            ? '<span class="badge badge-success">Activo</span>'
+            : '<span class="badge badge-danger">Inactivo</span>';
+    },
+
+    rowInactiveClass(value) {
+        return this.isActive(value) ? '' : ' class="menu-row-inactive"';
+    },
+
     // Cargar datos del menú
-    async load() {
+    async load(options = {}) {
             try {
+                const includeInactive = options.includeInactive === true || (typeof currentSection !== 'undefined' && currentSection === 'menu');
+                const inactiveQuery = includeInactive ? '?include_inactive=1' : '';
                 const [categoriesResponse, productsResponse, presentationsResponse] = await Promise.all([
-                        Utils.request('/menu/categories'),
-                        Utils.request('/menu/products'),
-                        Utils.request('/menu/presentaciones-globales')
+                        Utils.request(`/menu/categories${inactiveQuery}`),
+                        Utils.request(`/menu/products${inactiveQuery}`),
+                        Utils.request(`/menu/presentaciones-globales${inactiveQuery}`)
                 ]);
 
                 
@@ -109,6 +125,7 @@ const Menu = {
                                 <th>Categoría</th>
                                 <th>Subcategoría</th>
                                 <th>Cocina</th>
+                                <th>Estado</th>
                                 <th>Acciones</th>
                             </tr>
                         </thead>
@@ -125,11 +142,11 @@ const Menu = {
         const products = filteredProducts || this.products;
 
         if (products.length === 0) {
-            return '<tr><td colspan="7" class="text-center">No hay productos configurados</td></tr>';
+            return '<tr><td colspan="8" class="text-center">No hay productos configurados</td></tr>';
         }
 
         return products.map(product => `
-            <tr>
+            <tr${this.rowInactiveClass(product.activo)}>
                 <td><strong>${product.nombre}</strong></td>
                 <td>${product.descripcion || '-'}</td>
                 <td>
@@ -152,13 +169,14 @@ const Menu = {
                             : '<span class="badge badge-info">No</span>'
                     }
                 </td>
+                <td>${this.renderStatusBadge(product.activo)}</td>
                 <td>
                     <div class="d-flex gap-1">
                         <button class="btn btn-secondary btn-sm" onclick="Menu.showEditProductModal(${product.id})">
                             <i class="fas fa-edit"></i>
                         </button>
-                        <button class="btn btn-danger btn-sm" onclick="Menu.deleteProduct(${product.id})">
-                            <i class="fas fa-trash"></i>
+                        <button class="btn ${this.isActive(product.activo) ? 'btn-warning' : 'btn-success'} btn-sm" onclick="Menu.toggleProductActive(${product.id})" title="${this.isActive(product.activo) ? 'Desactivar producto' : 'Activar producto'}">
+                            <i class="fas ${this.isActive(product.activo) ? 'fa-eye-slash' : 'fa-eye'}"></i>
                         </button>
                     </div>
                 </td>
@@ -183,12 +201,13 @@ const Menu = {
                                         <th>Nombre</th>
                                         <th>Permite Cocina</th>
                                         <th>Subcategorías</th>
+                                        <th>Estado</th>
                                         <th>Acciones</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     ${mainCategories.map(category => `
-                                        <tr>
+                                        <tr${this.rowInactiveClass(category.activa)}>
                                             <td><strong>${category.nombre}</strong></td>
                                             <td>
                                                 ${category.permite_cocina ? 
@@ -199,34 +218,20 @@ const Menu = {
                                             <td>
                                                 ${subCategories.filter(sub => sub.parent_id === category.id).length}
                                             </td>
+                                            <td>${this.renderStatusBadge(category.activa)}</td>
                                             <td>
                                                 <div class="d-flex gap-1">
-                                                    <button class="btn btn-success btn-sm" onclick="Menu.showCreateSubcategoryModal(${category.id})">
+                                                    <button class="btn btn-success btn-sm" onclick="Menu.showCreateSubcategoryModal(${category.id})" ${this.isActive(category.activa) ? '' : 'disabled'}>
                                                         <i class="fas fa-plus"></i> Sub
                                                     </button>
                                                     <button class="btn btn-secondary btn-sm" onclick="Menu.showEditCategoryModal(${category.id})">
                                                         <i class="fas fa-edit"></i>
                                                     </button>
-                                                    ${(() => {
-                                                                const tieneSub = subCategories.some(sub => sub.parent_id === category.id);
-                                                                const tieneProd = this.products.some(p => p.categoria_id === category.id || p.subcategoria_id === category.id);
-
-                                                                const deshabilitado = tieneSub || tieneProd;
-                                                                const motivo = tieneSub
-                                                                    ? 'No se puede eliminar: tiene subcategorías asociadas'
-                                                                    : tieneProd
-                                                                        ? 'No se puede eliminar: tiene productos asociados'
-                                                                        : 'Eliminar categoría';
-
-                                                                return `
-                                                                    <button class="btn btn-danger btn-sm" 
-                                                                            onclick="Menu.deleteCategory(${category.id})" 
-                                                                            title="${motivo}"
-                                                                            ${deshabilitado ? 'disabled' : ''}>
-                                                                        <i class="fas fa-trash"></i>
-                                                                    </button>
-                                                                `;
-                                                            })()}
+                                                    <button class="btn ${this.isActive(category.activa) ? 'btn-warning' : 'btn-success'} btn-sm"
+                                                            onclick="Menu.toggleCategoryActive(${category.id})"
+                                                            title="${this.isActive(category.activa) ? 'Desactivar categoría' : 'Activar categoría'}">
+                                                        <i class="fas ${this.isActive(category.activa) ? 'fa-eye-slash' : 'fa-eye'}"></i>
+                                                    </button>
 
                                                 </div>
                                             </td>
@@ -247,12 +252,13 @@ const Menu = {
                                         <th>Nombre</th>
                                         <th>Categoría Padre</th>
                                         <th>Permite Cocina</th>
+                                        <th>Estado</th>
                                         <th>Acciones</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     ${subCategories.map(subcategory => `
-                                        <tr>
+                                        <tr${this.rowInactiveClass(subcategory.activa)}>
                                             <td><strong>${subcategory.nombre}</strong></td>
                                             <td>${subcategory.categoria_padre}</td>
                                             <td>
@@ -261,13 +267,14 @@ const Menu = {
                                                     '<span class="badge badge-danger">No</span>'
                                                 }
                                             </td>
+                                            <td>${this.renderStatusBadge(subcategory.activa)}</td>
                                             <td>
                                                 <div class="d-flex gap-1">
                                                     <button class="btn btn-secondary btn-sm" onclick="Menu.showEditCategoryModal(${subcategory.id})">
                                                         <i class="fas fa-edit"></i>
                                                     </button>
-                                                    <button class="btn btn-danger btn-sm" onclick="Menu.deleteCategory(${subcategory.id})" title="Eliminar subcategoría">
-                                                        <i class="fas fa-trash"></i>
+                                                    <button class="btn ${this.isActive(subcategory.activa) ? 'btn-warning' : 'btn-success'} btn-sm" onclick="Menu.toggleCategoryActive(${subcategory.id})" title="${this.isActive(subcategory.activa) ? 'Desactivar subcategoría' : 'Activar subcategoría'}">
+                                                        <i class="fas ${this.isActive(subcategory.activa) ? 'fa-eye-slash' : 'fa-eye'}"></i>
                                                     </button>
                                                 </div>
                                             </td>
@@ -289,7 +296,7 @@ const Menu = {
             }
 
             try {
-                const response = await Utils.request(`/menu/products/search?q=${encodeURIComponent(query)}`);
+                const response = await Utils.request(`/menu/products/search?q=${encodeURIComponent(query)}&include_inactive=1`);
                 console.log("🔍 Respuesta cruda del backend:", response);
                 document.getElementById('products-table-body').innerHTML = this.renderProductsTable(response.data);
             } catch (error) {
@@ -299,7 +306,7 @@ const Menu = {
 
     //Modal de Creacion de Productos
     showCreateProductModal() {
-    const mainCategories = this.categories.filter(cat => cat.tipo === 'principal');
+    const mainCategories = this.categories.filter(cat => cat.tipo === 'principal' && this.isActive(cat.activa));
 
     Utils.showModal('Nuevo Producto', `
         <form id="create-product-form">
@@ -409,7 +416,7 @@ const Menu = {
     // Cargar subcategorías
     loadSubcategories(categoryId, selectId) {
             const select = document.getElementById(selectId);
-            const subcategories = this.categories.filter(cat => cat.parent_id == categoryId);
+            const subcategories = this.categories.filter(cat => cat.parent_id == categoryId && this.isActive(cat.activa));
             
             select.innerHTML = '<option value="">Seleccione una subcategoría</option>';
             subcategories.forEach(sub => {
@@ -505,6 +512,7 @@ const Menu = {
         if (subcategoria_id) payload.append("subcategoria_id", subcategoria_id);
         payload.append("es_cocina", es_cocina);
         payload.append("tiene_presentaciones", tiene_presentaciones);
+        payload.append("activo", 1);
 
         if (imagenFile && imagenFile.size > 0) {
             payload.append("imagen", imagenFile);
@@ -537,7 +545,7 @@ const Menu = {
     const product = this.products.find(p => p.id === productId);
     if (!product) return;
 
-    const mainCategories = this.categories.filter(cat => cat.tipo === 'principal');
+    const mainCategories = this.categories.filter(cat => cat.tipo === 'principal' && (this.isActive(cat.activa) || cat.id === product.categoria_id));
     const subcategoria = this.categories.find(cat => cat.id === product.subcategoria_id);
     const isCocina = product.es_cocina;
     const tienePresentaciones = product.tiene_presentaciones;
@@ -628,6 +636,13 @@ const Menu = {
                 </label>
                 <small class="text-muted">Este producto ya está marcado como cocina</small>
             </div>` : ''}
+
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="edit-product-activo" name="activo" ${this.isActive(product.activo) ? 'checked' : ''}>
+                    Producto activo para operación
+                </label>
+            </div>
         </form>
     `, [
         {
@@ -719,6 +734,7 @@ const Menu = {
     formData.set('categoria_id', categoriaId);
     formData.set('subcategoria_id', subcategoriaId);
     formData.set('es_cocina', esCocina ? 1 : 0); // Guardamos como 1 o 0
+    formData.set('activo', document.getElementById('edit-product-activo')?.checked ? 1 : 0);
 
     const tienePresentaciones = document.getElementById('edit-product-tiene-presentaciones')?.checked;
 
@@ -769,6 +785,29 @@ const Menu = {
     }
     },
 
+    async toggleProductActive(productId) {
+        const product = this.products.find(p => p.id === productId);
+        if (!product) return;
+
+        const nextActive = this.isActive(product.activo) ? 0 : 1;
+        const confirmed = await Utils.confirm(
+            `¿Desea ${nextActive ? 'activar' : 'desactivar'} el producto "${product.nombre}"?`,
+            `${nextActive ? 'Activar' : 'Desactivar'} producto`
+        );
+        if (!confirmed) return;
+
+        try {
+            await Utils.request(`/menu/products/${productId}/active`, {
+                method: 'PUT',
+                body: JSON.stringify({ activo: nextActive })
+            });
+            Utils.showNotification(`Producto ${nextActive ? 'activado' : 'desactivado'} correctamente`, 'success');
+            this.load();
+        } catch (error) {
+            Utils.showNotification(error.message || 'Error al cambiar estado del producto', 'error');
+        }
+    },
+
     // Eliminar producto
     async deleteProduct(productId) {
         const product = this.products.find(p => p.id === productId);
@@ -795,7 +834,7 @@ const Menu = {
 
     // Mostrar modal para crear categoría
     showCreateCategoryModal() {
-            const mainCategories = this.categories.filter(cat => cat.tipo === 'principal');
+            const mainCategories = this.categories.filter(cat => cat.tipo === 'principal' && this.isActive(cat.activa));
             
             Utils.showModal('Nueva Categoría', `
                 <form id="create-category-form">
@@ -892,6 +931,30 @@ async createCategory() {
             Utils.showNotification(error.message, 'error');
         }
 },
+
+    async toggleCategoryActive(categoryId) {
+        const categoria = this.categories.find(cat => cat.id === categoryId);
+        if (!categoria) return;
+
+        const nextActive = this.isActive(categoria.activa) ? 0 : 1;
+        const tipo = categoria.tipo === 'principal' ? 'categoría' : 'subcategoría';
+        const confirmed = await Utils.confirm(
+            `¿Desea ${nextActive ? 'activar' : 'desactivar'} la ${tipo} "${categoria.nombre}"?`,
+            `${nextActive ? 'Activar' : 'Desactivar'} ${tipo}`
+        );
+        if (!confirmed) return;
+
+        try {
+            await Utils.request(`/menu/categories/${categoryId}`, {
+                method: 'PUT',
+                body: JSON.stringify({ activa: nextActive })
+            });
+            Utils.showNotification(`${tipo.charAt(0).toUpperCase() + tipo.slice(1)} ${nextActive ? 'activada' : 'desactivada'} correctamente`, 'success');
+            this.load();
+        } catch (error) {
+            Utils.showNotification(error.message || `Error al cambiar estado de la ${tipo}`, 'error');
+        }
+    },
 
     //Eliminar Categoría
 async deleteCategory(categoryId) {
@@ -990,18 +1053,20 @@ renderPresentationsView() {
                         <th>Nombre</th>
                         <th>Tipo</th>
                         <th>Cantidad</th>
-                        <th style="width: 100px;">Acciones</th>
+                        <th>Estado</th>
+                        <th style="width: 120px;">Acciones</th>
                     </tr>
                 </thead>
                 <tbody>
                     ${this.presentations.map(pres => `
-                        <tr>
+                        <tr${this.rowInactiveClass(pres.activo)}>
                             <td>${pres.nombre}</td>
                             <td>${pres.tipo}</td>
                             <td>${pres.cantidad || '-'}</td>
+                            <td>${this.renderStatusBadge(pres.activo)}</td>
                             <td>
-                                <button class="btn btn-sm btn-danger" onclick="Menu.deletePresentation(${pres.id})">
-                                    <i class="fas fa-trash-alt"></i>
+                                <button class="btn btn-sm ${this.isActive(pres.activo) ? 'btn-warning' : 'btn-success'}" onclick="Menu.togglePresentationActive(${pres.id})" title="${this.isActive(pres.activo) ? 'Desactivar presentación' : 'Activar presentación'}">
+                                    <i class="fas ${this.isActive(pres.activo) ? 'fa-eye-slash' : 'fa-eye'}"></i>
                                 </button>
                             </td>
                         </tr>
@@ -1069,6 +1134,29 @@ async savePresentation() {
         Utils.showNotification(error.message || 'Error al guardar', 'error');
     }
 },
+    async togglePresentationActive(id) {
+        const presentation = this.presentations.find(p => p.id === id);
+        if (!presentation) return;
+
+        const nextActive = this.isActive(presentation.activo) ? 0 : 1;
+        const confirmed = await Utils.confirm(
+            `¿Desea ${nextActive ? 'activar' : 'desactivar'} la presentación "${presentation.nombre}"?`,
+            `${nextActive ? 'Activar' : 'Desactivar'} presentación`
+        );
+        if (!confirmed) return;
+
+        try {
+            await Utils.request(`/menu/presentaciones-globales/${id}/active`, {
+                method: 'PUT',
+                body: JSON.stringify({ activo: nextActive })
+            });
+            Utils.showNotification(`Presentación ${nextActive ? 'activada' : 'desactivada'} correctamente`, 'success');
+            this.load();
+        } catch (error) {
+            Utils.showNotification(error.message || 'Error al cambiar estado de la presentación', 'error');
+        }
+    },
+
     // Borrar presentación
 async deletePresentation(id) {
     if (!confirm('¿Estás seguro de eliminar esta presentación?')) return;

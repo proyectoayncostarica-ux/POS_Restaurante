@@ -48,3 +48,22 @@ data/restaurant_backup_manual.db
 
 certs/
 public/mundipos-rootCA.crt
+
+# MundiPOS - archivos locales / sensibles
+.env
+.env.*
+!.env.example
+
+certs/
+*.pem
+*.key
+cookies.txt
+
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/backups/
+
+public/mundipos-rootCA.crt
+
+node_modules/

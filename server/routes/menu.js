@@ -47,6 +47,14 @@ function parseBoolean(value) {
     return value === true || value === 1 || value === '1' || value === 'true' || value === 'on';
 }
 
+function isActive(value) {
+    return Number(value ?? 1) === 1;
+}
+
+function shouldIncludeInactive(req) {
+    return parseBoolean(req.query.include_inactive) || parseBoolean(req.query.includeInactive) || parseBoolean(req.query.include_invalid);
+}
+
 function parseNumber(value, fallback = null) {
     if (value === undefined || value === null || value === '') return fallback;
     const parsed = Number(value);
@@ -74,6 +82,10 @@ async function validarCategoria(categoriaId, subcategoriaId, esCocina) {
         return 'Categoría no encontrada';
     }
 
+    if (!isActive(categoria.activa)) {
+        return 'La categoría seleccionada está inactiva';
+    }
+
     if (subcategoriaId) {
         const subcategoria = await database.get(
             'SELECT * FROM categorias WHERE id = ? AND parent_id = ?',
@@ -81,6 +93,10 @@ async function validarCategoria(categoriaId, subcategoriaId, esCocina) {
         );
         if (!subcategoria) {
             return 'Subcategoría no válida para esta categoría';
+        }
+
+        if (!isActive(subcategoria.activa)) {
+            return 'La subcategoría seleccionada está inactiva';
         }
 
         if (esCocina && !subcategoria.permite_cocina && !categoria.permite_cocina) {
@@ -92,6 +108,7 @@ async function validarCategoria(categoriaId, subcategoriaId, esCocina) {
 
     return null;
 }
+
 
 
 function moneyNumber(value, fallback = 0) {
@@ -279,9 +296,11 @@ function buildOperationalCategoryList(categories, products, includeEmpty = false
             tipo: category.parent_id ? 'subcategoria' : 'principal',
             categoria_padre: category.categoria_padre || null,
             permite_cocina: Number(category.permite_cocina) === 1 ? 1 : 0,
+            activa: isActive(category.activa) ? 1 : 0,
+            disponible_operacion: isActive(category.activa) ? 1 : 0,
             total_productos_operativos: counters.get(Number(category.id)) || 0
         }))
-        .filter(category => includeEmpty || category.total_productos_operativos > 0 || category.tipo === 'principal');
+        .filter(category => (includeEmpty || category.activa === 1) && (includeEmpty || category.total_productos_operativos > 0 || category.tipo === 'principal'));
 }
 
 async function buildOperationalMenuPayload(options = {}) {
@@ -289,7 +308,7 @@ async function buildOperationalMenuPayload(options = {}) {
     const includeEmptyCategories = options.includeEmptyCategories === true;
 
     const categories = await database.all(`
-        SELECT c.id, c.nombre, c.parent_id, c.permite_cocina, p.nombre AS categoria_padre
+        SELECT c.id, c.nombre, c.parent_id, c.permite_cocina, COALESCE(c.activa, 1) AS activa, p.nombre AS categoria_padre, COALESCE(p.activa, 1) AS categoria_padre_activa
         FROM categorias c
         LEFT JOIN categorias p ON c.parent_id = p.id
         ORDER BY c.parent_id IS NOT NULL, c.parent_id, c.nombre
@@ -305,10 +324,13 @@ async function buildOperationalMenuPayload(options = {}) {
             p.subcategoria_id,
             p.es_cocina,
             p.imagen,
+            COALESCE(p.activo, 1) AS activo,
             c.nombre AS categoria_nombre,
             c.permite_cocina AS categoria_permite_cocina,
+            COALESCE(c.activa, 1) AS categoria_activa,
             s.nombre AS subcategoria_nombre,
-            s.permite_cocina AS subcategoria_permite_cocina
+            s.permite_cocina AS subcategoria_permite_cocina,
+            COALESCE(s.activa, 1) AS subcategoria_activa
         FROM productos p
         JOIN categorias c ON p.categoria_id = c.id
         LEFT JOIN categorias s ON p.subcategoria_id = s.id
@@ -349,6 +371,9 @@ async function buildOperationalMenuPayload(options = {}) {
         const tienePresentacionesConfiguradas = presentacionesConfiguradas.length > 0;
         const tienePresentacionesOperativas = presentacionesValidas.length > 0;
         const bloqueos = [];
+        if (!isActive(product.activo)) bloqueos.push('Producto inactivo');
+        if (!isActive(product.categoria_activa)) bloqueos.push('Categoría inactiva');
+        if (product.subcategoria_id && !isActive(product.subcategoria_activa)) bloqueos.push('Subcategoría inactiva');
         let precioOperativo = null;
         let origenPrecio = tienePresentacionesConfiguradas ? 'presentacion' : 'producto';
         let precioMinimo = null;
@@ -390,10 +415,13 @@ async function buildOperationalMenuPayload(options = {}) {
             descripcion: product.descripcion || '',
             imagen: normalizeProductImage(product),
             imagen_url: normalizeProductImage(product),
+            activo: isActive(product.activo) ? 1 : 0,
             categoria_id: Number(product.categoria_id),
             categoria_nombre: product.categoria_nombre,
+            categoria_activa: isActive(product.categoria_activa) ? 1 : 0,
             subcategoria_id: product.subcategoria_id ? Number(product.subcategoria_id) : null,
             subcategoria_nombre: product.subcategoria_nombre || null,
+            subcategoria_activa: product.subcategoria_id ? (isActive(product.subcategoria_activa) ? 1 : 0) : null,
             categoria_operativa: categoriaNombre,
             es_cocina: Number(product.es_cocina) === 1 ? 1 : 0,
             requiere_comanda: Number(product.es_cocina) === 1 ? 1 : 0,
@@ -419,7 +447,7 @@ async function buildOperationalMenuPayload(options = {}) {
         : normalizedProducts.filter(product => product.disponible_operacion === 1);
 
     return {
-        version_contrato: 'v2.2.5M.3',
+        version_contrato: 'v2.2.5M.4',
         generado_en: new Date().toISOString(),
         categorias: buildOperationalCategoryList(categories, operationalProducts, includeEmptyCategories),
         productos: operationalProducts,
@@ -435,14 +463,17 @@ async function buildOperationalMenuPayload(options = {}) {
 // Obtener todas las categorías
 router.get('/categories', async (req, res) => {
     try {
+        const includeInactive = shouldIncludeInactive(req);
         const categories = await database.all(`
-            SELECT c.*, 
+            SELECT c.*, COALESCE(c.activa, 1) AS activa,
                    CASE WHEN c.parent_id IS NULL THEN 'principal' ELSE 'subcategoria' END as tipo,
-                   p.nombre as categoria_padre
+                   p.nombre as categoria_padre,
+                   COALESCE(p.activa, 1) AS categoria_padre_activa
             FROM categorias c
             LEFT JOIN categorias p ON c.parent_id = p.id
-            ORDER BY c.parent_id, c.nombre
-        `);
+            WHERE (? = 1 OR COALESCE(c.activa, 1) = 1)
+            ORDER BY COALESCE(c.activa, 1) DESC, c.parent_id, c.nombre
+        `, [includeInactive ? 1 : 0]);
 
         res.json({ success: true, data: categories });
     } catch (error) {
@@ -454,7 +485,7 @@ router.get('/categories', async (req, res) => {
 // Crear nueva categoría
 router.post('/categories', async (req, res) => {
     try {
-        const { nombre, parent_id, permite_cocina } = req.body;
+        const { nombre, parent_id, permite_cocina, activa } = req.body;
         const nombreLimpio = String(nombre || '').trim();
 
         if (!nombreLimpio) {
@@ -468,15 +499,18 @@ router.post('/categories', async (req, res) => {
 
         const parentId = parseNumber(parent_id, null);
         if (parentId) {
-            const parentCategory = await database.get('SELECT id FROM categorias WHERE id = ?', [parentId]);
+            const parentCategory = await database.get('SELECT id, activa FROM categorias WHERE id = ?', [parentId]);
             if (!parentCategory) {
                 return res.status(400).json({ error: 'Categoría padre no encontrada' });
+            }
+            if (!isActive(parentCategory.activa)) {
+                return res.status(400).json({ error: 'No se puede crear una subcategoría dentro de una categoría inactiva' });
             }
         }
 
         const result = await database.run(
-            'INSERT INTO categorias (nombre, parent_id, permite_cocina) VALUES (?, ?, ?)',
-            [nombreLimpio, parentId, parseBoolean(permite_cocina) ? 1 : 0]
+            'INSERT INTO categorias (nombre, parent_id, permite_cocina, activa) VALUES (?, ?, ?, ?)',
+            [nombreLimpio, parentId, parseBoolean(permite_cocina) ? 1 : 0, activa === undefined ? 1 : (parseBoolean(activa) ? 1 : 0)]
         );
 
         await database.run(
@@ -486,7 +520,7 @@ router.post('/categories', async (req, res) => {
 
         res.json({
             success: true,
-            data: { id: result.id, nombre: nombreLimpio, parent_id: parentId, permite_cocina: parseBoolean(permite_cocina) ? 1 : 0 }
+            data: { id: result.id, nombre: nombreLimpio, parent_id: parentId, permite_cocina: parseBoolean(permite_cocina) ? 1 : 0, activa: activa === undefined ? 1 : (parseBoolean(activa) ? 1 : 0) }
         });
     } catch (error) {
         console.error('Error creando categoría:', error);
@@ -494,10 +528,9 @@ router.post('/categories', async (req, res) => {
     }
 });
 
-// Eliminar categoría o subcategoría
-router.delete('/categories/:id', async (req, res) => {
+// Actualizar categoría o subcategoría
+router.put('/categories/:id', async (req, res) => {
     const { id } = req.params;
-    let transactionStarted = false;
 
     try {
         const categoria = await database.get('SELECT * FROM categorias WHERE id = ?', [id]);
@@ -505,38 +538,63 @@ router.delete('/categories/:id', async (req, res) => {
             return res.status(404).json({ error: 'Categoría no encontrada' });
         }
 
-        if (!categoria.parent_id) {
-            const subcategorias = await database.get('SELECT COUNT(*) as count FROM categorias WHERE parent_id = ?', [id]);
-            if (subcategorias.count > 0) {
-                return res.status(400).json({ error: 'No se puede eliminar una categoría con subcategorías asociadas' });
-            }
+        const nombre = req.body.nombre !== undefined ? String(req.body.nombre || '').trim() : categoria.nombre;
+        const permiteCocina = req.body.permite_cocina !== undefined ? (parseBoolean(req.body.permite_cocina) ? 1 : 0) : Number(categoria.permite_cocina || 0);
+        const activa = req.body.activa !== undefined || req.body.activo !== undefined
+            ? (parseBoolean(req.body.activa ?? req.body.activo) ? 1 : 0)
+            : isActive(categoria.activa) ? 1 : 0;
+
+        if (!nombre) {
+            return res.status(400).json({ error: 'Nombre de categoría es requerido' });
         }
 
-        const productosAsociados = await database.get(`
-            SELECT COUNT(*) as count FROM productos
-            WHERE categoria_id = ? OR subcategoria_id = ?
-        `, [id, id]);
-
-        if (productosAsociados.count > 0) {
-            return res.status(400).json({ error: 'No se puede eliminar una categoría en uso por productos' });
+        const duplicate = await database.get('SELECT id FROM categorias WHERE nombre = ? AND id != ?', [nombre, id]);
+        if (duplicate) {
+            return res.status(400).json({ error: 'Ya existe una categoría con ese nombre' });
         }
 
-        await database.run('BEGIN');
-        transactionStarted = true;
-        await database.run('DELETE FROM categorias WHERE id = ?', [id]);
+        await database.run(`
+            UPDATE categorias
+            SET nombre = ?, permite_cocina = ?, activa = ?
+            WHERE id = ?
+        `, [nombre, permiteCocina, activa, id]);
+
         await database.run(
             'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
-            ['eliminar_categoria', req.session.userId, `Categoría "${categoria.nombre}" eliminada`, new Date().toISOString()]
+            ['actualizar_categoria', req.session.userId, `Categoría ${nombre} actualizada (${activa ? 'activa' : 'inactiva'})`, new Date().toISOString()]
         );
-        await database.run('COMMIT');
 
-        res.json({ success: true, message: 'Categoría eliminada correctamente' });
+        res.json({ success: true, message: 'Categoría actualizada correctamente', data: { id: Number(id), nombre, permite_cocina: permiteCocina, activa } });
     } catch (error) {
-        if (transactionStarted) await database.run('ROLLBACK').catch(() => {});
-        console.error('Error eliminando categoría:', error);
+        console.error('Error actualizando categoría:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
+
+// Eliminar categoría o subcategoría
+// En v2.2.5M.4 la eliminación operativa se convierte en desactivación segura.
+router.delete('/categories/:id', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const categoria = await database.get('SELECT * FROM categorias WHERE id = ?', [id]);
+        if (!categoria) {
+            return res.status(404).json({ error: 'Categoría no encontrada' });
+        }
+
+        await database.run('UPDATE categorias SET activa = 0 WHERE id = ?', [id]);
+        await database.run(
+            'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+            ['desactivar_categoria', req.session.userId, `Categoría "${categoria.nombre}" desactivada`, new Date().toISOString()]
+        );
+
+        res.json({ success: true, message: 'Categoría desactivada correctamente' });
+    } catch (error) {
+        console.error('Error desactivando categoría:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
 
 
 
@@ -564,21 +622,30 @@ router.get('/operational-products', async (req, res) => {
 // Obtener todos los productos
 router.get('/products', async (req, res) => {
     try {
+        const includeInactive = shouldIncludeInactive(req);
         const products = await database.all(`
             SELECT 
-                p.*, 
+                p.*,
+                COALESCE(p.activo, 1) AS activo,
                 c.nombre as categoria_nombre,
+                COALESCE(c.activa, 1) AS categoria_activa,
                 s.nombre as subcategoria_nombre,
+                COALESCE(s.activa, 1) AS subcategoria_activa,
                 EXISTS (
                     SELECT 1
                     FROM presentaciones_producto pp
-                    WHERE pp.producto_id = p.id AND pp.activo = 1
+                    JOIN presentaciones pr ON pp.presentacion_id = pr.id
+                    WHERE pp.producto_id = p.id
+                      AND COALESCE(pp.activo, 1) = 1
+                      AND COALESCE(pr.activo, 1) = 1
+                      AND COALESCE(pp.precio, 0) > 0
                 ) AS tiene_presentaciones
             FROM productos p
             JOIN categorias c ON p.categoria_id = c.id
             LEFT JOIN categorias s ON p.subcategoria_id = s.id
-            ORDER BY c.nombre, s.nombre, p.nombre
-        `);
+            WHERE (? = 1 OR (COALESCE(p.activo, 1) = 1 AND COALESCE(c.activa, 1) = 1 AND (p.subcategoria_id IS NULL OR COALESCE(s.activa, 1) = 1)))
+            ORDER BY COALESCE(p.activo, 1) DESC, c.nombre, s.nombre, p.nombre
+        `, [includeInactive ? 1 : 0]);
 
         res.json({ success: true, data: products });
     } catch (error) {
@@ -591,22 +658,25 @@ router.get('/products', async (req, res) => {
 router.get('/products/search', async (req, res) => {
     try {
         const { q } = req.query;
+        const includeInactive = shouldIncludeInactive(req);
         if (!q) {
             return res.status(400).json({ error: 'Término de búsqueda requerido' });
         }
 
         const products = await database.all(`
-            SELECT p.*, c.nombre as categoria_nombre, s.nombre as subcategoria_nombre,
+            SELECT p.*, COALESCE(p.activo, 1) AS activo, c.nombre as categoria_nombre, COALESCE(c.activa, 1) AS categoria_activa, s.nombre as subcategoria_nombre, COALESCE(s.activa, 1) AS subcategoria_activa,
                    EXISTS (
                        SELECT 1 FROM presentaciones_producto pp
-                       WHERE pp.producto_id = p.id AND pp.activo = 1
+                       JOIN presentaciones pr ON pp.presentacion_id = pr.id
+                       WHERE pp.producto_id = p.id AND COALESCE(pp.activo, 1) = 1 AND COALESCE(pr.activo, 1) = 1 AND COALESCE(pp.precio, 0) > 0
                    ) AS tiene_presentaciones
             FROM productos p
             JOIN categorias c ON p.categoria_id = c.id
             LEFT JOIN categorias s ON p.subcategoria_id = s.id
-            WHERE p.nombre LIKE ? OR COALESCE(p.descripcion, '') LIKE ?
+            WHERE (p.nombre LIKE ? OR COALESCE(p.descripcion, '') LIKE ?)
+              AND (? = 1 OR (COALESCE(p.activo, 1) = 1 AND COALESCE(c.activa, 1) = 1 AND (p.subcategoria_id IS NULL OR COALESCE(s.activa, 1) = 1)))
             ORDER BY p.nombre
-        `, [`%${q}%`, `%${q}%`]);
+        `, [`%${q}%`, `%${q}%`, includeInactive ? 1 : 0]);
 
         res.json({ success: true, data: products });
     } catch (error) {
@@ -614,6 +684,7 @@ router.get('/products/search', async (req, res) => {
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
+
 
 // Obtener presentaciones de un producto
 router.get('/products/:id/presentaciones', async (req, res) => {
@@ -683,6 +754,7 @@ router.post('/products', subirImagen, async (req, res) => {
         const presentacionesSeleccionadas = parseArray(req.body.presentaciones_seleccionadas);
         const precio = tienePresentaciones ? 0 : parseNumber(req.body.precio, NaN);
         const imagen = uploadedImagePath(req);
+        const activo = req.body.activo === undefined ? 1 : (parseBoolean(req.body.activo) ? 1 : 0);
 
         if (!nombre || !categoriaId || (!tienePresentaciones && (!Number.isFinite(precio) || precio <= 0))) {
             return res.status(400).json({ error: 'Nombre, precio (o presentaciones) y categoría son requeridos' });
@@ -705,9 +777,9 @@ router.post('/products', subirImagen, async (req, res) => {
         transactionStarted = true;
 
         const result = await database.run(
-            `INSERT INTO productos (nombre, descripcion, precio, categoria_id, subcategoria_id, es_cocina, imagen)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [nombre, descripcion, Number.isFinite(precio) ? precio : 0, categoriaId, subcategoriaId, esCocina ? 1 : 0, imagen]
+            `INSERT INTO productos (nombre, descripcion, precio, categoria_id, subcategoria_id, es_cocina, imagen, activo)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [nombre, descripcion, Number.isFinite(precio) ? precio : 0, categoriaId, subcategoriaId, esCocina ? 1 : 0, imagen, activo]
         );
 
         const productoId = result.id;
@@ -734,6 +806,7 @@ router.post('/products', subirImagen, async (req, res) => {
                 subcategoria_id: subcategoriaId,
                 es_cocina: esCocina ? 1 : 0,
                 imagen,
+                activo,
                 tiene_presentaciones: tienePresentaciones ? 1 : 0
             }
         });
@@ -766,6 +839,7 @@ router.put('/products/:id', subirImagen, async (req, res) => {
             : parseArray(req.body.presentaciones_seleccionadas);
         const precio = tienePresentaciones ? 0 : parseNumber(req.body.precio, producto.precio || 0);
         const imagen = uploadedImagePath(req) || producto.imagen || null;
+        const activo = req.body.activo === undefined ? (isActive(producto.activo) ? 1 : 0) : (parseBoolean(req.body.activo) ? 1 : 0);
 
         if (!nombre || !categoriaId || (!tienePresentaciones && (!Number.isFinite(precio) || precio <= 0))) {
             return res.status(400).json({ error: 'Nombre, categoría y precio válido son requeridos' });
@@ -789,9 +863,9 @@ router.put('/products/:id', subirImagen, async (req, res) => {
 
         await database.run(`
             UPDATE productos
-            SET nombre = ?, descripcion = ?, precio = ?, categoria_id = ?, subcategoria_id = ?, es_cocina = ?, imagen = ?
+            SET nombre = ?, descripcion = ?, precio = ?, categoria_id = ?, subcategoria_id = ?, es_cocina = ?, imagen = ?, activo = ?
             WHERE id = ?
-        `, [nombre, descripcion, precio, categoriaId, subcategoriaId, esCocina ? 1 : 0, imagen, id]);
+        `, [nombre, descripcion, precio, categoriaId, subcategoriaId, esCocina ? 1 : 0, imagen, activo, id]);
 
         await upsertProductPresentations(id, tienePresentaciones ? presentacionesValidadas.presentaciones : []);
 
@@ -810,10 +884,9 @@ router.put('/products/:id', subirImagen, async (req, res) => {
     }
 });
 
-// Eliminar producto
-router.delete('/products/:id', async (req, res) => {
+// Cambiar estado activo/inactivo de producto
+router.put('/products/:id/active', async (req, res) => {
     const { id } = req.params;
-    let transactionStarted = false;
 
     try {
         const producto = await database.get('SELECT * FROM productos WHERE id = ?', [id]);
@@ -821,51 +894,61 @@ router.delete('/products/:id', async (req, res) => {
             return res.status(404).json({ error: 'Producto no encontrado' });
         }
 
-        const pedidosPendientes = await database.get(`
-            SELECT COUNT(*) as count
-            FROM pedido_productos pp
-            JOIN pedidos p ON pp.pedido_id = p.id
-            WHERE pp.producto_id = ? AND p.estado = ?
-        `, [id, 'pendiente']);
-
-        if (pedidosPendientes.count > 0) {
-            return res.status(400).json({ error: 'No se puede eliminar un producto que está en pedidos pendientes' });
-        }
-
-        await database.run('BEGIN');
-        transactionStarted = true;
-        await database.run('DELETE FROM presentaciones_producto WHERE producto_id = ?', [id]);
-        await database.run('DELETE FROM productos WHERE id = ?', [id]);
+        const activo = parseBoolean(req.body.activo) ? 1 : 0;
+        await database.run('UPDATE productos SET activo = ? WHERE id = ?', [activo, id]);
         await database.run(
             'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
-            ['eliminar_producto', req.session.userId, `Producto ${producto.nombre} eliminado`, new Date().toISOString()]
+            [activo ? 'activar_producto' : 'desactivar_producto', req.session.userId, `Producto ${producto.nombre} ${activo ? 'activado' : 'desactivado'}`, new Date().toISOString()]
         );
-        await database.run('COMMIT');
 
-        res.json({ success: true, message: 'Producto eliminado exitosamente' });
+        res.json({ success: true, message: `Producto ${activo ? 'activado' : 'desactivado'} correctamente`, data: { id: Number(id), activo } });
     } catch (error) {
-        if (transactionStarted) await database.run('ROLLBACK').catch(() => {});
-        console.error('Error eliminando producto:', error);
+        console.error('Error cambiando estado del producto:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
+// Eliminar producto
+// En v2.2.5M.4 el delete operativo desactiva para conservar historial.
+router.delete('/products/:id', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const producto = await database.get('SELECT * FROM productos WHERE id = ?', [id]);
+        if (!producto) {
+            return res.status(404).json({ error: 'Producto no encontrado' });
+        }
+
+        await database.run('UPDATE productos SET activo = 0 WHERE id = ?', [id]);
+        await database.run(
+            'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+            ['desactivar_producto', req.session.userId, `Producto ${producto.nombre} desactivado`, new Date().toISOString()]
+        );
+
+        res.json({ success: true, message: 'Producto desactivado correctamente' });
+    } catch (error) {
+        console.error('Error desactivando producto:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+
 // Obtener menú completo organizado por categoría > subcategoría > productos > presentaciones
 router.get('/completo', async (req, res) => {
     try {
-        const categorias = await database.all('SELECT * FROM categorias WHERE parent_id IS NULL ORDER BY nombre');
+        const categorias = await database.all('SELECT * FROM categorias WHERE parent_id IS NULL AND COALESCE(activa, 1) = 1 ORDER BY nombre');
         const menu = [];
 
         for (const categoria of categorias) {
             const subcategorias = await database.all(
-                'SELECT * FROM categorias WHERE parent_id = ? ORDER BY nombre',
+                'SELECT * FROM categorias WHERE parent_id = ? AND COALESCE(activa, 1) = 1 ORDER BY nombre',
                 [categoria.id]
             );
 
             const subcategoriasEstructuradas = [];
             for (const sub of subcategorias) {
                 const productos = await database.all(
-                    'SELECT * FROM productos WHERE categoria_id = ? AND subcategoria_id = ? ORDER BY nombre',
+                    'SELECT * FROM productos WHERE categoria_id = ? AND subcategoria_id = ? AND COALESCE(activo, 1) = 1 ORDER BY nombre',
                     [categoria.id, sub.id]
                 );
 
@@ -901,12 +984,13 @@ router.get('/completo', async (req, res) => {
 
 router.get('/presentaciones-globales', async (req, res) => {
     try {
+        const includeInactive = shouldIncludeInactive(req);
         const presentaciones = await database.all(`
-            SELECT id, nombre, tipo, cantidad, activo
+            SELECT id, nombre, tipo, cantidad, COALESCE(activo, 1) AS activo
             FROM presentaciones
-            WHERE activo = 1
-            ORDER BY nombre ASC
-        `);
+            WHERE (? = 1 OR COALESCE(activo, 1) = 1)
+            ORDER BY COALESCE(activo, 1) DESC, nombre ASC
+        `, [includeInactive ? 1 : 0]);
 
         res.json({ success: true, data: presentaciones });
     } catch (error) {
@@ -914,6 +998,7 @@ router.get('/presentaciones-globales', async (req, res) => {
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
+
 
 router.post('/presentaciones-globales', async (req, res) => {
     try {
@@ -949,29 +1034,89 @@ router.post('/presentaciones-globales', async (req, res) => {
     }
 });
 
+router.put('/presentaciones-globales/:id', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const presentacion = await database.get('SELECT * FROM presentaciones WHERE id = ?', [id]);
+        if (!presentacion) {
+            return res.status(404).json({ error: 'Presentación no encontrada' });
+        }
+
+        const nombre = req.body.nombre !== undefined ? String(req.body.nombre || '').trim() : presentacion.nombre;
+        const tipo = req.body.tipo !== undefined ? (req.body.tipo || 'tamaño') : (presentacion.tipo || 'tamaño');
+        const cantidad = req.body.cantidad !== undefined ? (req.body.cantidad || null) : presentacion.cantidad;
+        const activo = req.body.activo !== undefined ? (parseBoolean(req.body.activo) ? 1 : 0) : (isActive(presentacion.activo) ? 1 : 0);
+
+        if (!nombre) {
+            return res.status(400).json({ error: 'El nombre es requerido' });
+        }
+
+        await database.run(`
+            UPDATE presentaciones
+            SET nombre = ?, tipo = ?, cantidad = ?, activo = ?, actualizado_en = ?
+            WHERE id = ?
+        `, [nombre, tipo, cantidad, activo, new Date().toISOString(), id]);
+
+        await database.run(
+            'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+            ['actualizar_presentacion', req.session.userId, `Presentación ${nombre} actualizada (${activo ? 'activa' : 'inactiva'})`, new Date().toISOString()]
+        );
+
+        res.json({ success: true, data: { id: Number(id), nombre, tipo, cantidad, activo } });
+    } catch (error) {
+        if (error.message && error.message.includes('UNIQUE constraint failed')) {
+            return res.status(400).json({ error: 'Ya existe una presentación con ese nombre' });
+        }
+        console.error('Error al actualizar presentación global:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+router.put('/presentaciones-globales/:id/active', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const presentacion = await database.get('SELECT * FROM presentaciones WHERE id = ?', [id]);
+        if (!presentacion) {
+            return res.status(404).json({ error: 'Presentación no encontrada' });
+        }
+
+        const activo = parseBoolean(req.body.activo) ? 1 : 0;
+        await database.run('UPDATE presentaciones SET activo = ?, actualizado_en = ? WHERE id = ?', [activo, new Date().toISOString(), id]);
+        await database.run(
+            'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+            [activo ? 'activar_presentacion' : 'desactivar_presentacion', req.session.userId, `Presentación ${presentacion.nombre} ${activo ? 'activada' : 'desactivada'}`, new Date().toISOString()]
+        );
+
+        res.json({ success: true, message: `Presentación ${activo ? 'activada' : 'desactivada'} correctamente`, data: { id: Number(id), activo } });
+    } catch (error) {
+        console.error('Error cambiando estado de presentación:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
 router.delete('/presentaciones-globales/:id', async (req, res) => {
     const { id } = req.params;
 
     try {
-        const asociada = await database.get(
-            'SELECT COUNT(*) as count FROM presentaciones_producto WHERE presentacion_id = ? AND activo = 1',
-            [id]
-        );
-
-        if (asociada.count > 0) {
-            await database.run('UPDATE presentaciones SET activo = 0, actualizado_en = ? WHERE id = ?', [new Date().toISOString(), id]);
-        } else {
-            const result = await database.run('DELETE FROM presentaciones WHERE id = ?', [id]);
-            if (result.changes === 0) {
-                return res.status(404).json({ error: 'Presentación no encontrada' });
-            }
+        const presentacion = await database.get('SELECT * FROM presentaciones WHERE id = ?', [id]);
+        if (!presentacion) {
+            return res.status(404).json({ error: 'Presentación no encontrada' });
         }
 
-        res.json({ success: true });
+        await database.run('UPDATE presentaciones SET activo = 0, actualizado_en = ? WHERE id = ?', [new Date().toISOString(), id]);
+        await database.run(
+            'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+            ['desactivar_presentacion', req.session.userId, `Presentación ${presentacion.nombre} desactivada`, new Date().toISOString()]
+        );
+
+        res.json({ success: true, message: 'Presentación desactivada correctamente' });
     } catch (error) {
-        console.error('Error al eliminar presentación:', error);
+        console.error('Error al desactivar presentación:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
+
 
 module.exports = router;

@@ -8756,3 +8756,20 @@ body {
     }
 }
 
+
+/* v2.2.5M.4 · Estados activo/inactivo del módulo Menú */
+.menu-row-inactive {
+    opacity: 0.58;
+    background: rgba(44, 62, 80, 0.035);
+}
+
+.menu-row-inactive td,
+.menu-row-inactive strong {
+    color: rgba(44, 62, 80, 0.62);
+}
+
+.menu-row-inactive .badge-danger {
+    color: #7f1d1d;
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.18);
+}

@@ -647,3 +647,13 @@ Archivos modificados en esta subfase:
 - `README.md`
 - `docs/avance-v2.2.5M.3-presentaciones-precios.md`
 - `server/routes/menu.js`
+
+### v2.2.5M.4 · Estado activo/inactivo de productos, categorías y presentaciones
+
+- Se normaliza Menú para ocultar elementos operativos sin borrarlos.
+- Se agrega soporte compatible para `categorias.activa` y `productos.activo`.
+- Productos, categorías, subcategorías y presentaciones pueden activarse/desactivarse desde Menú.
+- Los elementos inactivos no aparecen en el flujo operativo ni en `GET /api/menu/operational-products` por defecto.
+- Los elementos históricos no se eliminan para proteger cuentas, pagos y reportes.
+- El contrato de productos operativos avanza a `v2.2.5M.4`.
+- Documento técnico: `docs/avance-v2.2.5M.4-estados-activos-menu.md`.

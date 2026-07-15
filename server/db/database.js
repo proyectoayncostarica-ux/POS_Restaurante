@@ -146,6 +146,7 @@ class Database {
                 nombre TEXT NOT NULL UNIQUE,
                 parent_id INTEGER,
                 permite_cocina INTEGER NOT NULL DEFAULT 0,
+                activa INTEGER NOT NULL DEFAULT 1,
                 FOREIGN KEY (parent_id) REFERENCES categorias (id) ON DELETE RESTRICT
             )`,
 
@@ -158,6 +159,7 @@ class Database {
                 subcategoria_id INTEGER,
                 es_cocina INTEGER NOT NULL DEFAULT 0,
                 imagen TEXT,
+                activo INTEGER NOT NULL DEFAULT 1,
                 FOREIGN KEY (categoria_id) REFERENCES categorias (id) ON DELETE RESTRICT,
                 FOREIGN KEY (subcategoria_id) REFERENCES categorias (id) ON DELETE SET NULL
             )`,
@@ -378,7 +380,9 @@ class Database {
         await this.normalizeLegacyTableColumns();
         await this.createDynamicModelIndexes();
 
+        await this.ensureColumn('categorias', 'activa', 'INTEGER NOT NULL DEFAULT 1');
         await this.ensureColumn('productos', 'imagen', 'TEXT');
+        await this.ensureColumn('productos', 'activo', 'INTEGER NOT NULL DEFAULT 1');
         await this.ensureColumn('presentaciones', 'tipo', "TEXT DEFAULT 'tamaño'");
         await this.ensureColumn('presentaciones', 'cantidad', 'TEXT');
         await this.ensureColumn('presentaciones', 'activo', 'INTEGER NOT NULL DEFAULT 1');
@@ -388,6 +392,10 @@ class Database {
         await this.ensureColumn('presentaciones_producto', 'creado_en', 'TEXT DEFAULT CURRENT_TIMESTAMP');
         await this.ensureColumn('presentaciones_producto', 'actualizado_en', 'TEXT DEFAULT CURRENT_TIMESTAMP');
         await this.ensureColumn('presentaciones_producto', 'imagen', 'TEXT');
+        await this.run(`UPDATE categorias SET activa = 1 WHERE activa IS NULL`);
+        await this.run(`UPDATE productos SET activo = 1 WHERE activo IS NULL`);
+        await this.run(`UPDATE presentaciones SET activo = 1 WHERE activo IS NULL`);
+        await this.run(`UPDATE presentaciones_producto SET activo = 1 WHERE activo IS NULL`);
 
         await this.ensureColumn('pedidos', 'cliente_nombre', 'TEXT');
         await this.ensureColumn('pedidos', 'rol_trabajo_id', 'INTEGER');
