@@ -631,3 +631,19 @@ Archivos modificados en esta subfase:
 - `docs/avance-v2.2.5M.2-productos-operativos.md`
 - `server/routes/menu.js`
 
+
+### v2.2.5M.3 · Normalización de presentaciones y precios
+
+- **Objetivo:** dejar claro dónde vive el precio operativo de un producto antes de continuar con la normalización de Cuentas / Orders.
+- **Producto sin presentación:** usa `productos.precio` como precio operativo y debe ser mayor a cero.
+- **Producto con presentación:** usa exclusivamente `presentaciones_producto.precio`; `productos.precio` queda en `0` para evitar ambigüedad.
+- **Validaciones backend:** al crear o editar productos con presentaciones, el backend valida que las presentaciones existan, estén activas, no estén duplicadas y tengan precio mayor a cero.
+- **Vínculos seguros:** se centraliza la lógica de crear/reactivar/desactivar vínculos entre producto y presentación.
+- **Endpoint operativo:** `GET /api/menu/operational-products` actualiza su contrato a `v2.2.5M.3` y distingue entre presentaciones configuradas, presentaciones operativas y diagnóstico de presentaciones inválidas.
+- **Alcance:** no cambia UI, no cambia Cuentas, no cambia base de datos y no altera el flujo operativo actual.
+
+Archivos modificados en esta subfase:
+
+- `README.md`
+- `docs/avance-v2.2.5M.3-presentaciones-precios.md`
+- `server/routes/menu.js`

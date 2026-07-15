@@ -105,6 +105,16 @@ function normalizeProductImage(product) {
 
 function normalizePresentationForOperation(row) {
     const precio = moneyNumber(row.precio, 0);
+    const relacionActiva = Number(row.relacion_activa ?? row.activo) === 1 ? 1 : 0;
+    const presentacionActiva = Number(row.presentacion_activa ?? 1) === 1 ? 1 : 0;
+    const bloqueos = [];
+
+    if (!presentacionActiva) bloqueos.push('Presentación global inactiva');
+    if (!relacionActiva) bloqueos.push('Presentación desactivada para este producto');
+    if (precio <= 0) bloqueos.push('Presentación sin precio operativo válido');
+
+    const disponible = relacionActiva === 1 && presentacionActiva === 1 && precio > 0 ? 1 : 0;
+
     return {
         id: Number(row.presentacion_id || row.id),
         presentacion_id: Number(row.presentacion_id || row.id),
@@ -113,11 +123,140 @@ function normalizePresentationForOperation(row) {
         tipo: row.tipo || 'tamaño',
         cantidad: row.cantidad || null,
         precio,
-        precio_operativo: precio,
-        activo: Number(row.activo) === 1 ? 1 : 0,
+        precio_operativo: disponible ? precio : null,
+        precio_configurado: precio,
+        activo: relacionActiva,
+        relacion_activa: relacionActiva,
+        presentacion_activa: presentacionActiva,
         imagen: row.imagen || null,
-        disponible_operacion: precio > 0 ? 1 : 0
+        disponible_operacion: disponible,
+        bloqueos_operativos: bloqueos
     };
+}
+
+function normalizePresentationSelectionInput(rawPresentations) {
+    const input = Array.isArray(rawPresentations) ? rawPresentations : parseArray(rawPresentations);
+    const normalized = [];
+    const seen = new Set();
+    const errors = [];
+
+    input.forEach((item, index) => {
+        const presentacionId = parseNumber(item?.presentacion_id ?? item?.id);
+        const precio = parseNumber(item?.precio, NaN);
+
+        if (!presentacionId && (item?.precio === undefined || item?.precio === null || item?.precio === '')) {
+            return;
+        }
+
+        if (!presentacionId) {
+            errors.push(`Presentación #${index + 1} sin identificador válido`);
+            return;
+        }
+
+        if (seen.has(presentacionId)) {
+            errors.push(`La presentación ${presentacionId} está duplicada para el producto`);
+            return;
+        }
+
+        if (!Number.isFinite(precio) || precio <= 0) {
+            errors.push(`La presentación ${presentacionId} requiere un precio mayor a cero`);
+            return;
+        }
+
+        seen.add(presentacionId);
+        normalized.push({ presentacion_id: presentacionId, precio });
+    });
+
+    return { normalized, errors };
+}
+
+async function validatePresentationSelection(rawPresentations, options = {}) {
+    const requireAtLeastOne = options.requireAtLeastOne === true;
+    const { normalized, errors } = normalizePresentationSelectionInput(rawPresentations);
+
+    if (requireAtLeastOne && normalized.length === 0) {
+        errors.push('Debe seleccionar al menos una presentación con precio mayor a cero');
+    }
+
+    if (errors.length > 0) {
+        return { ok: false, error: errors[0], errors, presentaciones: [] };
+    }
+
+    if (normalized.length === 0) {
+        return { ok: true, presentaciones: [] };
+    }
+
+    const ids = normalized.map(item => item.presentacion_id);
+    const placeholders = ids.map(() => '?').join(',');
+    const rows = await database.all(`
+        SELECT id, nombre, activo
+        FROM presentaciones
+        WHERE id IN (${placeholders})
+    `, ids);
+
+    const rowsById = new Map(rows.map(row => [Number(row.id), row]));
+    for (const item of normalized) {
+        const presentacion = rowsById.get(item.presentacion_id);
+        if (!presentacion) {
+            return {
+                ok: false,
+                error: `La presentación ${item.presentacion_id} no existe`,
+                errors: [`La presentación ${item.presentacion_id} no existe`],
+                presentaciones: []
+            };
+        }
+        if (Number(presentacion.activo) !== 1) {
+            return {
+                ok: false,
+                error: `La presentación ${presentacion.nombre} está inactiva`,
+                errors: [`La presentación ${presentacion.nombre} está inactiva`],
+                presentaciones: []
+            };
+        }
+    }
+
+    return { ok: true, presentaciones: normalized };
+}
+
+async function upsertProductPresentations(productoId, presentaciones) {
+    const presentacionesAsignadasIds = [];
+
+    for (const presentacion of presentaciones) {
+        const existente = await database.get(`
+            SELECT id FROM presentaciones_producto
+            WHERE producto_id = ? AND presentacion_id = ?
+        `, [productoId, presentacion.presentacion_id]);
+
+        if (existente) {
+            await database.run(`
+                UPDATE presentaciones_producto
+                SET precio = ?, activo = 1, actualizado_en = CURRENT_TIMESTAMP
+                WHERE id = ?
+            `, [presentacion.precio, existente.id]);
+        } else {
+            await database.run(`
+                INSERT INTO presentaciones_producto (producto_id, presentacion_id, precio, activo, creado_en, actualizado_en)
+                VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            `, [productoId, presentacion.presentacion_id, presentacion.precio]);
+        }
+
+        presentacionesAsignadasIds.push(presentacion.presentacion_id);
+    }
+
+    if (presentacionesAsignadasIds.length > 0) {
+        const placeholders = presentacionesAsignadasIds.map(() => '?').join(',');
+        await database.run(`
+            UPDATE presentaciones_producto
+            SET activo = 0, actualizado_en = CURRENT_TIMESTAMP
+            WHERE producto_id = ? AND presentacion_id NOT IN (${placeholders})
+        `, [productoId, ...presentacionesAsignadasIds]);
+    } else {
+        await database.run(`
+            UPDATE presentaciones_producto
+            SET activo = 0, actualizado_en = CURRENT_TIMESTAMP
+            WHERE producto_id = ?
+        `, [productoId]);
+    }
 }
 
 function buildOperationalCategoryList(categories, products, includeEmpty = false) {
@@ -185,11 +324,11 @@ async function buildOperationalMenuPayload(options = {}) {
             pr.tipo,
             pr.cantidad,
             COALESCE(pp.precio, 0) AS precio,
-            pp.activo,
+            pp.activo AS relacion_activa,
+            pr.activo AS presentacion_activa,
             pp.imagen
         FROM presentaciones_producto pp
         JOIN presentaciones pr ON pp.presentacion_id = pr.id
-        WHERE pp.activo = 1 AND pr.activo = 1
         ORDER BY pr.nombre
     `);
 
@@ -205,31 +344,40 @@ async function buildOperationalMenuPayload(options = {}) {
     const normalizedProducts = products.map(product => {
         const productId = Number(product.id);
         const precioBase = moneyNumber(product.precio, 0);
-        const presentaciones = presentationsByProduct.get(productId) || [];
-        const presentacionesValidas = presentaciones.filter(presentation => presentation.disponible_operacion === 1);
-        const tienePresentaciones = presentacionesValidas.length > 0;
+        const presentacionesConfiguradas = presentationsByProduct.get(productId) || [];
+        const presentacionesValidas = presentacionesConfiguradas.filter(presentation => presentation.disponible_operacion === 1);
+        const tienePresentacionesConfiguradas = presentacionesConfiguradas.length > 0;
+        const tienePresentacionesOperativas = presentacionesValidas.length > 0;
         const bloqueos = [];
         let precioOperativo = null;
-        let origenPrecio = 'presentacion';
+        let origenPrecio = tienePresentacionesConfiguradas ? 'presentacion' : 'producto';
         let precioMinimo = null;
         let precioMaximo = null;
 
-        if (tienePresentaciones) {
-            const precios = presentacionesValidas.map(presentation => presentation.precio_operativo);
-            precioMinimo = Math.min(...precios);
-            precioMaximo = Math.max(...precios);
+        if (tienePresentacionesConfiguradas) {
+            if (tienePresentacionesOperativas) {
+                const precios = presentacionesValidas.map(presentation => presentation.precio_operativo);
+                precioMinimo = Math.min(...precios);
+                precioMaximo = Math.max(...precios);
+            } else {
+                bloqueos.push('Producto con presentaciones sin precio operativo válido');
+            }
+
+            presentacionesConfiguradas.forEach(presentation => {
+                if (presentation.disponible_operacion !== 1 && presentation.bloqueos_operativos?.length) {
+                    presentation.bloqueos_operativos.forEach(reason => {
+                        const detalle = `${presentation.nombre}: ${reason}`;
+                        if (!bloqueos.includes(detalle)) bloqueos.push(detalle);
+                    });
+                }
+            });
         } else if (precioBase > 0) {
             precioOperativo = precioBase;
             precioMinimo = precioBase;
             precioMaximo = precioBase;
-            origenPrecio = 'producto';
         } else {
             origenPrecio = 'sin_precio_valido';
             bloqueos.push('Producto sin precio operativo válido');
-        }
-
-        if (presentaciones.length > 0 && presentacionesValidas.length === 0) {
-            bloqueos.push('Producto con presentaciones sin precio operativo válido');
         }
 
         const categoriaNombre = product.subcategoria_nombre || product.categoria_nombre;
@@ -249,7 +397,8 @@ async function buildOperationalMenuPayload(options = {}) {
             categoria_operativa: categoriaNombre,
             es_cocina: Number(product.es_cocina) === 1 ? 1 : 0,
             requiere_comanda: Number(product.es_cocina) === 1 ? 1 : 0,
-            tiene_presentaciones: tienePresentaciones ? 1 : 0,
+            tiene_presentaciones: tienePresentacionesOperativas ? 1 : 0,
+            tiene_presentaciones_configuradas: tienePresentacionesConfiguradas ? 1 : 0,
             precio_base: precioBase,
             precio: precioOperativo ?? precioBase,
             precio_operativo: precioOperativo,
@@ -257,7 +406,9 @@ async function buildOperationalMenuPayload(options = {}) {
             precio_maximo: precioMaximo,
             origen_precio: origenPrecio,
             presentaciones: presentacionesValidas,
+            presentaciones_diagnostico: includeInvalid ? presentacionesConfiguradas : undefined,
             total_presentaciones: presentacionesValidas.length,
+            total_presentaciones_configuradas: presentacionesConfiguradas.length,
             disponible_operacion: operativo,
             bloqueos_operativos: bloqueos
         };
@@ -268,7 +419,7 @@ async function buildOperationalMenuPayload(options = {}) {
         : normalizedProducts.filter(product => product.disponible_operacion === 1);
 
     return {
-        version_contrato: 'v2.2.5M.2',
+        version_contrato: 'v2.2.5M.3',
         generado_en: new Date().toISOString(),
         categorias: buildOperationalCategoryList(categories, operationalProducts, includeEmptyCategories),
         productos: operationalProducts,
@@ -479,7 +630,11 @@ router.get('/products/:id/presentaciones', async (req, res) => {
                 p.id,
                 p.id AS presentacion_id,
                 p.nombre,
+                p.tipo,
                 p.cantidad,
+                p.activo AS presentacion_activa,
+                pp.id AS producto_presentacion_id,
+                pp.activo AS relacion_activa,
                 COALESCE(pp.precio, 0) AS precio,
                 CASE WHEN pp.id IS NOT NULL AND pp.activo = 1 THEN 1 ELSE 0 END AS asignada
             FROM presentaciones p
@@ -489,13 +644,23 @@ router.get('/products/:id/presentaciones', async (req, res) => {
             ORDER BY p.nombre
         `, [id]);
 
+        const presentacionesNormalizadas = presentaciones.map(row => {
+            const normalizada = normalizePresentationForOperation(row);
+            return {
+                ...row,
+                precio_operativo: normalizada.precio_operativo,
+                disponible_operacion: normalizada.disponible_operacion,
+                bloqueos_operativos: normalizada.bloqueos_operativos
+            };
+        });
+
         res.json({
             success: true,
             producto_nombre: producto.nombre,
-            presentaciones,
+            presentaciones: presentacionesNormalizadas,
             data: {
                 producto_nombre: producto.nombre,
-                presentaciones
+                presentaciones: presentacionesNormalizadas
             }
         });
     } catch (error) {
@@ -523,11 +688,12 @@ router.post('/products', subirImagen, async (req, res) => {
             return res.status(400).json({ error: 'Nombre, precio (o presentaciones) y categoría son requeridos' });
         }
 
-        if (tienePresentaciones) {
-            const validas = presentacionesSeleccionadas.filter(p => parseNumber(p.id) && parseNumber(p.precio, 0) > 0);
-            if (validas.length === 0) {
-                return res.status(400).json({ error: 'Debe seleccionar al menos una presentación con precio mayor a cero' });
-            }
+        const presentacionesValidadas = tienePresentaciones
+            ? await validatePresentationSelection(presentacionesSeleccionadas, { requireAtLeastOne: true })
+            : { ok: true, presentaciones: [] };
+
+        if (!presentacionesValidadas.ok) {
+            return res.status(400).json({ error: presentacionesValidadas.error });
         }
 
         const categoriaError = await validarCategoria(categoriaId, subcategoriaId, esCocina);
@@ -547,17 +713,7 @@ router.post('/products', subirImagen, async (req, res) => {
         const productoId = result.id;
 
         if (tienePresentaciones) {
-            for (const pres of presentacionesSeleccionadas) {
-                const presentacionId = parseNumber(pres.id);
-                const precioPresentacion = parseNumber(pres.precio, 0);
-                if (!presentacionId || precioPresentacion <= 0) continue;
-
-                await database.run(
-                    `INSERT INTO presentaciones_producto (producto_id, presentacion_id, precio, activo, creado_en, actualizado_en)
-                     VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-                    [productoId, presentacionId, precioPresentacion]
-                );
-            }
+            await upsertProductPresentations(productoId, presentacionesValidadas.presentaciones);
         }
 
         await database.run(
@@ -604,12 +760,23 @@ router.put('/products/:id', subirImagen, async (req, res) => {
         const categoriaId = parseNumber(req.body.categoria_id, producto.categoria_id);
         const subcategoriaId = parseNumber(req.body.subcategoria_id, null);
         const esCocina = parseBoolean(req.body.es_cocina);
-        const precio = parseNumber(req.body.precio, producto.precio || 0);
-        const presentaciones = req.body.presentaciones !== undefined ? parseArray(req.body.presentaciones) : null;
+        const tienePresentaciones = parseBoolean(req.body.tiene_presentaciones) || req.body.presentaciones !== undefined;
+        const presentaciones = req.body.presentaciones !== undefined
+            ? parseArray(req.body.presentaciones)
+            : parseArray(req.body.presentaciones_seleccionadas);
+        const precio = tienePresentaciones ? 0 : parseNumber(req.body.precio, producto.precio || 0);
         const imagen = uploadedImagePath(req) || producto.imagen || null;
 
-        if (!nombre || !categoriaId || precio < 0) {
+        if (!nombre || !categoriaId || (!tienePresentaciones && (!Number.isFinite(precio) || precio <= 0))) {
             return res.status(400).json({ error: 'Nombre, categoría y precio válido son requeridos' });
+        }
+
+        const presentacionesValidadas = tienePresentaciones
+            ? await validatePresentationSelection(presentaciones, { requireAtLeastOne: true })
+            : { ok: true, presentaciones: [] };
+
+        if (!presentacionesValidadas.ok) {
+            return res.status(400).json({ error: presentacionesValidadas.error });
         }
 
         const categoriaError = await validarCategoria(categoriaId, subcategoriaId, esCocina);
@@ -626,50 +793,7 @@ router.put('/products/:id', subirImagen, async (req, res) => {
             WHERE id = ?
         `, [nombre, descripcion, precio, categoriaId, subcategoriaId, esCocina ? 1 : 0, imagen, id]);
 
-        if (Array.isArray(presentaciones)) {
-            const presentacionesAsignadasIds = [];
-
-            for (const p of presentaciones) {
-                const presentacionId = parseNumber(p.presentacion_id || p.id);
-                const precioPresentacion = parseNumber(p.precio, 0);
-                if (!presentacionId || precioPresentacion <= 0) continue;
-
-                const existente = await database.get(`
-                    SELECT id FROM presentaciones_producto
-                    WHERE producto_id = ? AND presentacion_id = ?
-                `, [id, presentacionId]);
-
-                if (existente) {
-                    await database.run(`
-                        UPDATE presentaciones_producto
-                        SET precio = ?, activo = 1, actualizado_en = CURRENT_TIMESTAMP
-                        WHERE id = ?
-                    `, [precioPresentacion, existente.id]);
-                } else {
-                    await database.run(`
-                        INSERT INTO presentaciones_producto (producto_id, presentacion_id, precio, activo, creado_en, actualizado_en)
-                        VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                    `, [id, presentacionId, precioPresentacion]);
-                }
-
-                presentacionesAsignadasIds.push(presentacionId);
-            }
-
-            if (presentacionesAsignadasIds.length > 0) {
-                const placeholders = presentacionesAsignadasIds.map(() => '?').join(',');
-                await database.run(`
-                    UPDATE presentaciones_producto
-                    SET activo = 0, actualizado_en = CURRENT_TIMESTAMP
-                    WHERE producto_id = ? AND presentacion_id NOT IN (${placeholders})
-                `, [id, ...presentacionesAsignadasIds]);
-            } else {
-                await database.run(`
-                    UPDATE presentaciones_producto
-                    SET activo = 0, actualizado_en = CURRENT_TIMESTAMP
-                    WHERE producto_id = ?
-                `, [id]);
-            }
-        }
+        await upsertProductPresentations(id, tienePresentaciones ? presentacionesValidadas.presentaciones : []);
 
         await database.run(
             'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
@@ -748,10 +872,10 @@ router.get('/completo', async (req, res) => {
                 const productosConPresentaciones = [];
                 for (const prod of productos) {
                     const presentaciones = await database.all(`
-                        SELECT pp.id, pp.presentacion_id, p.nombre, p.cantidad, pp.precio
+                        SELECT pp.id, pp.presentacion_id, p.nombre, p.tipo, p.cantidad, pp.precio, pp.activo, p.activo AS presentacion_activa
                         FROM presentaciones_producto pp
                         JOIN presentaciones p ON pp.presentacion_id = p.id
-                        WHERE pp.producto_id = ? AND pp.activo = 1
+                        WHERE pp.producto_id = ? AND pp.activo = 1 AND p.activo = 1 AND pp.precio > 0
                         ORDER BY p.nombre
                     `, [prod.id]);
 
