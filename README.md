@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 2.0
 - **Estado de producto:** versión funcional operativa en proceso de estabilización
-- **Línea de trabajo actual:** v2.2.5M.9 · Pruebas Menú → Cuentas
+- **Línea de trabajo actual:** v2.2.5M.11–13 · Plantillas, importación e imágenes de Menú
 
 La versión visible para usuarios, configuración pública y metadata base de la app debe mantenerse como **2.0** hasta que se decida publicar una nueva versión funcional mayor. Las líneas internas **v2.1** y **v2.2** no representan todavía una versión visible para usuarios finales; representan etapas trazables de estabilización.
 
@@ -825,3 +825,56 @@ Archivos modificados en este fix:
 - `public/css/style.css`
 - `public/index.html`
 - `public/service-worker.js`
+
+
+### v2.2.5M.10 · Cierre Menú base
+
+- **Objetivo:** cerrar la fase de normalización de Menú con una revisión de mantenibilidad antes de volver a la línea principal de Cuentas/Orders.
+- **Limpieza de `menu.js`:** se eliminaron bloques duplicados de renderizado que habían quedado por acumulación de fixes visuales (`render`, `renderProductsView`, `renderProductsTable`, `renderCategoriesView`, `renderPresentationsView`, `searchProducts` y `showPresentacionesModal`).
+- **Legacy retirado:** se quitaron funciones frontend huérfanas o reemplazadas por la lógica activo/inactivo y tipos/grupos, incluyendo flujos de borrado visual legacy y el bloque duplicado de `agregar más presentaciones` en edición de producto.
+- **Estructura:** el módulo Menú queda con una sola fuente de renderizado vigente y funciones administrativas separadas por responsabilidad: carga, creación/edición, activación/desactivación, presentaciones, resumen visual y render final.
+- **Verificación de referencias:** se revisaron llamadas `Menu.*` y `this.*` para confirmar que no quedaran referencias a métodos inexistentes ni definiciones duplicadas dentro del componente.
+- **Compatibilidad:** no cambia backend, base de datos, permisos ni contrato Menú → Cuentas; solo estabiliza y ordena frontend/documentación.
+- **Cache/PWA:** `index.html` y `service-worker.js` avanzan a `v2.2.5M.10-menu-cierre` para forzar carga del `menu.js` limpio.
+
+Archivos modificados en esta subfase:
+
+- `README.md`
+- `docs/avance-v2.2.5M.10-cierre-menu-base.md`
+- `docs/roadmap-v2.2.5M-normalizacion-menu.md`
+- `public/js/components/menu.js`
+- `public/index.html`
+- `public/service-worker.js`
+
+### v2.2.5M.11–13 · Extensión documental de plantillas, importación e imágenes de Menú
+
+- **Motivo:** antes de volver a la normalización profunda de `Cuentas / Orders`, se decide extender el bloque Menú para resolver la primera carga masiva del catálogo del local.
+- **Problema operativo:** crear manualmente categorías, subcategorías, productos, tipos/grupos de presentación, presentaciones y precios puede ser lento y propenso a errores durante la puesta en marcha de un restaurante/bar.
+- **Decisión:** crear una ruta ordenada para generar una plantilla Excel oficial desde formularios guiados, importar esa plantilla con validación estricta y luego definir la lógica de imágenes por presentación/producto.
+- **Roadmap nuevo:** se crea `docs/roadmap-v2.2.5M11-13-plantillas-menu.md` como documento canónico para esta extensión.
+- **Roadmap Menú actualizado:** `docs/roadmap-v2.2.5M-normalizacion-menu.md` queda extendido para reflejar que Menú no vuelve todavía a Cuentas hasta cerrar o postergar explícitamente estas subfases.
+
+Orden aprobado:
+
+```text
+v2.2.5M.11 · Generador asistido de Plantilla Excel de Menú
+v2.2.5M.12 · Importar Menú desde Plantilla
+v2.2.5M.13 · Imágenes por presentación y producto
+v2.2.5 · Retomar normalización de Cuentas / Orders
+```
+
+Alcance documental de esta planificación:
+
+- no cambia backend;
+- no cambia frontend operativo;
+- no cambia base de datos;
+- no cambia Cuentas/Orders;
+- solo actualiza README y roadmaps para mantener trazabilidad antes de implementar M.11.
+
+Archivos modificados en esta planificación:
+
+- `README.md`
+- `docs/roadmap-v2.2.5M-normalizacion-menu.md`
+- `docs/roadmap-v2.2.5M11-13-plantillas-menu.md`
+- `docs/avance-v2.2.5M.11-13-roadmap-plantillas-menu.md`
+

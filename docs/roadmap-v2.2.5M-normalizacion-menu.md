@@ -6,10 +6,13 @@ Este roadmap nace como fase previa a `v2.2.5 · Normalización y Estabilización
 
 Durante la auditoría del módulo Cuentas se confirmó que `orders.js` depende directamente de Menú para obtener productos, precios, presentaciones, imágenes, categorías, subcategorías y productos que requieren comanda. Por esa razón, antes de normalizar Cuentas, se debe estabilizar Menú como fuente confiable de datos operativos.
 
+> Actualización documental: después de `v2.2.5M.10 · Cierre Menú base`, la fase Menú se extiende con `v2.2.5M.11`, `v2.2.5M.12` y `v2.2.5M.13` para cubrir generador asistido de plantilla Excel, importación validada de Menú e imágenes por presentación/producto antes de volver a Cuentas. El detalle vive en `docs/roadmap-v2.2.5M11-13-plantillas-menu.md`.
+
 Documento relacionado:
 
 - `docs/auditoria-v2.2.5-menu-base.md`
 - `docs/roadmap-v2.2.5-normalizacion-cuentas.md`
+- `docs/roadmap-v2.2.5M11-13-plantillas-menu.md`
 
 ---
 
@@ -622,3 +625,84 @@ Commit sugerido:
 ```powershell
 git commit -m "v2.2.5M.9 fix1: pule visualmente Menu y botones globales"
 ```
+
+## v2.2.5M.10 · Cierre Menú base
+
+### Objetivo
+
+Cerrar la normalización base del módulo Menú con una revisión de mantenibilidad, eliminando duplicados, restos legacy y funciones frontend huérfanas antes de retomar la línea principal de Cuentas/Orders.
+
+### Alcance
+
+- limpiar duplicados acumulados en `public/js/components/menu.js`;
+- retirar funciones legacy de eliminación visual y helpers sin uso;
+- mantener una única implementación vigente de renderizado del módulo Menú;
+- verificar referencias `Menu.*` y `this.*`;
+- actualizar cache/PWA para cargar el JS limpio;
+- documentar el cierre técnico de `v2.2.5M`.
+
+### Archivos esperados
+
+- `README.md`
+- `docs/avance-v2.2.5M.10-cierre-menu-base.md`
+- `docs/roadmap-v2.2.5M-normalizacion-menu.md`
+- `public/js/components/menu.js`
+- `public/index.html`
+- `public/service-worker.js`
+
+### Validación técnica
+
+```powershell
+node --check public/js/components/menu.js
+node --check public/js/components/orders.js
+node --check public/js/main.js
+node --check public/service-worker.js
+node --check server/routes/menu.js
+node --check server/routes/orders.js
+node --check server/app.js
+node --check server/db/database.js
+```
+
+### Commit sugerido
+
+```powershell
+git commit -m "v2.2.5M.10: cierra Menu base y limpia legacy"
+```
+
+---
+
+## Extensión posterior a v2.2.5M.10 · Plantillas e importación de Menú
+
+### Motivo
+
+Antes de retomar la normalización profunda de Cuentas/Orders se agrega una extensión del módulo Menú para resolver la primera carga masiva del catálogo del local.
+
+La carga manual de categorías, subcategorías, productos, tipos/grupos de presentación, presentaciones y precios puede ser lenta y propensa a errores. Por eso se define una ruta segura para crear una plantilla oficial y luego importarla con validaciones.
+
+### Roadmap extendido
+
+El detalle completo queda documentado en:
+
+```text
+docs/roadmap-v2.2.5M11-13-plantillas-menu.md
+```
+
+Orden aprobado:
+
+```text
+v2.2.5M.11 · Generador asistido de Plantilla Excel de Menú
+v2.2.5M.12 · Importar Menú desde Plantilla
+v2.2.5M.13 · Imágenes por presentación y producto
+v2.2.5 · Retomar normalización de Cuentas / Orders
+```
+
+### Regla
+
+No se debe volver todavía a `orders.js` como fase principal hasta cerrar la extensión de Menú o hasta que se decida explícitamente postergar alguna subfase documentada.
+
+### Commit sugerido para esta planificación
+
+```powershell
+git commit -m "v2.2.5M.11-13: documenta roadmap de plantillas de Menu"
+```
+
