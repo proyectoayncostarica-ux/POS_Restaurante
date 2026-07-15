@@ -377,3 +377,44 @@ git diff --cached --name-only | Select-String -Pattern "data/restaurant.db|\.env
 ```
 
 Si el filtro imprime algo, detenerse y corregir staging.
+
+## Estado de implementación · v2.2.5M.11
+
+`v2.2.5M.11 · Generador asistido de Plantilla Excel de Menú` queda implementado como fase de generación, no de importación.
+
+Incluye:
+
+- botón administrativo `Plantilla asistida`;
+- wizard por pasos;
+- demo contextual;
+- guardado local del borrador;
+- validación previa;
+- endpoint `POST /api/menu/template/generate`;
+- archivo `.xlsx` oficial con metadata verificable.
+
+La importación real queda pendiente para:
+
+```text
+v2.2.5M.12 · Importar Menú desde Plantilla
+```
+
+## Estado de implementación · v2.2.5M.12
+
+`v2.2.5M.12 · Importar Menú desde Plantilla` queda implementado como fase de validación e importación real.
+
+Incluye:
+
+- botón administrativo `Importar plantilla`;
+- endpoint `POST /api/menu/template/validate`;
+- endpoint `POST /api/menu/template/import`;
+- validación de metadata oficial;
+- validación de hojas y columnas requeridas;
+- importación transaccional;
+- creación/actualización sin eliminación de registros existentes;
+- recarga del módulo Menú después de importar.
+
+Commit sugerido:
+
+```powershell
+git commit -m "v2.2.5M.12: agrega importacion de Menu desde plantilla"
+```

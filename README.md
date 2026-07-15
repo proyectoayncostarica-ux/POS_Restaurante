@@ -878,3 +878,55 @@ Archivos modificados en esta planificación:
 - `docs/roadmap-v2.2.5M11-13-plantillas-menu.md`
 - `docs/avance-v2.2.5M.11-13-roadmap-plantillas-menu.md`
 
+
+### v2.2.5M.11 · Generador asistido de Plantilla Excel de Menú
+
+- **Objetivo:** agregar una herramienta administrativa para construir una plantilla Excel oficial de Menú desde formularios guiados, antes de implementar la importación real en `v2.2.5M.12`.
+- **Botón administrativo:** se agrega `Plantilla asistida` dentro del módulo Menú, visible solo para administradores.
+- **Flujo guiado:** el asistente organiza la carga en pasos: estructura, productos, presentaciones y revisión.
+- **Estructura:** permite preparar categorías, subcategorías y metadata del negocio.
+- **Productos:** permite definir productos con precio base o productos con presentación mediante clave de tipo/grupo.
+- **Presentaciones:** permite definir tipos/grupos, presentaciones y precios por producto-presentación.
+- **Ayuda contextual:** cada paso incluye explicación de uso y orden recomendado.
+- **Demo:** incluye un botón para cargar datos demo de restaurante/bar y facilitar la comprensión del formato.
+- **Guardado de avance:** guarda el borrador localmente en el navegador para continuar luego sin crear aún tablas SQLite de borradores.
+- **Excel oficial:** el backend genera un `.xlsx` con hojas `_METADATA`, `README`, `01_Categorias`, `02_Subcategorias`, `03_TiposPresentacion`, `04_Presentaciones`, `05_Productos`, `06_ProductoPresentaciones` y `07_Validacion`.
+- **Seguridad:** solo administradores pueden generar la plantilla; usuarios estándar no ven el botón ni pueden llamar el endpoint.
+- **Compatibilidad:** no importa datos a SQLite, no toca Cuentas/Orders y no cambia la lógica operativa de ventas.
+- **Cache/PWA:** `index.html` y `service-worker.js` avanzan a `v2.2.5M.11-template-wizard`.
+
+Archivos modificados en esta subfase:
+
+- `README.md`
+- `docs/avance-v2.2.5M.11-generador-plantilla-menu.md`
+- `docs/roadmap-v2.2.5M-normalizacion-menu.md`
+- `docs/roadmap-v2.2.5M11-13-plantillas-menu.md`
+- `server/routes/menu.js`
+- `public/js/components/menu.js`
+- `public/css/style.css`
+- `public/index.html`
+- `public/service-worker.js`
+
+### v2.2.5M.12 · Importar Menú desde Plantilla
+
+- **Objetivo:** permitir que un administrador importe el Menú desde la plantilla Excel oficial creada por el asistente de `v2.2.5M.11`.
+- **Botón administrativo:** se agrega `Importar plantilla` en Menú, visible solo para administradores.
+- **Validación previa:** el archivo se valida antes de importar; se revisa metadata, hojas, columnas y relaciones internas.
+- **Endpoints agregados:** `POST /api/menu/template/validate` y `POST /api/menu/template/import`.
+- **Plantilla comprobable:** se acepta únicamente `.xlsx` con `template_id = MUNDIPOS_MENU_TEMPLATE` y `schema = menu-template-v1`.
+- **Importación segura:** crea o actualiza categorías, subcategorías, tipos/grupos, presentaciones, productos y precios por presentación; nunca elimina registros existentes.
+- **Transacción SQLite:** la importación corre dentro de `BEGIN/COMMIT` y revierte con `ROLLBACK` ante errores.
+- **Compatibilidad:** no toca Cuentas/Orders ni introduce lógica de imágenes; eso queda para `v2.2.5M.13`.
+- **Cache/PWA:** `index.html` y `service-worker.js` avanzan a `v2.2.5M.12-template-import`.
+
+Archivos modificados en esta subfase:
+
+- `README.md`
+- `docs/avance-v2.2.5M.12-importar-menu-plantilla.md`
+- `docs/roadmap-v2.2.5M-normalizacion-menu.md`
+- `docs/roadmap-v2.2.5M11-13-plantillas-menu.md`
+- `server/routes/menu.js`
+- `public/js/components/menu.js`
+- `public/css/style.css`
+- `public/index.html`
+- `public/service-worker.js`

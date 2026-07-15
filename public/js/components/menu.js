@@ -4,6 +4,8 @@ const Menu = {
     products: [],
     presentations: [],
     presentationTypes: [],
+    templateDraft: null,
+    templateStep: 'structure',
     currentView: 'products', // 'products' o 'categories'
 
     canAdministerMenu() {
@@ -28,16 +30,35 @@ const Menu = {
     renderCreateAction() {
         if (!this.canAdministerMenu()) return '';
 
+        const templateButton = `
+            <button class="btn btn-template-wizard" onclick="Menu.showTemplateWizard()" title="Crear plantilla Excel asistida de Menú">
+                <i class="fas fa-file-excel"></i> Plantilla asistida
+            </button>
+        `;
+        const importButton = `
+            <button class="btn btn-template-import" onclick="Menu.showTemplateImportModal()" title="Importar Menú desde plantilla oficial">
+                <i class="fas fa-file-import"></i> Importar plantilla
+            </button>
+        `;
+
         if (this.currentView === 'products') {
-            return `<button class="btn btn-success" onclick="Menu.showCreateProductModal()">
-                        <i class="fas fa-plus"></i> Nuevo Producto
-                    </button>`;
+            return `
+                <button class="btn btn-success" onclick="Menu.showCreateProductModal()">
+                    <i class="fas fa-plus"></i> Nuevo Producto
+                </button>
+                ${templateButton}
+                ${importButton}
+            `;
         }
 
         if (this.currentView === 'categories') {
-            return `<button class="btn btn-success" onclick="Menu.showCreateCategoryModal()">
-                        <i class="fas fa-plus"></i> Nueva Categoría
-                    </button>`;
+            return `
+                <button class="btn btn-success" onclick="Menu.showCreateCategoryModal()">
+                    <i class="fas fa-plus"></i> Nueva Categoría
+                </button>
+                ${templateButton}
+                ${importButton}
+            `;
         }
 
         return `
@@ -47,6 +68,8 @@ const Menu = {
             <button class="btn btn-primary" onclick="Menu.showCreatePresentationModal()">
                 <i class="fas fa-plus"></i> Nueva Presentación
             </button>
+            ${templateButton}
+            ${importButton}
         `;
     },
 
@@ -1178,6 +1201,612 @@ const Menu = {
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#039;');
     },
+
+
+    getTemplateStorageKey() {
+        return 'mundipos.menu.templateDraft.v2.2.5M.11';
+    },
+
+    createEmptyTemplateDraft() {
+        return {
+            metadata: {
+                negocio: '',
+                moneda: 'CRC',
+                creado_por: currentUser?.nombre || 'Administrador',
+                notas: ''
+            },
+            categories: [],
+            subcategories: [],
+            presentationTypes: [],
+            presentations: [],
+            products: [],
+            productPresentations: []
+        };
+    },
+
+    cloneTemplateDraft(draft) {
+        return JSON.parse(JSON.stringify(draft || this.createEmptyTemplateDraft()));
+    },
+
+    loadTemplateDraft() {
+        if (this.templateDraft) return this.templateDraft;
+
+        try {
+            const saved = localStorage.getItem(this.getTemplateStorageKey());
+            this.templateDraft = saved ? JSON.parse(saved) : this.createEmptyTemplateDraft();
+        } catch (error) {
+            console.warn('No se pudo cargar el borrador de plantilla:', error);
+            this.templateDraft = this.createEmptyTemplateDraft();
+        }
+
+        return this.templateDraft;
+    },
+
+    saveTemplateDraft(showMessage = true) {
+        this.syncTemplateDraftFromDom();
+        localStorage.setItem(this.getTemplateStorageKey(), JSON.stringify(this.templateDraft));
+        if (showMessage) Utils.showNotification('Borrador de plantilla guardado en este dispositivo.', 'success');
+    },
+
+    clearTemplateDraft() {
+        this.templateDraft = this.createEmptyTemplateDraft();
+        localStorage.removeItem(this.getTemplateStorageKey());
+        this.refreshTemplateWizard();
+        Utils.showNotification('Borrador de plantilla reiniciado.', 'info');
+    },
+
+    loadTemplateDemo() {
+        this.templateDraft = {
+            metadata: {
+                negocio: 'Restaurante Demo',
+                moneda: 'CRC',
+                creado_por: currentUser?.nombre || 'Administrador',
+                notas: 'Datos demo generados desde el asistente MundiPOS.'
+            },
+            categories: [
+                { clave_categoria: 'CAT-BEBIDAS', nombre: 'Bebidas', permite_cocina: 'NO', activa: 'SI' },
+                { clave_categoria: 'CAT-COMIDAS', nombre: 'Comidas', permite_cocina: 'SI', activa: 'SI' }
+            ],
+            subcategories: [
+                { clave_categoria: 'CAT-BEBIDAS', clave_subcategoria: 'SUB-GASEOSAS', nombre: 'Gaseosas', permite_cocina: 'NO', activa: 'SI' },
+                { clave_categoria: 'CAT-COMIDAS', clave_subcategoria: 'SUB-HAMBURGUESAS', nombre: 'Hamburguesas', permite_cocina: 'SI', activa: 'SI' }
+            ],
+            presentationTypes: [
+                { clave_tipo: 'TIP-GASEOSAS', nombre: 'Bebidas / Gaseosas', clave_categoria: 'CAT-BEBIDAS', clave_subcategoria: 'SUB-GASEOSAS', descripcion: 'Tamaños para bebidas gaseosas', activo: 'SI' }
+            ],
+            presentations: [
+                { clave_presentacion: 'PRE-350ML', nombre: '350 ml', tipo: 'Tamaño', cantidad: '350 ml', clave_tipo: 'TIP-GASEOSAS', activo: 'SI' },
+                { clave_presentacion: 'PRE-600ML', nombre: '600 ml', tipo: 'Tamaño', cantidad: '600 ml', clave_tipo: 'TIP-GASEOSAS', activo: 'SI' },
+                { clave_presentacion: 'PRE-3L', nombre: '3 litros', tipo: 'Tamaño', cantidad: '3 litros', clave_tipo: 'TIP-GASEOSAS', activo: 'SI' }
+            ],
+            products: [
+                { clave_producto: 'PROD-COCACOLA', nombre: 'Coca Cola', descripcion: 'Gaseosa Coca Cola', clave_categoria: 'CAT-BEBIDAS', clave_subcategoria: 'SUB-GASEOSAS', precio_base: '', tiene_presentaciones: 'SI', clave_tipo: 'TIP-GASEOSAS', es_cocina: 'NO', activo: 'SI' },
+                { clave_producto: 'PROD-HAMB-CLASICA', nombre: 'Hamburguesa Clásica', descripcion: 'Hamburguesa de la casa', clave_categoria: 'CAT-COMIDAS', clave_subcategoria: 'SUB-HAMBURGUESAS', precio_base: 3500, tiene_presentaciones: 'NO', clave_tipo: '', es_cocina: 'SI', activo: 'SI' }
+            ],
+            productPresentations: [
+                { clave_producto: 'PROD-COCACOLA', clave_presentacion: 'PRE-350ML', precio: 700, activo: 'SI' },
+                { clave_producto: 'PROD-COCACOLA', clave_presentacion: 'PRE-600ML', precio: 1000, activo: 'SI' },
+                { clave_producto: 'PROD-COCACOLA', clave_presentacion: 'PRE-3L', precio: 2500, activo: 'SI' }
+            ]
+        };
+
+        this.templateStep = 'structure';
+        this.saveTemplateDraft(false);
+        this.refreshTemplateWizard();
+        Utils.showNotification('Demo de plantilla cargado.', 'success');
+    },
+
+    showTemplateWizard(step = 'structure') {
+        if (!this.canAdministerMenu()) return this.showAdminRequired();
+
+        this.loadTemplateDraft();
+        this.templateStep = step;
+
+        Utils.showModal('Generador asistido de Plantilla Excel de Menú', this.renderTemplateWizard(), [
+            { text: 'Cerrar', class: 'btn-light', onclick: 'Utils.hideModal()' },
+            { text: '<i class="fas fa-save"></i> Guardar avance', class: 'btn-secondary', onclick: 'Menu.saveTemplateDraft()' },
+            { text: '<i class="fas fa-wand-magic-sparkles"></i> Cargar demo', class: 'btn-info', onclick: 'Menu.loadTemplateDemo()' },
+            { text: '<i class="fas fa-file-excel"></i> Descargar Excel', class: 'btn-success', align: 'right', onclick: 'Menu.downloadMenuTemplate()' }
+        ], 'modal-menu modal-menu-template');
+    },
+
+    refreshTemplateWizard() {
+        const body = document.querySelector('#modal-content .modal-body');
+        if (body) body.innerHTML = this.renderTemplateWizard();
+    },
+
+    switchTemplateStep(step) {
+        this.syncTemplateDraftFromDom();
+        this.templateStep = step;
+        this.refreshTemplateWizard();
+    },
+
+    addTemplateRow(section) {
+        this.syncTemplateDraftFromDom();
+        const draft = this.loadTemplateDraft();
+        const next = (draft[section]?.length || 0) + 1;
+        const defaults = {
+            categories: { clave_categoria: `CAT-${next}`, nombre: '', permite_cocina: 'NO', activa: 'SI' },
+            subcategories: { clave_categoria: '', clave_subcategoria: `SUB-${next}`, nombre: '', permite_cocina: 'NO', activa: 'SI' },
+            presentationTypes: { clave_tipo: `TIP-${next}`, nombre: '', clave_categoria: '', clave_subcategoria: '', descripcion: '', activo: 'SI' },
+            presentations: { clave_presentacion: `PRE-${next}`, nombre: '', tipo: 'Tamaño', cantidad: '', clave_tipo: '', activo: 'SI' },
+            products: { clave_producto: `PROD-${next}`, nombre: '', descripcion: '', clave_categoria: '', clave_subcategoria: '', precio_base: '', tiene_presentaciones: 'NO', clave_tipo: '', es_cocina: 'NO', activo: 'SI' },
+            productPresentations: { clave_producto: '', clave_presentacion: '', precio: '', activo: 'SI' }
+        };
+
+        if (!draft[section]) draft[section] = [];
+        draft[section].push(defaults[section]);
+        this.refreshTemplateWizard();
+    },
+
+    removeTemplateRow(section, index) {
+        this.syncTemplateDraftFromDom();
+        const draft = this.loadTemplateDraft();
+        if (!draft[section]) return;
+        draft[section].splice(index, 1);
+        this.refreshTemplateWizard();
+    },
+
+    syncTemplateDraftFromDom() {
+        const root = document.getElementById('menu-template-wizard');
+        if (!root || !this.templateDraft) return;
+
+        const metadata = this.templateDraft.metadata || {};
+        ['negocio', 'moneda', 'creado_por', 'notas'].forEach(field => {
+            const input = root.querySelector(`[data-template-meta="${field}"]`);
+            if (input) metadata[field] = input.value.trim();
+        });
+        this.templateDraft.metadata = metadata;
+
+        root.querySelectorAll('[data-template-section]').forEach(container => {
+            const section = container.dataset.templateSection;
+            const rows = [];
+
+            container.querySelectorAll('[data-template-row]').forEach(rowEl => {
+                const row = {};
+                rowEl.querySelectorAll('[data-field]').forEach(input => {
+                    row[input.dataset.field] = input.value.trim();
+                });
+                rows.push(row);
+            });
+
+            this.templateDraft[section] = rows;
+        });
+    },
+
+    renderTemplateWizard() {
+        const draft = this.loadTemplateDraft();
+        const validation = this.validateTemplateDraftClient();
+        const steps = [
+            { key: 'structure', label: '1. Estructura', icon: 'fa-tags' },
+            { key: 'products', label: '2. Productos', icon: 'fa-utensils' },
+            { key: 'presentations', label: '3. Presentaciones', icon: 'fa-layer-group' },
+            { key: 'review', label: '4. Revisión', icon: 'fa-check-circle' }
+        ];
+
+        return `
+            <div id="menu-template-wizard" class="menu-template-wizard">
+                <div class="menu-template-hero">
+                    <div>
+                        <span class="menu-template-eyebrow">v2.2.5M.11</span>
+                        <h4>Crear plantilla oficial para carga inicial de Menú</h4>
+                        <p>Construye el Excel en el mismo orden operativo de la app. Esta fase solo genera la plantilla; la importación real se implementa en M.12.</p>
+                    </div>
+                    <i class="fas fa-file-excel"></i>
+                </div>
+
+                <div class="menu-template-steps">
+                    ${steps.map(step => `
+                        <button type="button" class="menu-template-step ${this.templateStep === step.key ? 'active' : ''}" onclick="Menu.switchTemplateStep('${step.key}')">
+                            <i class="fas ${step.icon}"></i> ${step.label}
+                        </button>
+                    `).join('')}
+                </div>
+
+                <div class="menu-template-body">
+                    ${this.templateStep === 'structure' ? this.renderTemplateStructureStep(draft) : ''}
+                    ${this.templateStep === 'products' ? this.renderTemplateProductsStep(draft) : ''}
+                    ${this.templateStep === 'presentations' ? this.renderTemplatePresentationsStep(draft) : ''}
+                    ${this.templateStep === 'review' ? this.renderTemplateReviewStep(draft, validation) : ''}
+                </div>
+
+                <div class="menu-template-inline-actions">
+                    <button type="button" class="btn btn-light" onclick="Menu.clearTemplateDraft()"><i class="fas fa-eraser"></i> Reiniciar</button>
+                    <button type="button" class="btn btn-secondary" onclick="Menu.saveTemplateDraft()"><i class="fas fa-save"></i> Guardar avance</button>
+                    <button type="button" class="btn btn-primary" onclick="Menu.switchTemplateStep('${this.getNextTemplateStep()}')"><i class="fas fa-arrow-right"></i> Siguiente</button>
+                </div>
+            </div>
+        `;
+    },
+
+    getNextTemplateStep() {
+        const steps = ['structure', 'products', 'presentations', 'review'];
+        const index = steps.indexOf(this.templateStep);
+        return steps[Math.min(index + 1, steps.length - 1)] || 'review';
+    },
+
+    renderTemplateStructureStep(draft) {
+        return `
+            <div class="menu-template-help">
+                <i class="fas fa-lightbulb"></i>
+                <div><strong>Primero define la estructura.</strong><p>Crea categorías principales y luego subcategorías opcionales. Usa claves simples; serán la referencia para productos y grupos.</p></div>
+            </div>
+            <div class="menu-template-metadata">
+                <div class="form-group"><label>Nombre del negocio</label><input type="text" data-template-meta="negocio" value="${this.escapeHtml(draft.metadata?.negocio || '')}" placeholder="Ej. Bar La Esquina"></div>
+                <div class="form-group"><label>Moneda</label><input type="text" data-template-meta="moneda" value="${this.escapeHtml(draft.metadata?.moneda || 'CRC')}"></div>
+                <div class="form-group"><label>Creado por</label><input type="text" data-template-meta="creado_por" value="${this.escapeHtml(draft.metadata?.creado_por || '')}"></div>
+                <div class="form-group"><label>Notas</label><input type="text" data-template-meta="notas" value="${this.escapeHtml(draft.metadata?.notas || '')}" placeholder="Notas internas de carga"></div>
+            </div>
+            ${this.renderTemplateTable('categories', 'Categorías', ['clave_categoria', 'nombre', 'permite_cocina', 'activa'], draft.categories)}
+            ${this.renderTemplateTable('subcategories', 'Subcategorías', ['clave_categoria', 'clave_subcategoria', 'nombre', 'permite_cocina', 'activa'], draft.subcategories)}
+        `;
+    },
+
+    renderTemplateProductsStep(draft) {
+        return `
+            <div class="menu-template-help">
+                <i class="fas fa-utensils"></i>
+                <div><strong>Luego crea productos.</strong><p>Si un producto no tiene presentaciones, coloca precio_base. Si tiene presentaciones, marca SI, asigna clave_tipo y define precios en el paso de presentaciones.</p></div>
+            </div>
+            ${this.renderTemplateTable('products', 'Productos', ['clave_producto', 'nombre', 'descripcion', 'clave_categoria', 'clave_subcategoria', 'precio_base', 'tiene_presentaciones', 'clave_tipo', 'es_cocina', 'activo'], draft.products)}
+        `;
+    },
+
+    renderTemplatePresentationsStep(draft) {
+        return `
+            <div class="menu-template-help">
+                <i class="fas fa-layer-group"></i>
+                <div><strong>Completa grupos y presentaciones.</strong><p>El tipo/grupo filtra qué presentaciones verá el admin al crear productos. Después asigna precios por producto-presentación.</p></div>
+            </div>
+            ${this.renderTemplateTable('presentationTypes', 'Tipos/Grupos de presentación', ['clave_tipo', 'nombre', 'clave_categoria', 'clave_subcategoria', 'descripcion', 'activo'], draft.presentationTypes)}
+            ${this.renderTemplateTable('presentations', 'Presentaciones', ['clave_presentacion', 'nombre', 'tipo', 'cantidad', 'clave_tipo', 'activo'], draft.presentations)}
+            ${this.renderTemplateTable('productPresentations', 'Precios por producto-presentación', ['clave_producto', 'clave_presentacion', 'precio', 'activo'], draft.productPresentations)}
+        `;
+    },
+
+    renderTemplateReviewStep(draft, validation) {
+        const totals = [
+            ['Categorías', draft.categories.length],
+            ['Subcategorías', draft.subcategories.length],
+            ['Tipos/Grupos', draft.presentationTypes.length],
+            ['Presentaciones', draft.presentations.length],
+            ['Productos', draft.products.length],
+            ['Precios por presentación', draft.productPresentations.length]
+        ];
+
+        return `
+            <div class="menu-template-review-grid">
+                ${totals.map(([label, value]) => `<div class="menu-template-review-card"><span>${label}</span><strong>${value}</strong></div>`).join('')}
+            </div>
+            <div class="menu-template-validation ${validation.errors.length ? 'has-errors' : ''}">
+                <h4><i class="fas ${validation.errors.length ? 'fa-triangle-exclamation' : 'fa-check-circle'}"></i> Validación previa</h4>
+                ${validation.errors.length === 0 && validation.warnings.length === 0 ? '<p>La plantilla está lista para descargarse.</p>' : ''}
+                ${validation.errors.length ? `<strong>Errores:</strong><ul>${validation.errors.map(error => `<li>${this.escapeHtml(error)}</li>`).join('')}</ul>` : ''}
+                ${validation.warnings.length ? `<strong>Advertencias:</strong><ul>${validation.warnings.map(warning => `<li>${this.escapeHtml(warning)}</li>`).join('')}</ul>` : ''}
+            </div>
+            <button type="button" class="btn btn-success btn-template-download" onclick="Menu.downloadMenuTemplate()">
+                <i class="fas fa-file-excel"></i> Descargar plantilla Excel oficial
+            </button>
+        `;
+    },
+
+    renderTemplateTable(section, title, fields, rows = []) {
+        return `
+            <div class="menu-template-table-block">
+                <div class="menu-template-table-title">
+                    <h4>${this.escapeHtml(title)}</h4>
+                    <button type="button" class="btn btn-success btn-sm" onclick="Menu.addTemplateRow('${section}')"><i class="fas fa-plus"></i> Agregar</button>
+                </div>
+                <div class="table-container menu-template-table-wrap" data-template-section="${section}">
+                    <table class="table menu-template-table">
+                        <thead><tr>${fields.map(field => `<th>${this.escapeHtml(this.getTemplateFieldLabel(field))}</th>`).join('')}<th></th></tr></thead>
+                        <tbody>
+                            ${(rows || []).length ? rows.map((row, index) => `
+                                <tr data-template-row="${index}">
+                                    ${fields.map(field => `<td>${this.renderTemplateField(field, row[field])}</td>`).join('')}
+                                    <td><button type="button" class="btn btn-danger btn-sm" onclick="Menu.removeTemplateRow('${section}', ${index})" title="Quitar fila"><i class="fas fa-trash"></i></button></td>
+                                </tr>
+                            `).join('') : `<tr><td colspan="${fields.length + 1}" class="text-center text-muted">Sin filas. Usa Agregar o Cargar demo.</td></tr>`}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    },
+
+    getTemplateFieldLabel(field) {
+        const labels = {
+            clave_categoria: 'Clave categoría',
+            clave_subcategoria: 'Clave subcategoría',
+            clave_tipo: 'Clave tipo/grupo',
+            clave_presentacion: 'Clave presentación',
+            clave_producto: 'Clave producto',
+            nombre: 'Nombre',
+            descripcion: 'Descripción',
+            tipo: 'Tipo',
+            cantidad: 'Cantidad',
+            precio_base: 'Precio base',
+            precio: 'Precio',
+            tiene_presentaciones: 'Tiene presentación',
+            permite_cocina: 'Permite cocina',
+            es_cocina: 'Cocina',
+            activa: 'Activa',
+            activo: 'Activo'
+        };
+        return labels[field] || field;
+    },
+
+    renderTemplateField(field, value = '') {
+        const safeValue = this.escapeHtml(value);
+        const yesNoFields = ['permite_cocina', 'activa', 'activo', 'tiene_presentaciones', 'es_cocina'];
+        if (yesNoFields.includes(field)) {
+            return `
+                <select data-field="${field}">
+                    <option value="SI" ${String(value).toUpperCase() === 'SI' ? 'selected' : ''}>SI</option>
+                    <option value="NO" ${String(value).toUpperCase() === 'NO' ? 'selected' : ''}>NO</option>
+                </select>
+            `;
+        }
+
+        const numericFields = ['precio_base', 'precio'];
+        if (numericFields.includes(field)) {
+            return `<input type="number" step="0.01" min="0" data-field="${field}" value="${safeValue}">`;
+        }
+
+        return `<input type="text" data-field="${field}" value="${safeValue}">`;
+    },
+
+    validateTemplateDraftClient() {
+        const draft = this.loadTemplateDraft();
+        const errors = [];
+        const warnings = [];
+        const categoryKeys = new Set((draft.categories || []).map(row => String(row.clave_categoria || '').toLowerCase()).filter(Boolean));
+        const typeKeys = new Set((draft.presentationTypes || []).map(row => String(row.clave_tipo || '').toLowerCase()).filter(Boolean));
+        const presentationKeys = new Set((draft.presentations || []).map(row => String(row.clave_presentacion || '').toLowerCase()).filter(Boolean));
+        const productKeys = new Set((draft.products || []).map(row => String(row.clave_producto || '').toLowerCase()).filter(Boolean));
+
+        if ((draft.categories || []).length === 0) warnings.push('Agrega al menos una categoría para una carga real.');
+        (draft.categories || []).forEach((row, index) => {
+            if (!row.clave_categoria || !row.nombre) errors.push(`Categoría fila ${index + 1}: clave y nombre son requeridos.`);
+        });
+        (draft.subcategories || []).forEach((row, index) => {
+            if (!row.clave_categoria || !row.clave_subcategoria || !row.nombre) errors.push(`Subcategoría fila ${index + 1}: faltan datos requeridos.`);
+            if (row.clave_categoria && !categoryKeys.has(row.clave_categoria.toLowerCase())) warnings.push(`Subcategoría fila ${index + 1}: categoría no definida todavía.`);
+        });
+        (draft.presentationTypes || []).forEach((row, index) => {
+            if (!row.clave_tipo || !row.nombre || !row.clave_categoria) errors.push(`Tipo/grupo fila ${index + 1}: clave, nombre y categoría son requeridos.`);
+        });
+        (draft.presentations || []).forEach((row, index) => {
+            if (!row.clave_presentacion || !row.nombre || !row.clave_tipo) errors.push(`Presentación fila ${index + 1}: clave, nombre y tipo/grupo son requeridos.`);
+            if (row.clave_tipo && !typeKeys.has(row.clave_tipo.toLowerCase())) warnings.push(`Presentación fila ${index + 1}: tipo/grupo no definido todavía.`);
+        });
+        (draft.products || []).forEach((row, index) => {
+            if (!row.clave_producto || !row.nombre || !row.clave_categoria) errors.push(`Producto fila ${index + 1}: clave, nombre y categoría son requeridos.`);
+            if (row.tiene_presentaciones === 'SI' && !row.clave_tipo) errors.push(`Producto fila ${index + 1}: requiere clave_tipo si tiene presentaciones.`);
+        });
+        (draft.productPresentations || []).forEach((row, index) => {
+            if (!row.clave_producto || !row.clave_presentacion || Number(row.precio) <= 0) errors.push(`Precio por presentación fila ${index + 1}: producto, presentación y precio mayor a cero son requeridos.`);
+            if (row.clave_producto && !productKeys.has(row.clave_producto.toLowerCase())) warnings.push(`Precio por presentación fila ${index + 1}: producto no definido todavía.`);
+            if (row.clave_presentacion && !presentationKeys.has(row.clave_presentacion.toLowerCase())) warnings.push(`Precio por presentación fila ${index + 1}: presentación no definida todavía.`);
+        });
+
+        return { errors, warnings };
+    },
+
+    async downloadMenuTemplate() {
+        if (!this.canAdministerMenu()) return this.showAdminRequired();
+        this.syncTemplateDraftFromDom();
+        const validation = this.validateTemplateDraftClient();
+        if (validation.errors.length > 0) {
+            this.templateStep = 'review';
+            this.refreshTemplateWizard();
+            Utils.showNotification('Corrige los errores antes de descargar la plantilla.', 'warning');
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_BASE}/menu/template/generate`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-MundiPOS-Client': typeof MUNDIPOS_CLIENT_ID !== 'undefined' ? MUNDIPOS_CLIENT_ID : 'menu-template-wizard'
+                },
+                body: JSON.stringify({ draft: this.templateDraft })
+            });
+
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error || 'No se pudo generar la plantilla');
+            }
+
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            const disposition = response.headers.get('Content-Disposition') || '';
+            const match = disposition.match(/filename="?([^";]+)"?/i);
+            link.href = url;
+            link.download = match ? match[1] : 'mundipos-menu-template.xlsx';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+            this.saveTemplateDraft(false);
+            Utils.showNotification('Plantilla Excel generada correctamente.', 'success');
+        } catch (error) {
+            console.error('Error descargando plantilla:', error);
+            Utils.showNotification(error.message || 'Error generando plantilla', 'error');
+        }
+    },
+
+    showTemplateImportModal() {
+        if (!this.canAdministerMenu()) return this.showAdminRequired();
+        this.templateImportState = null;
+
+        Utils.showModal('Importar Menú desde Plantilla Oficial', `
+            <div class="menu-template-import">
+                <div class="menu-template-help">
+                    <i class="fas fa-shield-alt"></i>
+                    <div>
+                        <strong>Importación segura desde plantilla MundiPOS</strong>
+                        <p>Solo se aceptan archivos .xlsx generados por el asistente oficial. Primero valida la plantilla, revisa el resumen y luego confirma la importación.</p>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="menu-template-import-file">Archivo Excel de plantilla *</label>
+                    <input type="file" id="menu-template-import-file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+                    <small class="text-muted">No se eliminan productos existentes. El importador crea o actualiza por coincidencia segura.</small>
+                </div>
+
+                <div id="menu-template-import-result" class="menu-template-import-result">
+                    <div class="menu-empty-state">
+                        <i class="fas fa-file-circle-check"></i>
+                        <strong>Selecciona una plantilla y valida antes de importar.</strong>
+                    </div>
+                </div>
+            </div>
+        `, [
+            { text: 'Cerrar', class: 'btn-light', onclick: 'Utils.hideModal()' },
+            { text: '<i class="fas fa-search"></i> Validar plantilla', class: 'btn-secondary', onclick: 'Menu.validateMenuTemplateFile()' },
+            { text: '<i class="fas fa-file-import"></i> Importar Menú', class: 'btn-success', align: 'right', onclick: 'Menu.importMenuTemplateFile()' }
+        ], 'modal-menu modal-menu-template-import');
+    },
+
+    getTemplateImportFile() {
+        const input = document.getElementById('menu-template-import-file');
+        const file = input?.files?.[0];
+        if (!file) throw new Error('Selecciona un archivo .xlsx de plantilla.');
+        if (!file.name.toLowerCase().endsWith('.xlsx')) throw new Error('Solo se aceptan archivos .xlsx.');
+        return file;
+    },
+
+    readTemplateFileAsBase64(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const result = String(reader.result || '');
+                resolve(result.includes(',') ? result.split(',')[1] : result);
+            };
+            reader.onerror = () => reject(new Error('No se pudo leer el archivo seleccionado.'));
+            reader.readAsDataURL(file);
+        });
+    },
+
+    async validateMenuTemplateFile() {
+        if (!this.canAdministerMenu()) return this.showAdminRequired();
+
+        try {
+            const file = this.getTemplateImportFile();
+            const fileBase64 = await this.readTemplateFileAsBase64(file);
+            const resultContainer = document.getElementById('menu-template-import-result');
+            if (resultContainer) {
+                resultContainer.innerHTML = '<div class="menu-empty-state"><i class="fas fa-spinner fa-spin"></i><strong>Validando plantilla...</strong></div>';
+            }
+
+            const response = await fetch(`${API_BASE}/menu/template/validate`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-MundiPOS-Client': typeof MUNDIPOS_CLIENT_ID !== 'undefined' ? MUNDIPOS_CLIENT_ID : 'menu-template-import'
+                },
+                body: JSON.stringify({ filename: file.name, file_base64: fileBase64 })
+            });
+
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || 'No se pudo validar la plantilla.');
+
+            this.templateImportState = { filename: file.name, file_base64: fileBase64, validation: data };
+            if (resultContainer) resultContainer.innerHTML = this.renderTemplateImportResult(data);
+            Utils.showNotification(data.can_import ? 'Plantilla válida para importar.' : 'La plantilla tiene errores críticos.', data.can_import ? 'success' : 'warning');
+            return data;
+        } catch (error) {
+            console.error('Error validando plantilla:', error);
+            const resultContainer = document.getElementById('menu-template-import-result');
+            if (resultContainer) {
+                resultContainer.innerHTML = `<div class="alert alert-danger"><i class="fas fa-triangle-exclamation"></i> ${this.escapeHtml(error.message || 'Error validando plantilla')}</div>`;
+            }
+            Utils.showNotification(error.message || 'Error validando plantilla', 'error');
+            return null;
+        }
+    },
+
+    renderTemplateImportResult(data = {}) {
+        const summary = data.summary || {};
+        const errors = data.errors || [];
+        const warnings = data.warnings || [];
+        const cards = [
+            ['Categorías', summary.categorias || 0],
+            ['Subcategorías', summary.subcategorias || 0],
+            ['Tipos/Grupos', summary.tipos_presentacion || 0],
+            ['Presentaciones', summary.presentaciones || 0],
+            ['Productos', summary.productos || 0],
+            ['Prod. con presentación', summary.productos_con_presentacion || 0],
+            ['Relaciones precio', summary.producto_presentaciones || 0]
+        ];
+
+        return `
+            <div class="menu-template-import-summary ${data.can_import ? 'is-valid' : 'has-errors'}">
+                <div class="menu-template-import-status">
+                    <i class="fas ${data.can_import ? 'fa-circle-check' : 'fa-triangle-exclamation'}"></i>
+                    <div>
+                        <strong>${data.can_import ? 'Plantilla lista para importar' : 'Plantilla con errores críticos'}</strong>
+                        <p>${this.escapeHtml(data.filename || '')}</p>
+                    </div>
+                </div>
+                <div class="menu-template-import-grid">
+                    ${cards.map(([label, value]) => `<div><span>${label}</span><strong>${value}</strong></div>`).join('')}
+                </div>
+                ${errors.length ? `<div class="alert alert-danger"><strong>Errores:</strong><ul>${errors.map(error => `<li>${this.escapeHtml(error)}</li>`).join('')}</ul></div>` : ''}
+                ${warnings.length ? `<div class="alert alert-warning"><strong>Advertencias:</strong><ul>${warnings.map(warning => `<li>${this.escapeHtml(warning)}</li>`).join('')}</ul></div>` : ''}
+                ${data.can_import ? '<p class="text-muted">Al importar, MundiPOS creará o actualizará registros. No eliminará elementos existentes.</p>' : ''}
+            </div>
+        `;
+    },
+
+    async importMenuTemplateFile() {
+        if (!this.canAdministerMenu()) return this.showAdminRequired();
+
+        try {
+            if (!this.templateImportState) {
+                const validated = await this.validateMenuTemplateFile();
+                if (!validated) return;
+            }
+
+            if (!this.templateImportState?.validation?.can_import) {
+                Utils.showNotification('Corrige los errores de la plantilla antes de importar.', 'warning');
+                return;
+            }
+
+            const confirmed = confirm('¿Importar esta plantilla al Menú? Se crearán o actualizarán registros, pero no se eliminarán elementos existentes.');
+            if (!confirmed) return;
+
+            const response = await fetch(`${API_BASE}/menu/template/import`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-MundiPOS-Client': typeof MUNDIPOS_CLIENT_ID !== 'undefined' ? MUNDIPOS_CLIENT_ID : 'menu-template-import'
+                },
+                body: JSON.stringify({
+                    filename: this.templateImportState.filename,
+                    file_base64: this.templateImportState.file_base64
+                })
+            });
+
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || 'No se pudo importar la plantilla.');
+
+            Utils.hideModal();
+            await this.load({ includeInactive: true });
+            Utils.showNotification('Menú importado correctamente desde plantilla.', 'success');
+        } catch (error) {
+            console.error('Error importando plantilla:', error);
+            Utils.showNotification(error.message || 'Error importando plantilla', 'error');
+        }
+    },
+
 
     normalizeImageUrl(image) {
         if (!image) return '/uploads/ImagenGenerica.jpg';

@@ -706,3 +706,71 @@ No se debe volver todavía a `orders.js` como fase principal hasta cerrar la ext
 git commit -m "v2.2.5M.11-13: documenta roadmap de plantillas de Menu"
 ```
 
+
+## v2.2.5M.11 · Generador asistido de Plantilla Excel de Menú
+
+### Objetivo
+
+Agregar una herramienta administrativa para construir una plantilla Excel oficial de Menú desde formularios guiados, usando el mismo orden lógico de creación de la app.
+
+### Alcance
+
+- botón `Plantilla asistida` visible solo para administradores;
+- wizard por pasos: estructura, productos, presentaciones y revisión;
+- carga de datos demo;
+- guardado local de avance;
+- validación previa en frontend;
+- endpoint backend `POST /api/menu/template/generate`;
+- generación de `.xlsx` oficial con metadata verificable;
+- documentación de la subfase.
+
+### No incluido
+
+- no importa datos a SQLite;
+- no modifica Cuentas/Orders;
+- no sube imágenes;
+- no crea borradores persistentes en base de datos.
+
+### Archivos esperados
+
+```text
+README.md
+docs/avance-v2.2.5M.11-generador-plantilla-menu.md
+docs/roadmap-v2.2.5M-normalizacion-menu.md
+docs/roadmap-v2.2.5M11-13-plantillas-menu.md
+server/routes/menu.js
+public/js/components/menu.js
+public/css/style.css
+public/index.html
+public/service-worker.js
+```
+
+### Commit sugerido
+
+```powershell
+git commit -m "v2.2.5M.11: agrega generador asistido de plantilla de Menu"
+```
+
+## v2.2.5M.12 · Importar Menú desde Plantilla
+
+Objetivo:
+- importar a SQLite una plantilla Excel oficial generada desde el asistente M.11;
+- validar metadata, hojas, columnas y relaciones antes de importar;
+- crear o actualizar datos sin eliminar registros existentes.
+
+Archivos esperados:
+- `README.md`
+- `docs/avance-v2.2.5M.12-importar-menu-plantilla.md`
+- `docs/roadmap-v2.2.5M-normalizacion-menu.md`
+- `docs/roadmap-v2.2.5M11-13-plantillas-menu.md`
+- `server/routes/menu.js`
+- `public/js/components/menu.js`
+- `public/css/style.css`
+- `public/index.html`
+- `public/service-worker.js`
+
+Commit sugerido:
+
+```powershell
+git commit -m "v2.2.5M.12: agrega importacion de Menu desde plantilla"
+```

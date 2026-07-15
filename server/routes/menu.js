@@ -3,6 +3,7 @@ const database = require('../db/database');
 const fs = require('fs');
 const multer = require('multer');
 const path = require('path');
+const zlib = require('zlib');
 
 const router = express.Router();
 const PRODUCT_UPLOAD_DIR = path.join(__dirname, '../../public/uploads/productos');
@@ -1464,6 +1465,1073 @@ router.delete('/presentaciones-globales/:id', requireMenuAdmin, async (req, res)
     } catch (error) {
         console.error('Error al desactivar presentación:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+const MENU_TEMPLATE_VERSION = 'v2.2.5M.11';
+const MENU_TEMPLATE_ID = 'MUNDIPOS_MENU_TEMPLATE';
+const MENU_TEMPLATE_SCHEMA = 'menu-template-v1';
+
+function templateText(value, fallback = '') {
+    if (value === undefined || value === null) return fallback;
+    return String(value).trim();
+}
+
+function templateBool(value, fallback = 'SI') {
+    if (value === undefined || value === null || value === '') return fallback;
+    if (value === true || value === 1 || value === '1') return 'SI';
+    const normalized = String(value).trim().toLowerCase();
+    return ['si', 'sí', 's', 'yes', 'y', 'true', 'activo', 'on'].includes(normalized) ? 'SI' : 'NO';
+}
+
+function templateNumber(value, fallback = '') {
+    if (value === undefined || value === null || value === '') return fallback;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+}
+
+function normalizeTemplateArray(value) {
+    return Array.isArray(value) ? value : [];
+}
+
+function normalizeMenuTemplateDraft(payload = {}) {
+    const draft = payload.draft || payload || {};
+
+    return {
+        metadata: {
+            negocio: templateText(draft.metadata?.negocio || draft.negocio || 'MundiPOS'),
+            moneda: templateText(draft.metadata?.moneda || draft.moneda || 'CRC'),
+            creado_por: templateText(draft.metadata?.creado_por || draft.creado_por || 'Administrador'),
+            notas: templateText(draft.metadata?.notas || draft.notas || '')
+        },
+        categories: normalizeTemplateArray(draft.categories || draft.categorias).map((row, index) => ({
+            clave_categoria: templateText(row.clave_categoria || row.clave || `CAT-${index + 1}`),
+            nombre: templateText(row.nombre),
+            permite_cocina: templateBool(row.permite_cocina),
+            activa: templateBool(row.activa)
+        })),
+        subcategories: normalizeTemplateArray(draft.subcategories || draft.subcategorias).map((row, index) => ({
+            clave_categoria: templateText(row.clave_categoria),
+            clave_subcategoria: templateText(row.clave_subcategoria || row.clave || `SUB-${index + 1}`),
+            nombre: templateText(row.nombre),
+            permite_cocina: templateBool(row.permite_cocina),
+            activa: templateBool(row.activa)
+        })),
+        presentationTypes: normalizeTemplateArray(draft.presentationTypes || draft.tipos_presentacion).map((row, index) => ({
+            clave_tipo: templateText(row.clave_tipo || row.clave || `TIP-${index + 1}`),
+            nombre: templateText(row.nombre),
+            clave_categoria: templateText(row.clave_categoria),
+            clave_subcategoria: templateText(row.clave_subcategoria),
+            descripcion: templateText(row.descripcion),
+            activo: templateBool(row.activo)
+        })),
+        presentations: normalizeTemplateArray(draft.presentations || draft.presentaciones).map((row, index) => ({
+            clave_presentacion: templateText(row.clave_presentacion || row.clave || `PRE-${index + 1}`),
+            nombre: templateText(row.nombre),
+            tipo: templateText(row.tipo || 'Tamaño'),
+            cantidad: templateText(row.cantidad),
+            clave_tipo: templateText(row.clave_tipo),
+            activo: templateBool(row.activo)
+        })),
+        products: normalizeTemplateArray(draft.products || draft.productos).map((row, index) => ({
+            clave_producto: templateText(row.clave_producto || row.clave || `PROD-${index + 1}`),
+            nombre: templateText(row.nombre),
+            descripcion: templateText(row.descripcion),
+            clave_categoria: templateText(row.clave_categoria),
+            clave_subcategoria: templateText(row.clave_subcategoria),
+            precio_base: templateNumber(row.precio_base),
+            tiene_presentaciones: templateBool(row.tiene_presentaciones, 'NO'),
+            clave_tipo: templateText(row.clave_tipo),
+            es_cocina: templateBool(row.es_cocina, 'NO'),
+            activo: templateBool(row.activo)
+        })),
+        productPresentations: normalizeTemplateArray(draft.productPresentations || draft.producto_presentaciones).map((row) => ({
+            clave_producto: templateText(row.clave_producto),
+            clave_presentacion: templateText(row.clave_presentacion),
+            precio: templateNumber(row.precio),
+            activo: templateBool(row.activo)
+        }))
+    };
+}
+
+function validateMenuTemplateDraft(draft) {
+    const errors = [];
+    const warnings = [];
+    const keys = {
+        categories: new Set(),
+        subcategories: new Set(),
+        presentationTypes: new Set(),
+        presentations: new Set(),
+        products: new Set()
+    };
+
+    function requireValue(value, message) {
+        if (!templateText(value)) errors.push(message);
+    }
+
+    function unique(set, value, message) {
+        const normalized = templateText(value).toLowerCase();
+        if (!normalized) return;
+        if (set.has(normalized)) errors.push(message);
+        set.add(normalized);
+    }
+
+    if (draft.categories.length === 0) {
+        warnings.push('La plantilla no contiene categorías. Se generará estructura vacía para completar en Excel.');
+    }
+
+    draft.categories.forEach((row, index) => {
+        requireValue(row.clave_categoria, `Categorías fila ${index + 1}: clave_categoria requerida.`);
+        requireValue(row.nombre, `Categorías fila ${index + 1}: nombre requerido.`);
+        unique(keys.categories, row.clave_categoria, `Categorías fila ${index + 1}: clave_categoria duplicada.`);
+    });
+
+    draft.subcategories.forEach((row, index) => {
+        requireValue(row.clave_categoria, `Subcategorías fila ${index + 1}: clave_categoria requerida.`);
+        requireValue(row.clave_subcategoria, `Subcategorías fila ${index + 1}: clave_subcategoria requerida.`);
+        requireValue(row.nombre, `Subcategorías fila ${index + 1}: nombre requerido.`);
+        unique(keys.subcategories, row.clave_subcategoria, `Subcategorías fila ${index + 1}: clave_subcategoria duplicada.`);
+        if (row.clave_categoria && !keys.categories.has(row.clave_categoria.toLowerCase())) {
+            warnings.push(`Subcategorías fila ${index + 1}: la categoría ${row.clave_categoria} no existe todavía en la hoja 01_Categorias.`);
+        }
+    });
+
+    draft.presentationTypes.forEach((row, index) => {
+        requireValue(row.clave_tipo, `Tipos fila ${index + 1}: clave_tipo requerida.`);
+        requireValue(row.nombre, `Tipos fila ${index + 1}: nombre requerido.`);
+        requireValue(row.clave_categoria, `Tipos fila ${index + 1}: clave_categoria requerida.`);
+        unique(keys.presentationTypes, row.clave_tipo, `Tipos fila ${index + 1}: clave_tipo duplicada.`);
+    });
+
+    draft.presentations.forEach((row, index) => {
+        requireValue(row.clave_presentacion, `Presentaciones fila ${index + 1}: clave_presentacion requerida.`);
+        requireValue(row.nombre, `Presentaciones fila ${index + 1}: nombre requerido.`);
+        requireValue(row.clave_tipo, `Presentaciones fila ${index + 1}: clave_tipo requerida.`);
+        unique(keys.presentations, row.clave_presentacion, `Presentaciones fila ${index + 1}: clave_presentacion duplicada.`);
+        if (row.clave_tipo && !keys.presentationTypes.has(row.clave_tipo.toLowerCase())) {
+            warnings.push(`Presentaciones fila ${index + 1}: el tipo/grupo ${row.clave_tipo} no existe todavía en la hoja 03_TiposPresentacion.`);
+        }
+    });
+
+    draft.products.forEach((row, index) => {
+        requireValue(row.clave_producto, `Productos fila ${index + 1}: clave_producto requerida.`);
+        requireValue(row.nombre, `Productos fila ${index + 1}: nombre requerido.`);
+        requireValue(row.clave_categoria, `Productos fila ${index + 1}: clave_categoria requerida.`);
+        unique(keys.products, row.clave_producto, `Productos fila ${index + 1}: clave_producto duplicada.`);
+
+        if (row.tiene_presentaciones === 'SI' && !row.clave_tipo) {
+            errors.push(`Productos fila ${index + 1}: si tiene presentaciones debe indicar clave_tipo.`);
+        }
+
+        if (row.tiene_presentaciones !== 'SI' && Number(row.precio_base) <= 0) {
+            warnings.push(`Productos fila ${index + 1}: producto sin presentaciones debería tener precio_base mayor a cero.`);
+        }
+    });
+
+    draft.productPresentations.forEach((row, index) => {
+        requireValue(row.clave_producto, `ProductoPresentaciones fila ${index + 1}: clave_producto requerida.`);
+        requireValue(row.clave_presentacion, `ProductoPresentaciones fila ${index + 1}: clave_presentacion requerida.`);
+        if (Number(row.precio) <= 0) errors.push(`ProductoPresentaciones fila ${index + 1}: precio debe ser mayor a cero.`);
+        if (row.clave_producto && !keys.products.has(row.clave_producto.toLowerCase())) {
+            warnings.push(`ProductoPresentaciones fila ${index + 1}: el producto ${row.clave_producto} no existe todavía en la hoja 05_Productos.`);
+        }
+        if (row.clave_presentacion && !keys.presentations.has(row.clave_presentacion.toLowerCase())) {
+            warnings.push(`ProductoPresentaciones fila ${index + 1}: la presentación ${row.clave_presentacion} no existe todavía en la hoja 04_Presentaciones.`);
+        }
+    });
+
+    return { errors, warnings };
+}
+
+function xmlEscape(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+}
+
+function columnName(index) {
+    let name = '';
+    let value = index + 1;
+    while (value > 0) {
+        const modulo = (value - 1) % 26;
+        name = String.fromCharCode(65 + modulo) + name;
+        value = Math.floor((value - modulo) / 26);
+    }
+    return name;
+}
+
+function worksheetXml(rows, widths = []) {
+    const cols = widths.length
+        ? `<cols>${widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join('')}</cols>`
+        : '';
+
+    const sheetData = rows.map((row, rowIndex) => {
+        const cells = row.map((cell, colIndex) => {
+            const ref = `${columnName(colIndex)}${rowIndex + 1}`;
+            const value = typeof cell === 'object' && cell !== null ? cell.value : cell;
+            const style = typeof cell === 'object' && cell !== null ? Number(cell.style || 0) : (rowIndex === 0 ? 1 : 0);
+            const type = typeof cell === 'object' && cell !== null ? cell.type : (typeof value === 'number' ? 'n' : 's');
+
+            if (type === 'n' && value !== '') {
+                return `<c r="${ref}" s="${style || 2}"><v>${Number(value)}</v></c>`;
+            }
+            return `<c r="${ref}" t="inlineStr" s="${style}"><is><t>${xmlEscape(value)}</t></is></c>`;
+        }).join('');
+
+        return `<row r="${rowIndex + 1}">${cells}</row>`;
+    }).join('');
+
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+${cols}<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetData>${sheetData}</sheetData></worksheet>`;
+}
+
+function workbookXml(sheets) {
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets.map((sheet, index) => `<sheet name="${xmlEscape(sheet.name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join('')}</sheets></workbook>`;
+}
+
+function workbookRelsXml(sheets) {
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((sheet, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`).join('')}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`;
+}
+
+function stylesXml() {
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="11"/><name val="Calibri"/></font><font><b/><color rgb="FF172033"/><sz val="12"/><name val="Calibri"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF172033"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEAF3FB"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFD9E2EC"/></left><right style="thin"><color rgb="FFD9E2EC"/></right><top style="thin"><color rgb="FFD9E2EC"/></top><bottom style="thin"><color rgb="FFD9E2EC"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFill="1" applyFont="1"/><xf numFmtId="4" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFill="1" applyFont="1"/></cellXfs></styleSheet>`;
+}
+
+function contentTypesXml(sheets) {
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${sheets.map((sheet, index) => `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`;
+}
+
+function rootRelsXml() {
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
+}
+
+const crcTable = (() => {
+    const table = new Array(256);
+    for (let i = 0; i < 256; i += 1) {
+        let c = i;
+        for (let k = 0; k < 8; k += 1) {
+            c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+        }
+        table[i] = c >>> 0;
+    }
+    return table;
+})();
+
+function crc32(buffer) {
+    let crc = 0 ^ -1;
+    for (let i = 0; i < buffer.length; i += 1) {
+        crc = (crc >>> 8) ^ crcTable[(crc ^ buffer[i]) & 0xFF];
+    }
+    return (crc ^ -1) >>> 0;
+}
+
+function dosTimeDate(date = new Date()) {
+    const time = (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2);
+    const year = Math.max(date.getFullYear(), 1980);
+    const day = (year - 1980) << 9 | ((date.getMonth() + 1) << 5) | date.getDate();
+    return { time, day };
+}
+
+function createZip(files) {
+    const localParts = [];
+    const centralParts = [];
+    let offset = 0;
+    const now = dosTimeDate();
+
+    files.forEach(file => {
+        const nameBuffer = Buffer.from(file.name, 'utf8');
+        const dataBuffer = Buffer.isBuffer(file.data) ? file.data : Buffer.from(file.data, 'utf8');
+        const crc = crc32(dataBuffer);
+
+        const localHeader = Buffer.alloc(30);
+        localHeader.writeUInt32LE(0x04034b50, 0);
+        localHeader.writeUInt16LE(20, 4);
+        localHeader.writeUInt16LE(0x0800, 6);
+        localHeader.writeUInt16LE(0, 8);
+        localHeader.writeUInt16LE(now.time, 10);
+        localHeader.writeUInt16LE(now.day, 12);
+        localHeader.writeUInt32LE(crc, 14);
+        localHeader.writeUInt32LE(dataBuffer.length, 18);
+        localHeader.writeUInt32LE(dataBuffer.length, 22);
+        localHeader.writeUInt16LE(nameBuffer.length, 26);
+        localHeader.writeUInt16LE(0, 28);
+
+        localParts.push(localHeader, nameBuffer, dataBuffer);
+
+        const centralHeader = Buffer.alloc(46);
+        centralHeader.writeUInt32LE(0x02014b50, 0);
+        centralHeader.writeUInt16LE(20, 4);
+        centralHeader.writeUInt16LE(20, 6);
+        centralHeader.writeUInt16LE(0x0800, 8);
+        centralHeader.writeUInt16LE(0, 10);
+        centralHeader.writeUInt16LE(now.time, 12);
+        centralHeader.writeUInt16LE(now.day, 14);
+        centralHeader.writeUInt32LE(crc, 16);
+        centralHeader.writeUInt32LE(dataBuffer.length, 20);
+        centralHeader.writeUInt32LE(dataBuffer.length, 24);
+        centralHeader.writeUInt16LE(nameBuffer.length, 28);
+        centralHeader.writeUInt16LE(0, 30);
+        centralHeader.writeUInt16LE(0, 32);
+        centralHeader.writeUInt16LE(0, 34);
+        centralHeader.writeUInt16LE(0, 36);
+        centralHeader.writeUInt32LE(0, 38);
+        centralHeader.writeUInt32LE(offset, 42);
+        centralParts.push(centralHeader, nameBuffer);
+
+        offset += localHeader.length + nameBuffer.length + dataBuffer.length;
+    });
+
+    const centralOffset = offset;
+    const centralBuffer = Buffer.concat(centralParts);
+    const endHeader = Buffer.alloc(22);
+    endHeader.writeUInt32LE(0x06054b50, 0);
+    endHeader.writeUInt16LE(0, 4);
+    endHeader.writeUInt16LE(0, 6);
+    endHeader.writeUInt16LE(files.length, 8);
+    endHeader.writeUInt16LE(files.length, 10);
+    endHeader.writeUInt32LE(centralBuffer.length, 12);
+    endHeader.writeUInt32LE(centralOffset, 16);
+    endHeader.writeUInt16LE(0, 20);
+
+    return Buffer.concat([...localParts, centralBuffer, endHeader]);
+}
+
+function buildMenuTemplateWorkbook(draft, validation) {
+    const generatedAt = new Date().toISOString();
+    const sheets = [
+        {
+            name: '_METADATA',
+            widths: [28, 48],
+            rows: [
+                ['campo', 'valor'],
+                ['template_id', MENU_TEMPLATE_ID],
+                ['app', 'MundiPOS'],
+                ['module', 'menu_import'],
+                ['template_version', MENU_TEMPLATE_VERSION],
+                ['schema', MENU_TEMPLATE_SCHEMA],
+                ['generated_at', generatedAt],
+                ['negocio', draft.metadata.negocio],
+                ['moneda', draft.metadata.moneda],
+                ['creado_por', draft.metadata.creado_por],
+                ['notas', draft.metadata.notas]
+            ]
+        },
+        {
+            name: 'README',
+            widths: [34, 96],
+            rows: [
+                ['seccion', 'descripcion'],
+                ['Orden de creación', '1) Categorías. 2) Subcategorías. 3) Tipos/Grupos de presentación. 4) Presentaciones. 5) Productos. 6) ProductoPresentaciones.'],
+                ['Regla principal', 'No cambie los nombres de hojas ni columnas. La importación M.12 aceptará solo esta estructura oficial.'],
+                ['Claves', 'Use claves simples y únicas, por ejemplo CAT-BEBIDAS, SUB-GASEOSAS, TIP-GASEOSAS, PRE-350ML, PROD-COCACOLA.'],
+                ['Productos con presentación', 'Use tiene_presentaciones=SI, indique clave_tipo y cargue precios en 06_ProductoPresentaciones.'],
+                ['Productos sin presentación', 'Use tiene_presentaciones=NO y complete precio_base en 05_Productos.'],
+                ['Cocina', 'Use es_cocina=SI solo cuando la categoría/subcategoría lo permite en la app.'],
+                ['Validación generador', `${validation.errors.length} errores · ${validation.warnings.length} advertencias al generar.`]
+            ]
+        },
+        {
+            name: '01_Categorias',
+            widths: [24, 28, 18, 14],
+            rows: [['clave_categoria', 'nombre', 'permite_cocina', 'activa'], ...draft.categories.map(row => [row.clave_categoria, row.nombre, row.permite_cocina, row.activa])]
+        },
+        {
+            name: '02_Subcategorias',
+            widths: [24, 24, 28, 18, 14],
+            rows: [['clave_categoria', 'clave_subcategoria', 'nombre', 'permite_cocina', 'activa'], ...draft.subcategories.map(row => [row.clave_categoria, row.clave_subcategoria, row.nombre, row.permite_cocina, row.activa])]
+        },
+        {
+            name: '03_TiposPresentacion',
+            widths: [24, 28, 24, 24, 46, 14],
+            rows: [['clave_tipo', 'nombre', 'clave_categoria', 'clave_subcategoria', 'descripcion', 'activo'], ...draft.presentationTypes.map(row => [row.clave_tipo, row.nombre, row.clave_categoria, row.clave_subcategoria, row.descripcion, row.activo])]
+        },
+        {
+            name: '04_Presentaciones',
+            widths: [24, 28, 20, 20, 24, 14],
+            rows: [['clave_presentacion', 'nombre', 'tipo', 'cantidad', 'clave_tipo', 'activo'], ...draft.presentations.map(row => [row.clave_presentacion, row.nombre, row.tipo, row.cantidad, row.clave_tipo, row.activo])]
+        },
+        {
+            name: '05_Productos',
+            widths: [24, 30, 42, 24, 24, 16, 22, 24, 16, 14],
+            rows: [['clave_producto', 'nombre', 'descripcion', 'clave_categoria', 'clave_subcategoria', 'precio_base', 'tiene_presentaciones', 'clave_tipo', 'es_cocina', 'activo'], ...draft.products.map(row => [row.clave_producto, row.nombre, row.descripcion, row.clave_categoria, row.clave_subcategoria, { value: row.precio_base, type: typeof row.precio_base === 'number' ? 'n' : 's' }, row.tiene_presentaciones, row.clave_tipo, row.es_cocina, row.activo])]
+        },
+        {
+            name: '06_ProductoPresentaciones',
+            widths: [24, 26, 16, 14],
+            rows: [['clave_producto', 'clave_presentacion', 'precio', 'activo'], ...draft.productPresentations.map(row => [row.clave_producto, row.clave_presentacion, { value: row.precio, type: typeof row.precio === 'number' ? 'n' : 's' }, row.activo])]
+        },
+        {
+            name: '07_Validacion',
+            widths: [18, 110],
+            rows: [
+                ['tipo', 'mensaje'],
+                ...validation.errors.map(message => ['ERROR', message]),
+                ...validation.warnings.map(message => ['ADVERTENCIA', message]),
+                ...(validation.errors.length === 0 && validation.warnings.length === 0 ? [['OK', 'Sin observaciones del generador asistido.']] : [])
+            ]
+        }
+    ];
+
+    const files = [
+        { name: '[Content_Types].xml', data: contentTypesXml(sheets) },
+        { name: '_rels/.rels', data: rootRelsXml() },
+        { name: 'xl/workbook.xml', data: workbookXml(sheets) },
+        { name: 'xl/_rels/workbook.xml.rels', data: workbookRelsXml(sheets) },
+        { name: 'xl/styles.xml', data: stylesXml() },
+        ...sheets.map((sheet, index) => ({ name: `xl/worksheets/sheet${index + 1}.xml`, data: worksheetXml(sheet.rows, sheet.widths) }))
+    ];
+
+    return createZip(files);
+}
+
+function decodeXmlEntities(value = '') {
+    return String(value)
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&apos;/g, "'")
+        .replace(/&amp;/g, '&');
+}
+
+function columnNameToIndex(cellRef = '') {
+    const letters = String(cellRef).replace(/[0-9]/g, '').toUpperCase();
+    let index = 0;
+    for (const char of letters) {
+        index = index * 26 + (char.charCodeAt(0) - 64);
+    }
+    return Math.max(index - 1, 0);
+}
+
+function readZipEntries(buffer) {
+    const entries = new Map();
+    let eocdOffset = -1;
+
+    for (let index = buffer.length - 22; index >= 0; index -= 1) {
+        if (buffer.readUInt32LE(index) === 0x06054b50) {
+            eocdOffset = index;
+            break;
+        }
+    }
+
+    if (eocdOffset < 0) {
+        throw new Error('No se encontró el directorio central del archivo XLSX.');
+    }
+
+    const totalEntries = buffer.readUInt16LE(eocdOffset + 10);
+    const centralDirectoryOffset = buffer.readUInt32LE(eocdOffset + 16);
+    let offset = centralDirectoryOffset;
+
+    for (let entryIndex = 0; entryIndex < totalEntries; entryIndex += 1) {
+        if (buffer.readUInt32LE(offset) !== 0x02014b50) {
+            throw new Error('Directorio central XLSX inválido.');
+        }
+
+        const method = buffer.readUInt16LE(offset + 10);
+        const compressedSize = buffer.readUInt32LE(offset + 20);
+        const fileNameLength = buffer.readUInt16LE(offset + 28);
+        const extraLength = buffer.readUInt16LE(offset + 30);
+        const commentLength = buffer.readUInt16LE(offset + 32);
+        const localHeaderOffset = buffer.readUInt32LE(offset + 42);
+        const name = buffer.slice(offset + 46, offset + 46 + fileNameLength).toString('utf8').replace(/^\//, '');
+
+        if (buffer.readUInt32LE(localHeaderOffset) !== 0x04034b50) {
+            throw new Error(`Encabezado local inválido para ${name}.`);
+        }
+
+        const localFileNameLength = buffer.readUInt16LE(localHeaderOffset + 26);
+        const localExtraLength = buffer.readUInt16LE(localHeaderOffset + 28);
+        const dataStart = localHeaderOffset + 30 + localFileNameLength + localExtraLength;
+        const compressedData = buffer.slice(dataStart, dataStart + compressedSize);
+        let data;
+
+        if (method === 0) {
+            data = compressedData;
+        } else if (method === 8) {
+            data = zlib.inflateRawSync(compressedData);
+        } else {
+            throw new Error(`Método de compresión ZIP no soportado: ${method}`);
+        }
+
+        entries.set(name, data);
+        offset += 46 + fileNameLength + extraLength + commentLength;
+    }
+
+    return entries;
+}
+
+function parseSharedStrings(xml = '') {
+    const values = [];
+    const siRegex = /<si[\s\S]*?<\/si>/g;
+    const matches = xml.match(siRegex) || [];
+
+    matches.forEach(si => {
+        const pieces = [];
+        const textRegex = /<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g;
+        let textMatch;
+        while ((textMatch = textRegex.exec(si))) {
+            pieces.push(decodeXmlEntities(textMatch[1] || ''));
+        }
+        values.push(pieces.join(''));
+    });
+
+    return values;
+}
+
+function parseWorkbookSheets(entries) {
+    const workbookXmlBuffer = entries.get('xl/workbook.xml');
+    if (!workbookXmlBuffer) throw new Error('El archivo no contiene xl/workbook.xml');
+
+    const workbookXml = workbookXmlBuffer.toString('utf8');
+    const relsXml = (entries.get('xl/_rels/workbook.xml.rels') || Buffer.from('')).toString('utf8');
+    const rels = {};
+    const relRegex = /<Relationship\s+([^>]+?)\/>/g;
+    let relMatch;
+    while ((relMatch = relRegex.exec(relsXml))) {
+        const attrs = relMatch[1];
+        const id = (attrs.match(/Id="([^"]+)"/) || [])[1];
+        const target = (attrs.match(/Target="([^"]+)"/) || [])[1];
+        if (id && target) rels[id] = target.startsWith('/') ? target.slice(1) : `xl/${target}`.replace(/\/\.\//g, '/');
+    }
+
+    const sheets = {};
+    const sheetRegex = /<sheet\s+([^>]+?)\/>/g;
+    let sheetMatch;
+    while ((sheetMatch = sheetRegex.exec(workbookXml))) {
+        const attrs = sheetMatch[1];
+        const name = decodeXmlEntities((attrs.match(/name="([^"]+)"/) || [])[1] || '');
+        const rid = (attrs.match(/r:id="([^"]+)"/) || [])[1];
+        const target = rels[rid];
+        if (name && target && entries.has(target)) {
+            sheets[name] = entries.get(target).toString('utf8');
+        }
+    }
+
+    return sheets;
+}
+
+function parseWorksheetRows(xml = '', sharedStrings = []) {
+    const rows = [];
+    const rowRegex = /<row\b[^>]*>([\s\S]*?)<\/row>/g;
+    let rowMatch;
+
+    while ((rowMatch = rowRegex.exec(xml))) {
+        const rowCells = [];
+        const rowContent = rowMatch[1];
+        const cellRegex = /<c\b([^>]*)>([\s\S]*?)<\/c>/g;
+        let cellMatch;
+
+        while ((cellMatch = cellRegex.exec(rowContent))) {
+            const attrs = cellMatch[1] || '';
+            const content = cellMatch[2] || '';
+            const ref = (attrs.match(/r="([A-Z]+[0-9]+)"/) || [])[1] || '';
+            const type = (attrs.match(/t="([^"]+)"/) || [])[1] || '';
+            const colIndex = columnNameToIndex(ref || `A${rows.length + 1}`);
+            let value = '';
+
+            if (type === 'inlineStr') {
+                const texts = [];
+                const textRegex = /<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g;
+                let textMatch;
+                while ((textMatch = textRegex.exec(content))) texts.push(decodeXmlEntities(textMatch[1] || ''));
+                value = texts.join('');
+            } else {
+                const v = (content.match(/<v>([\s\S]*?)<\/v>/) || [])[1];
+                if (v !== undefined) {
+                    value = type === 's' ? (sharedStrings[Number(v)] || '') : decodeXmlEntities(v);
+                }
+            }
+
+            rowCells[colIndex] = String(value ?? '').trim();
+        }
+
+        rows.push(rowCells.map(value => value ?? ''));
+    }
+
+    return rows;
+}
+
+function rowsToObjects(rows, requiredHeaders, sheetName, errors) {
+    if (!rows.length) {
+        errors.push(`${sheetName}: hoja vacía.`);
+        return [];
+    }
+
+    const headers = (rows[0] || []).map(value => String(value || '').trim());
+    const normalizedHeaders = headers.map(header => header.toLowerCase());
+
+    requiredHeaders.forEach(header => {
+        if (!normalizedHeaders.includes(header.toLowerCase())) {
+            errors.push(`${sheetName}: falta la columna requerida ${header}.`);
+        }
+    });
+
+    return rows.slice(1)
+        .filter(row => (row || []).some(cell => String(cell || '').trim()))
+        .map(row => {
+            const object = {};
+            headers.forEach((header, index) => {
+                if (header) object[header] = row[index] ?? '';
+            });
+            return object;
+        });
+}
+
+function parseMenuTemplateWorkbook(fileBase64 = '') {
+    const cleanBase64 = String(fileBase64 || '').replace(/^data:.*?;base64,/, '');
+    if (!cleanBase64) throw new Error('Archivo de plantilla requerido.');
+
+    const buffer = Buffer.from(cleanBase64, 'base64');
+    if (buffer.length < 4 || buffer.readUInt32LE(0) !== 0x04034b50) {
+        throw new Error('El archivo no parece ser un .xlsx válido.');
+    }
+
+    const entries = readZipEntries(buffer);
+    const sharedStrings = entries.has('xl/sharedStrings.xml')
+        ? parseSharedStrings(entries.get('xl/sharedStrings.xml').toString('utf8'))
+        : [];
+    const sheets = parseWorkbookSheets(entries);
+    const errors = [];
+
+    const requiredSheets = {
+        '_METADATA': ['campo', 'valor'],
+        '01_Categorias': ['clave_categoria', 'nombre', 'permite_cocina', 'activa'],
+        '02_Subcategorias': ['clave_categoria', 'clave_subcategoria', 'nombre', 'permite_cocina', 'activa'],
+        '03_TiposPresentacion': ['clave_tipo', 'nombre', 'clave_categoria', 'clave_subcategoria', 'descripcion', 'activo'],
+        '04_Presentaciones': ['clave_presentacion', 'nombre', 'tipo', 'cantidad', 'clave_tipo', 'activo'],
+        '05_Productos': ['clave_producto', 'nombre', 'descripcion', 'clave_categoria', 'clave_subcategoria', 'precio_base', 'tiene_presentaciones', 'clave_tipo', 'es_cocina', 'activo'],
+        '06_ProductoPresentaciones': ['clave_producto', 'clave_presentacion', 'precio', 'activo']
+    };
+
+    Object.keys(requiredSheets).forEach(sheetName => {
+        if (!sheets[sheetName]) errors.push(`Falta la hoja requerida ${sheetName}.`);
+    });
+
+    const parsedRows = {};
+    Object.entries(requiredSheets).forEach(([sheetName, headers]) => {
+        if (!sheets[sheetName]) {
+            parsedRows[sheetName] = [];
+            return;
+        }
+        parsedRows[sheetName] = rowsToObjects(parseWorksheetRows(sheets[sheetName], sharedStrings), headers, sheetName, errors);
+    });
+
+    const metadata = {};
+    parsedRows._METADATA.forEach(row => {
+        const key = templateText(row.campo).toLowerCase();
+        if (key) metadata[key] = templateText(row.valor);
+    });
+
+    if (metadata.template_id !== MENU_TEMPLATE_ID) {
+        errors.push('La plantilla no corresponde a MundiPOS o no contiene template_id válido.');
+    }
+
+    if (metadata.schema !== MENU_TEMPLATE_SCHEMA) {
+        errors.push(`La plantilla usa un schema no compatible. Esperado: ${MENU_TEMPLATE_SCHEMA}.`);
+    }
+
+    const draft = normalizeMenuTemplateDraft({
+        metadata: {
+            negocio: metadata.negocio || 'MundiPOS',
+            moneda: metadata.moneda || 'CRC',
+            creado_por: metadata.creado_por || 'Administrador',
+            notas: metadata.notas || ''
+        },
+        categories: parsedRows['01_Categorias'],
+        subcategories: parsedRows['02_Subcategorias'],
+        presentationTypes: parsedRows['03_TiposPresentacion'],
+        presentations: parsedRows['04_Presentaciones'],
+        products: parsedRows['05_Productos'],
+        productPresentations: parsedRows['06_ProductoPresentaciones']
+    });
+
+    return { draft, metadata, structureErrors: errors };
+}
+
+function templateYesNoToBool(value, fallback = true) {
+    const normalized = templateText(value).toLowerCase();
+    if (!normalized) return fallback ? 1 : 0;
+    return ['si', 'sí', 's', 'yes', 'y', 'true', '1', 'activo', 'on'].includes(normalized) ? 1 : 0;
+}
+
+function normalizeLookupKey(value) {
+    return templateText(value).toLowerCase();
+}
+
+async function findCategoryByName(nombre, parentId = null) {
+    if (parentId) {
+        return database.get('SELECT * FROM categorias WHERE LOWER(nombre) = LOWER(?) AND parent_id = ?', [nombre, parentId]);
+    }
+    return database.get('SELECT * FROM categorias WHERE LOWER(nombre) = LOWER(?) AND parent_id IS NULL', [nombre]);
+}
+
+async function findPresentationTypeByContext(nombre, categoriaId, subcategoriaId) {
+    return database.get(`
+        SELECT * FROM tipos_presentacion
+        WHERE LOWER(nombre) = LOWER(?)
+          AND categoria_id = ?
+          AND COALESCE(subcategoria_id, 0) = COALESCE(?, 0)
+    `, [nombre, categoriaId, subcategoriaId || null]);
+}
+
+async function findPresentationByContext(nombre, tipoPresentacionId) {
+    return database.get(`
+        SELECT * FROM presentaciones
+        WHERE LOWER(nombre) = LOWER(?)
+          AND COALESCE(tipo_presentacion_id, 0) = COALESCE(?, 0)
+    `, [nombre, tipoPresentacionId || null]);
+}
+
+async function findProductByName(nombre) {
+    return database.get('SELECT * FROM productos WHERE LOWER(nombre) = LOWER(?) LIMIT 1', [nombre]);
+}
+
+function validateTemplateImportRelations(draft) {
+    const errors = [];
+    const categoryByKey = new Map(draft.categories.map(row => [normalizeLookupKey(row.clave_categoria), row]));
+    const subcategoryByKey = new Map(draft.subcategories.map(row => [normalizeLookupKey(row.clave_subcategoria), row]));
+    const typeByKey = new Map(draft.presentationTypes.map(row => [normalizeLookupKey(row.clave_tipo), row]));
+    const presentationByKey = new Map(draft.presentations.map(row => [normalizeLookupKey(row.clave_presentacion), row]));
+    const productByKey = new Map(draft.products.map(row => [normalizeLookupKey(row.clave_producto), row]));
+    const productPresentationKeys = new Set(draft.productPresentations.map(row => normalizeLookupKey(row.clave_producto)).filter(Boolean));
+
+    draft.subcategories.forEach((row, index) => {
+        if (row.clave_categoria && !categoryByKey.has(normalizeLookupKey(row.clave_categoria))) {
+            errors.push(`Subcategorías fila ${index + 1}: la categoría ${row.clave_categoria} no existe.`);
+        }
+    });
+
+    draft.presentationTypes.forEach((row, index) => {
+        if (row.clave_categoria && !categoryByKey.has(normalizeLookupKey(row.clave_categoria))) {
+            errors.push(`Tipos fila ${index + 1}: la categoría ${row.clave_categoria} no existe.`);
+        }
+        if (row.clave_subcategoria) {
+            const sub = subcategoryByKey.get(normalizeLookupKey(row.clave_subcategoria));
+            if (!sub) {
+                errors.push(`Tipos fila ${index + 1}: la subcategoría ${row.clave_subcategoria} no existe.`);
+            } else if (normalizeLookupKey(sub.clave_categoria) !== normalizeLookupKey(row.clave_categoria)) {
+                errors.push(`Tipos fila ${index + 1}: la subcategoría ${row.clave_subcategoria} no pertenece a ${row.clave_categoria}.`);
+            }
+        }
+    });
+
+    draft.presentations.forEach((row, index) => {
+        if (row.clave_tipo && !typeByKey.has(normalizeLookupKey(row.clave_tipo))) {
+            errors.push(`Presentaciones fila ${index + 1}: el tipo/grupo ${row.clave_tipo} no existe.`);
+        }
+    });
+
+    draft.products.forEach((row, index) => {
+        if (row.clave_categoria && !categoryByKey.has(normalizeLookupKey(row.clave_categoria))) {
+            errors.push(`Productos fila ${index + 1}: la categoría ${row.clave_categoria} no existe.`);
+        }
+        if (row.clave_subcategoria) {
+            const sub = subcategoryByKey.get(normalizeLookupKey(row.clave_subcategoria));
+            if (!sub) {
+                errors.push(`Productos fila ${index + 1}: la subcategoría ${row.clave_subcategoria} no existe.`);
+            } else if (normalizeLookupKey(sub.clave_categoria) !== normalizeLookupKey(row.clave_categoria)) {
+                errors.push(`Productos fila ${index + 1}: la subcategoría ${row.clave_subcategoria} no pertenece a ${row.clave_categoria}.`);
+            }
+        }
+        if (row.tiene_presentaciones === 'SI') {
+            const type = typeByKey.get(normalizeLookupKey(row.clave_tipo));
+            if (!type) {
+                errors.push(`Productos fila ${index + 1}: el tipo/grupo ${row.clave_tipo} no existe.`);
+            } else if (normalizeLookupKey(type.clave_categoria) !== normalizeLookupKey(row.clave_categoria)) {
+                errors.push(`Productos fila ${index + 1}: el tipo/grupo ${row.clave_tipo} no pertenece a ${row.clave_categoria}.`);
+            }
+            if (!productPresentationKeys.has(normalizeLookupKey(row.clave_producto))) {
+                errors.push(`Productos fila ${index + 1}: producto con presentación sin precios en 06_ProductoPresentaciones.`);
+            }
+        }
+    });
+
+    draft.productPresentations.forEach((row, index) => {
+        const product = productByKey.get(normalizeLookupKey(row.clave_producto));
+        const presentation = presentationByKey.get(normalizeLookupKey(row.clave_presentacion));
+        if (!product) {
+            errors.push(`ProductoPresentaciones fila ${index + 1}: producto ${row.clave_producto} no existe.`);
+        }
+        if (!presentation) {
+            errors.push(`ProductoPresentaciones fila ${index + 1}: presentación ${row.clave_presentacion} no existe.`);
+        }
+        if (product && presentation && product.clave_tipo && presentation.clave_tipo && normalizeLookupKey(product.clave_tipo) !== normalizeLookupKey(presentation.clave_tipo)) {
+            errors.push(`ProductoPresentaciones fila ${index + 1}: la presentación ${row.clave_presentacion} no pertenece al tipo/grupo del producto ${row.clave_producto}.`);
+        }
+    });
+
+    return errors;
+}
+
+function buildTemplateImportSummary(draft, validation, structureErrors = []) {
+    const relationErrors = validateTemplateImportRelations(draft);
+    const errors = [...structureErrors, ...validation.errors, ...relationErrors];
+    const warnings = [...validation.warnings];
+    const productsWithPresentations = draft.products.filter(row => row.tiene_presentaciones === 'SI').length;
+    const productsWithoutPresentations = draft.products.length - productsWithPresentations;
+
+    return {
+        can_import: errors.length === 0,
+        errors,
+        warnings,
+        summary: {
+            categorias: draft.categories.length,
+            subcategorias: draft.subcategories.length,
+            tipos_presentacion: draft.presentationTypes.length,
+            presentaciones: draft.presentations.length,
+            productos: draft.products.length,
+            productos_con_presentacion: productsWithPresentations,
+            productos_sin_presentacion: productsWithoutPresentations,
+            producto_presentaciones: draft.productPresentations.length
+        },
+        preview: {
+            categorias: draft.categories.slice(0, 5),
+            productos: draft.products.slice(0, 8),
+            presentaciones: draft.presentations.slice(0, 8)
+        }
+    };
+}
+
+async function importMenuTemplateDraft(draft, userId) {
+    const now = new Date().toISOString();
+    const result = {
+        created: { categorias: 0, subcategorias: 0, tipos_presentacion: 0, presentaciones: 0, productos: 0, producto_presentaciones: 0 },
+        updated: { categorias: 0, subcategorias: 0, tipos_presentacion: 0, presentaciones: 0, productos: 0, producto_presentaciones: 0 },
+        maps: { categories: {}, subcategories: {}, presentationTypes: {}, presentations: {}, products: {} }
+    };
+
+    for (const row of draft.categories) {
+        const existing = await findCategoryByName(row.nombre, null);
+        const active = templateYesNoToBool(row.activa, true);
+        const cocina = templateYesNoToBool(row.permite_cocina, false);
+
+        if (existing) {
+            await database.run('UPDATE categorias SET nombre = ?, permite_cocina = ?, activa = ? WHERE id = ?', [row.nombre, cocina, active, existing.id]);
+            result.updated.categorias += 1;
+            result.maps.categories[normalizeLookupKey(row.clave_categoria)] = existing.id;
+        } else {
+            const inserted = await database.run('INSERT INTO categorias (nombre, parent_id, permite_cocina, activa) VALUES (?, NULL, ?, ?)', [row.nombre, cocina, active]);
+            result.created.categorias += 1;
+            result.maps.categories[normalizeLookupKey(row.clave_categoria)] = inserted.id;
+        }
+    }
+
+    for (const row of draft.subcategories) {
+        const parentId = result.maps.categories[normalizeLookupKey(row.clave_categoria)];
+        if (!parentId) continue;
+        const existing = await findCategoryByName(row.nombre, parentId);
+        const active = templateYesNoToBool(row.activa, true);
+        const cocina = templateYesNoToBool(row.permite_cocina, false);
+
+        if (existing) {
+            await database.run('UPDATE categorias SET nombre = ?, parent_id = ?, permite_cocina = ?, activa = ? WHERE id = ?', [row.nombre, parentId, cocina, active, existing.id]);
+            result.updated.subcategorias += 1;
+            result.maps.subcategories[normalizeLookupKey(row.clave_subcategoria)] = existing.id;
+        } else {
+            const inserted = await database.run('INSERT INTO categorias (nombre, parent_id, permite_cocina, activa) VALUES (?, ?, ?, ?)', [row.nombre, parentId, cocina, active]);
+            result.created.subcategorias += 1;
+            result.maps.subcategories[normalizeLookupKey(row.clave_subcategoria)] = inserted.id;
+        }
+    }
+
+    for (const row of draft.presentationTypes) {
+        const categoriaId = result.maps.categories[normalizeLookupKey(row.clave_categoria)];
+        const subcategoriaId = row.clave_subcategoria ? result.maps.subcategories[normalizeLookupKey(row.clave_subcategoria)] || null : null;
+        if (!categoriaId) continue;
+        const active = templateYesNoToBool(row.activo, true);
+        const existing = await findPresentationTypeByContext(row.nombre, categoriaId, subcategoriaId);
+
+        if (existing) {
+            await database.run(`
+                UPDATE tipos_presentacion
+                SET nombre = ?, descripcion = ?, categoria_id = ?, subcategoria_id = ?, activo = ?, actualizado_en = ?
+                WHERE id = ?
+            `, [row.nombre, row.descripcion || '', categoriaId, subcategoriaId, active, now, existing.id]);
+            result.updated.tipos_presentacion += 1;
+            result.maps.presentationTypes[normalizeLookupKey(row.clave_tipo)] = existing.id;
+        } else {
+            const inserted = await database.run(`
+                INSERT INTO tipos_presentacion (nombre, descripcion, categoria_id, subcategoria_id, activo, creado_en, actualizado_en)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            `, [row.nombre, row.descripcion || '', categoriaId, subcategoriaId, active, now, now]);
+            result.created.tipos_presentacion += 1;
+            result.maps.presentationTypes[normalizeLookupKey(row.clave_tipo)] = inserted.id;
+        }
+    }
+
+    for (const row of draft.presentations) {
+        const tipoPresentacionId = result.maps.presentationTypes[normalizeLookupKey(row.clave_tipo)];
+        if (!tipoPresentacionId) continue;
+        const active = templateYesNoToBool(row.activo, true);
+        const existing = await findPresentationByContext(row.nombre, tipoPresentacionId);
+
+        if (existing) {
+            await database.run(`
+                UPDATE presentaciones
+                SET nombre = ?, tipo = ?, cantidad = ?, tipo_presentacion_id = ?, activo = ?, actualizado_en = ?
+                WHERE id = ?
+            `, [row.nombre, row.tipo || 'Tamaño', row.cantidad || null, tipoPresentacionId, active, now, existing.id]);
+            result.updated.presentaciones += 1;
+            result.maps.presentations[normalizeLookupKey(row.clave_presentacion)] = existing.id;
+        } else {
+            const inserted = await database.run(`
+                INSERT INTO presentaciones (nombre, tipo, cantidad, tipo_presentacion_id, activo, creado_en, actualizado_en)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            `, [row.nombre, row.tipo || 'Tamaño', row.cantidad || null, tipoPresentacionId, active, now, now]);
+            result.created.presentaciones += 1;
+            result.maps.presentations[normalizeLookupKey(row.clave_presentacion)] = inserted.id;
+        }
+    }
+
+    for (const row of draft.products) {
+        const categoriaId = result.maps.categories[normalizeLookupKey(row.clave_categoria)];
+        const subcategoriaId = row.clave_subcategoria ? result.maps.subcategories[normalizeLookupKey(row.clave_subcategoria)] || null : null;
+        const tipoPresentacionId = row.tiene_presentaciones === 'SI' ? result.maps.presentationTypes[normalizeLookupKey(row.clave_tipo)] || null : null;
+        if (!categoriaId) continue;
+
+        const active = templateYesNoToBool(row.activo, true);
+        const cocina = templateYesNoToBool(row.es_cocina, false);
+        const hasPresentations = row.tiene_presentaciones === 'SI';
+        const price = hasPresentations ? 0 : Number(row.precio_base || 0);
+        const existing = await findProductByName(row.nombre);
+
+        if (existing) {
+            await database.run(`
+                UPDATE productos
+                SET nombre = ?, descripcion = ?, precio = ?, categoria_id = ?, subcategoria_id = ?, es_cocina = ?, tipo_presentacion_id = ?, activo = ?
+                WHERE id = ?
+            `, [row.nombre, row.descripcion || '', price, categoriaId, subcategoriaId, cocina, tipoPresentacionId, active, existing.id]);
+            result.updated.productos += 1;
+            result.maps.products[normalizeLookupKey(row.clave_producto)] = existing.id;
+        } else {
+            const inserted = await database.run(`
+                INSERT INTO productos (nombre, descripcion, precio, categoria_id, subcategoria_id, es_cocina, imagen, tipo_presentacion_id, activo)
+                VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
+            `, [row.nombre, row.descripcion || '', price, categoriaId, subcategoriaId, cocina, tipoPresentacionId, active]);
+            result.created.productos += 1;
+            result.maps.products[normalizeLookupKey(row.clave_producto)] = inserted.id;
+        }
+    }
+
+    for (const row of draft.productPresentations) {
+        const productId = result.maps.products[normalizeLookupKey(row.clave_producto)];
+        const presentationId = result.maps.presentations[normalizeLookupKey(row.clave_presentacion)];
+        if (!productId || !presentationId) continue;
+        const price = Number(row.precio || 0);
+        const active = templateYesNoToBool(row.activo, true);
+        const existing = await database.get('SELECT id FROM presentaciones_producto WHERE producto_id = ? AND presentacion_id = ?', [productId, presentationId]);
+
+        if (existing) {
+            await database.run('UPDATE presentaciones_producto SET precio = ?, activo = ? WHERE id = ?', [price, active, existing.id]);
+            result.updated.producto_presentaciones += 1;
+        } else {
+            await database.run('INSERT INTO presentaciones_producto (producto_id, presentacion_id, precio, activo) VALUES (?, ?, ?, ?)', [productId, presentationId, price, active]);
+            result.created.producto_presentaciones += 1;
+        }
+    }
+
+    await database.run(
+        'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+        ['importar_menu_plantilla', userId, `Importación de menú desde plantilla: ${draft.products.length} productos procesados`, now]
+    );
+
+    return result;
+}
+
+function parseTemplateRequestBody(body = {}) {
+    const filename = templateText(body.filename || body.nombre_archivo || 'plantilla-menu.xlsx');
+    const fileBase64 = body.file_base64 || body.fileBase64 || body.archivo_base64 || '';
+    const parsed = parseMenuTemplateWorkbook(fileBase64);
+    const validation = validateMenuTemplateDraft(parsed.draft);
+    const summary = buildTemplateImportSummary(parsed.draft, validation, parsed.structureErrors);
+    return { filename, ...parsed, validation, summary };
+}
+
+router.post('/template/validate', requireMenuAdmin, async (req, res) => {
+    try {
+        const result = parseTemplateRequestBody(req.body || {});
+        res.json({
+            success: true,
+            filename: result.filename,
+            metadata: result.metadata,
+            ...result.summary
+        });
+    } catch (error) {
+        console.error('Error validando plantilla de menú:', error);
+        res.status(400).json({ success: false, error: error.message || 'No se pudo validar la plantilla de menú' });
+    }
+});
+
+router.post('/template/import', requireMenuAdmin, async (req, res) => {
+    let transactionStarted = false;
+
+    try {
+        const result = parseTemplateRequestBody(req.body || {});
+        if (!result.summary.can_import) {
+            return res.status(400).json({
+                success: false,
+                error: 'La plantilla contiene errores críticos y no puede importarse.',
+                errors: result.summary.errors,
+                warnings: result.summary.warnings,
+                summary: result.summary.summary
+            });
+        }
+
+        await database.run('BEGIN');
+        transactionStarted = true;
+        const importResult = await importMenuTemplateDraft(result.draft, req.session.userId);
+        await database.run('COMMIT');
+
+        res.json({
+            success: true,
+            message: 'Menú importado correctamente desde plantilla.',
+            filename: result.filename,
+            metadata: result.metadata,
+            summary: result.summary.summary,
+            warnings: result.summary.warnings,
+            result: { created: importResult.created, updated: importResult.updated }
+        });
+    } catch (error) {
+        if (transactionStarted) await database.run('ROLLBACK').catch(() => {});
+        console.error('Error importando plantilla de menú:', error);
+        res.status(500).json({ success: false, error: error.message || 'Error interno importando plantilla de menú' });
+    }
+});
+
+
+router.post('/template/generate', requireMenuAdmin, async (req, res) => {
+    try {
+        const draft = normalizeMenuTemplateDraft(req.body || {});
+        const validation = validateMenuTemplateDraft(draft);
+
+        if (validation.errors.length > 0) {
+            return res.status(400).json({
+                error: 'La plantilla asistida contiene errores críticos.',
+                errors: validation.errors,
+                warnings: validation.warnings
+            });
+        }
+
+        const workbook = buildMenuTemplateWorkbook(draft, validation);
+        const safeDate = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        const filename = `mundipos-menu-template-${safeDate}.xlsx`;
+
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('Content-Length', workbook.length);
+        res.send(workbook);
+    } catch (error) {
+        console.error('Error generando plantilla de menú:', error);
+        res.status(500).json({ error: 'Error interno generando plantilla de menú' });
     }
 });
 
