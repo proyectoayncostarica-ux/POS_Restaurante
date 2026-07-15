@@ -17,17 +17,47 @@ La fase debe ejecutarse con la misma dinámica usada en `v2.2.4`:
 
 ## Estado base
 
-La fase parte desde el cierre de:
+La fase se retoma después del cierre de:
 
 ```text
-v2.2.4.17 · Dashboard PC modo pantalla completa operativa
+v2.2.5M.13 · Imágenes por presentación y producto
 ```
+
+La normalización de Menú adelantó parte del roadmap original de Cuentas. Desde `v2.2.5M.8` ya existe contrato operativo de productos, precios y presentaciones, y crear/agregar productos comparten selector visual. Por ello este roadmap se recalibra para reforzar permisos, transacciones, pagos y mantenibilidad sin reimplementar lo ya resuelto.
 
 Y se apoya en la auditoría técnica documental:
 
 ```text
 docs/auditoria-v2.2.5.0-modulo-cuentas-orders.md
 ```
+
+## Estado de reanudación post-Menú
+
+```text
+v2.2.5.0 · Auditoría técnica post-Menú del módulo Cuentas / Orders
+```
+
+Documento vigente:
+
+```text
+docs/auditoria-v2.2.5.0-modulo-cuentas-orders.md
+```
+
+### Trabajo ya adelantado por v2.2.5M.8
+
+- consumo de `GET /api/menu/operational-products`;
+- validación backend de producto/categoría/subcategoría/presentación activa;
+- precio operativo resuelto en backend;
+- selector compartido para crear pedido y agregar productos;
+- soporte de productos sin subcategoría.
+
+### Prioridades inmediatas reales
+
+1. Contrato operativo documental.
+2. Permisos por zona y responsabilidad en backend.
+3. Transacciones para crear/agregar/pagar/crédito.
+4. Separación de servicios y estado frontend.
+5. Limpieza legacy solo después de verificar llamadas activas.
 
 ## Objetivo general
 
@@ -112,7 +142,7 @@ Si imprime algo, detenerse antes de commitear.
 
 ## Estado
 
-Realizada documentalmente.
+Realizada nuevamente después del cierre de Menú y documentada en `docs/auditoria-v2.2.5.0-modulo-cuentas-orders.md`.
 
 ## Objetivo
 
@@ -258,11 +288,11 @@ git commit -m "v2.2.5.2: normaliza permisos backend del módulo Cuentas"
 
 ## Objetivo
 
-Centralizar la resolución de productos, precios y presentaciones en backend.
+Consolidar la base ya creada en M.8 dentro de un servicio transaccional reutilizable para crear pedidos, agregar productos y futuras ediciones.
 
 ## Problema actual
 
-`POST /api/orders` y `POST /api/orders/:id/products` resuelven productos y presentaciones con lógica separada, lo que puede provocar:
+`POST /api/orders` y `POST /api/orders/:id/products` ya comparten validación operativa básica, pero todavía duplican persistencia, comanda, historial y manejo de errores, lo que puede provocar:
 
 - Precios incorrectos.
 - Presentaciones mal calculadas.
@@ -380,6 +410,10 @@ git commit -m "v2.2.5.4: normaliza carrito frontend de Cuentas"
 ---
 
 # v2.2.5.5 · Unificación visual de Crear Pedido y Agregar Productos
+
+## Estado heredado
+
+La base de esta unificación fue adelantada en `v2.2.5M.8`. La subfase se mantiene para cerrar consistencia PC/móvil, imagen por presentación y eliminar restos visuales legacy.
 
 ## Objetivo
 
@@ -742,14 +776,14 @@ git push origin v2.2.5-cierre
 # Orden recomendado de ejecución
 
 ```text
-v2.2.5.0  Auditoría técnica
+v2.2.5.0  Auditoría post-Menú y recalibración
 v2.2.5.1  Contrato operativo
-v2.2.5.2  Permisos backend
-v2.2.5.3  Productos/precios/presentaciones backend
-v2.2.5.4  Carrito frontend único
-v2.2.5.5  UI unificada crear/agregar productos
-v2.2.5.6  Pagos/crédito/servicio/liberación
-v2.2.5.7  Comandas
+v2.2.5.2  Permisos, zona y responsabilidad backend
+v2.2.5.3  Servicio transaccional de cuenta, productos y precios
+v2.2.5.4  Carrito frontend único y estado desacoplado
+v2.2.5.5  UI final crear/agregar e imagen por presentación
+v2.2.5.6  Pagos/crédito/servicio/liberación integral
+v2.2.5.7  Comandas e impresión
 v2.2.5.8  Limpieza legacy
 v2.2.5.9  Estados/textos
 v2.2.5.10 Realtime Cuentas

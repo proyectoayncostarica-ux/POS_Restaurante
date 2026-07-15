@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 2.0
 - **Estado de producto:** versión funcional operativa en proceso de estabilización
-- **Línea de trabajo actual:** v2.2.5M.11–13 · Plantillas, importación e imágenes de Menú
+- **Línea de trabajo actual:** v2.2.5.0 · Auditoría técnica post-Menú del módulo Cuentas / Orders
 
 La versión visible para usuarios, configuración pública y metadata base de la app debe mantenerse como **2.0** hasta que se decida publicar una nueva versión funcional mayor. Las líneas internas **v2.1** y **v2.2** no representan todavía una versión visible para usuarios finales; representan etapas trazables de estabilización.
 
@@ -954,3 +954,21 @@ Archivos modificados en esta subfase:
 - `public/css/style.css`
 - `public/index.html`
 - `public/service-worker.js`
+
+### v2.2.5.0 · Auditoría técnica post-Menú del módulo Cuentas / Orders
+
+- **Objetivo:** retomar la línea principal de Cuentas después del cierre de `v2.2.5M.13`, verificando el estado real de backend/frontend y recalibrando el roadmap para no repetir trabajo ya resuelto desde Menú.
+- **Avances reconocidos:** Cuentas ya consume `operational-products`, valida productos/presentaciones operativas y comparte selector visual entre crear pedido y agregar productos.
+- **Hallazgos críticos:** falta autorización por zona/responsabilidad dentro de Orders, no hay transacciones en operaciones de varias escrituras, `GET /orders/:id` modifica totales, existe colisión con la ruta de comandas y el endpoint legacy de edición no es compatible con productos con presentación.
+- **Pagos:** pago/crédito requieren normalizar limpieza de responsables, atomicidad y decisión explícita sobre pagos divididos.
+- **Frontend:** se identifican funciones candidatas legacy del selector antiguo y un objeto `Orders` con responsabilidades demasiado mezcladas.
+- **Comandas/impresión:** las funciones frontend actuales son placeholders y deben implementarse o aislarse documentalmente.
+- **Resultado:** el siguiente paso queda definido como `v2.2.5.1 · Contrato operativo de Cuentas`.
+- **Alcance:** esta subfase es documental; no cambia lógica, base de datos, UI ni PWA.
+
+Archivos modificados:
+
+- `README.md`
+- `docs/auditoria-v2.2.5.0-modulo-cuentas-orders.md`
+- `docs/roadmap-v2.2.5-normalizacion-cuentas.md`
+
