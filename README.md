@@ -930,3 +930,27 @@ Archivos modificados en esta subfase:
 - `public/css/style.css`
 - `public/index.html`
 - `public/service-worker.js`
+
+### v2.2.5M.13 · Imágenes por presentación y producto
+
+- **Objetivo:** permitir que los productos con presentaciones puedan usar una imagen específica por presentación asignada, manteniendo la imagen base del producto como fallback.
+- **Regla operativa:** si un producto tiene presentaciones, cada presentación puede tener su propia imagen; si no la tiene, se usa la imagen del producto; si tampoco existe, se usa `ImagenGenerica.jpg`.
+- **Backend:** `server/routes/menu.js` acepta imágenes por campo `imagen_presentacion_<id>` al crear/editar productos con presentación y las guarda en `presentaciones_producto.imagen`.
+- **Contrato operativo:** `GET /api/menu/operational-products` entrega imagen efectiva por producto y por presentación, además de `imagen_origen` para distinguir si viene de presentación, producto o fallback.
+- **Menú administrativo:** el modal de producto permite cargar imagen opcional para cada presentación seleccionada y editarla posteriormente.
+- **Vista de presentaciones:** el modal `Ver presentaciones` muestra miniatura por presentación junto con precio, cantidad y grupo.
+- **Compatibilidad:** productos sin presentación conservan la lógica anterior de imagen del producto; Cuentas puede seguir consumiendo el contrato operativo sin rutas nuevas.
+- **No incluido:** no se implementa todavía importación masiva de imágenes desde ZIP ni carga de imágenes dentro de la plantilla Excel.
+- **Cache/PWA:** `index.html` y `service-worker.js` avanzan a `v2.2.5M.13-presentation-images`.
+
+Archivos modificados en esta subfase:
+
+- `README.md`
+- `docs/avance-v2.2.5M.13-imagenes-presentacion-producto.md`
+- `docs/roadmap-v2.2.5M-normalizacion-menu.md`
+- `docs/roadmap-v2.2.5M11-13-plantillas-menu.md`
+- `server/routes/menu.js`
+- `public/js/components/menu.js`
+- `public/css/style.css`
+- `public/index.html`
+- `public/service-worker.js`

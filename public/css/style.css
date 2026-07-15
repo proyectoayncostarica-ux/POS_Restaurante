@@ -10266,3 +10266,81 @@ body {
         align-items: flex-start;
     }
 }
+
+/* v2.2.5M.13 · Imágenes por presentación y producto */
+.presentacion-item.presentacion-item-with-image,
+.presentacion-item {
+    grid-template-columns: minmax(0, 1fr) 120px minmax(180px, 240px);
+}
+
+.presentacion-check-label span {
+    min-width: 0;
+}
+
+.presentacion-image-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    min-width: 0;
+}
+
+.presentacion-image-field label {
+    color: #64748b;
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.presentacion-image-field input[type="file"] {
+    font-size: 0.78rem;
+    padding: 0.55rem;
+}
+
+.presentacion-image-preview {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    min-width: 0;
+}
+
+.presentacion-image-preview img,
+.menu-presentation-thumb {
+    width: 42px;
+    height: 42px;
+    object-fit: cover;
+    border-radius: 12px;
+    border: 1px solid rgba(44, 62, 80, 0.12);
+    background: #f8fafc;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+}
+
+.presentacion-image-preview small {
+    display: block;
+    color: #64748b;
+    font-size: 0.76rem;
+    line-height: 1.2;
+}
+
+@media (max-width: 768px) {
+    .presentacion-item.presentacion-item-with-image,
+    .presentacion-item {
+        grid-template-columns: 1fr;
+        align-items: stretch;
+        padding: 0.75rem 0;
+    }
+
+    .input-precio-presentacion {
+        max-width: none;
+        width: 100%;
+    }
+
+    .presentacion-image-field input[type="file"] {
+        width: 100%;
+    }
+
+    .menu-presentation-thumb {
+        width: 38px;
+        height: 38px;
+    }
+}

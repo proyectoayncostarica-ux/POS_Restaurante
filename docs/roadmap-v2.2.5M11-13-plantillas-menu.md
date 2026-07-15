@@ -418,3 +418,28 @@ Commit sugerido:
 ```powershell
 git commit -m "v2.2.5M.12: agrega importacion de Menu desde plantilla"
 ```
+
+## Estado de implementación · v2.2.5M.13
+
+`v2.2.5M.13 · Imágenes por presentación y producto` queda implementado como cierre de la extensión de Menú previa al regreso a Cuentas.
+
+Incluye:
+
+- carga de imagen por relación producto-presentación;
+- fallback hacia imagen base del producto;
+- imagen efectiva en `GET /api/menu/operational-products`;
+- miniatura por presentación en Menú administrativo;
+- edición de imagen por presentación desde el modal de producto;
+- versionado PWA `v2.2.5M.13-presentation-images`.
+
+No incluye:
+
+- ZIP de imágenes;
+- importación masiva de imágenes desde plantilla;
+- almacenamiento externo de assets.
+
+Commit sugerido:
+
+```powershell
+git commit -m "v2.2.5M.13: agrega imagenes por presentacion de producto"
+```

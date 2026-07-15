@@ -44,6 +44,18 @@ function subirImagen(req, res, next) {
     });
 }
 
+function subirImagenesProducto(req, res, next) {
+    upload.any()(req, res, (err) => {
+        if (err instanceof multer.MulterError) {
+            return res.status(400).json({ error: `Error al subir imágenes: ${err.message}` });
+        }
+        if (err) {
+            return res.status(400).json({ error: err.message || 'Error al procesar las imágenes' });
+        }
+        next();
+    });
+}
+
 function parseBoolean(value) {
     return value === true || value === 1 || value === '1' || value === 'true' || value === 'on';
 }
@@ -93,8 +105,35 @@ function parseArray(value) {
     }
 }
 
-function uploadedImagePath(req) {
-    return req.file ? `/uploads/productos/${req.file.filename}` : null;
+function uploadedImagePath(req, fieldName = 'imagen') {
+    if (req.file && (!fieldName || req.file.fieldname === fieldName)) {
+        return `/uploads/productos/${req.file.filename}`;
+    }
+
+    if (Array.isArray(req.files)) {
+        const file = req.files.find(item => item.fieldname === fieldName);
+        return file ? `/uploads/productos/${file.filename}` : null;
+    }
+
+    if (req.files && req.files[fieldName]?.[0]) {
+        return `/uploads/productos/${req.files[fieldName][0].filename}`;
+    }
+
+    return null;
+}
+
+function uploadedPresentationImages(req) {
+    const files = Array.isArray(req.files) ? req.files : [];
+    const images = new Map();
+
+    files.forEach(file => {
+        const match = String(file.fieldname || '').match(/^imagen_presentacion_(\d+)$/);
+        if (match) {
+            images.set(Number(match[1]), `/uploads/productos/${file.filename}`);
+        }
+    });
+
+    return images;
 }
 
 async function validarCategoria(categoriaId, subcategoriaId, esCocina) {
@@ -238,7 +277,9 @@ function normalizePresentationForOperation(row) {
         activo: relacionActiva,
         relacion_activa: relacionActiva,
         presentacion_activa: presentacionActiva,
-        imagen: row.imagen || null,
+        imagen: row.imagen || row.producto_imagen || null,
+        imagen_url: row.imagen || row.producto_imagen || null,
+        imagen_origen: row.imagen ? 'presentacion' : (row.producto_imagen ? 'producto' : 'generica'),
         disponible_operacion: disponible,
         bloqueos_operativos: bloqueos
     };
@@ -338,29 +379,31 @@ async function validatePresentationSelection(rawPresentations, options = {}) {
     return { ok: true, presentaciones: normalized };
 }
 
-async function upsertProductPresentations(productoId, presentaciones) {
+async function upsertProductPresentations(productoId, presentaciones, imageByPresentationId = new Map()) {
     const presentacionesAsignadasIds = [];
 
     for (const presentacion of presentaciones) {
+        const presentacionId = Number(presentacion.presentacion_id);
+        const imagenPresentacion = presentacion.imagen || imageByPresentationId.get(presentacionId) || null;
         const existente = await database.get(`
             SELECT id FROM presentaciones_producto
             WHERE producto_id = ? AND presentacion_id = ?
-        `, [productoId, presentacion.presentacion_id]);
+        `, [productoId, presentacionId]);
 
         if (existente) {
             await database.run(`
                 UPDATE presentaciones_producto
-                SET precio = ?, activo = 1, actualizado_en = CURRENT_TIMESTAMP
+                SET precio = ?, activo = 1, imagen = COALESCE(?, imagen), actualizado_en = CURRENT_TIMESTAMP
                 WHERE id = ?
-            `, [presentacion.precio, existente.id]);
+            `, [presentacion.precio, imagenPresentacion, existente.id]);
         } else {
             await database.run(`
-                INSERT INTO presentaciones_producto (producto_id, presentacion_id, precio, activo, creado_en, actualizado_en)
-                VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            `, [productoId, presentacion.presentacion_id, presentacion.precio]);
+                INSERT INTO presentaciones_producto (producto_id, presentacion_id, precio, activo, imagen, creado_en, actualizado_en)
+                VALUES (?, ?, ?, 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            `, [productoId, presentacionId, presentacion.precio, imagenPresentacion]);
         }
 
-        presentacionesAsignadasIds.push(presentacion.presentacion_id);
+        presentacionesAsignadasIds.push(presentacionId);
     }
 
     if (presentacionesAsignadasIds.length > 0) {
@@ -456,8 +499,10 @@ async function buildOperationalMenuPayload(options = {}) {
             COALESCE(pp.precio, 0) AS precio,
             pp.activo AS relacion_activa,
             pr.activo AS presentacion_activa,
-            pp.imagen
+            pp.imagen,
+            prod.imagen AS producto_imagen
         FROM presentaciones_producto pp
+        JOIN productos prod ON pp.producto_id = prod.id
         JOIN presentaciones pr ON pp.presentacion_id = pr.id
         LEFT JOIN tipos_presentacion tp ON pr.tipo_presentacion_id = tp.id
         ORDER BY tp.nombre, pr.nombre
@@ -516,14 +561,21 @@ async function buildOperationalMenuPayload(options = {}) {
 
         const categoriaNombre = product.subcategoria_nombre || product.categoria_nombre;
         const operativo = bloqueos.length === 0 ? 1 : 0;
+        const productBaseImage = normalizeProductImage(product);
+        const presentationImage = tienePresentacionesOperativas
+            ? presentacionesValidas.find(presentation => presentation.imagen)?.imagen || null
+            : null;
+        const operationalImage = presentationImage || productBaseImage;
 
         return {
             id: productId,
             producto_id: productId,
             nombre: product.nombre,
             descripcion: product.descripcion || '',
-            imagen: normalizeProductImage(product),
-            imagen_url: normalizeProductImage(product),
+            imagen: operationalImage,
+            imagen_url: operationalImage,
+            imagen_producto: productBaseImage,
+            imagen_origen: presentationImage ? 'presentacion' : (productBaseImage ? 'producto' : 'generica'),
             activo: isActive(product.activo) ? 1 : 0,
             categoria_id: Number(product.categoria_id),
             categoria_nombre: product.categoria_nombre,
@@ -986,7 +1038,7 @@ router.get('/products/:id/presentaciones', async (req, res) => {
     const { id } = req.params;
 
     try {
-        const producto = await database.get('SELECT nombre, tipo_presentacion_id FROM productos WHERE id = ?', [id]);
+        const producto = await database.get('SELECT nombre, tipo_presentacion_id, imagen FROM productos WHERE id = ?', [id]);
         if (!producto) {
             return res.status(404).json({ error: 'Producto no encontrado' });
         }
@@ -1004,6 +1056,8 @@ router.get('/products/:id/presentaciones', async (req, res) => {
                 p.activo AS presentacion_activa,
                 pp.id AS producto_presentacion_id,
                 pp.activo AS relacion_activa,
+                pp.imagen,
+                ? AS producto_imagen,
                 COALESCE(pp.precio, 0) AS precio,
                 CASE WHEN pp.id IS NOT NULL AND pp.activo = 1 THEN 1 ELSE 0 END AS asignada
             FROM presentaciones p
@@ -1013,12 +1067,15 @@ router.get('/products/:id/presentaciones', async (req, res) => {
             WHERE p.activo = 1
               AND (? IS NULL OR p.tipo_presentacion_id = ?)
             ORDER BY tp.nombre, p.nombre
-        `, [id, tipoPresentacionId, tipoPresentacionId]);
+        `, [producto.imagen || null, id, tipoPresentacionId, tipoPresentacionId]);
 
         const presentacionesNormalizadas = presentaciones.map(row => {
             const normalizada = normalizePresentationForOperation(row);
             return {
                 ...row,
+                imagen: normalizada.imagen,
+                imagen_url: normalizada.imagen_url,
+                imagen_origen: normalizada.imagen_origen,
                 precio_operativo: normalizada.precio_operativo,
                 disponible_operacion: normalizada.disponible_operacion,
                 bloqueos_operativos: normalizada.bloqueos_operativos
@@ -1043,7 +1100,7 @@ router.get('/products/:id/presentaciones', async (req, res) => {
 });
 
 // Crear nuevo producto
-router.post('/products', requireMenuAdmin, subirImagen, async (req, res) => {
+router.post('/products', requireMenuAdmin, subirImagenesProducto, async (req, res) => {
     let transactionStarted = false;
 
     try {
@@ -1057,6 +1114,7 @@ router.post('/products', requireMenuAdmin, subirImagen, async (req, res) => {
         const presentacionesSeleccionadas = parseArray(req.body.presentaciones_seleccionadas);
         const precio = tienePresentaciones ? 0 : parseNumber(req.body.precio, NaN);
         const imagen = uploadedImagePath(req);
+        const imagenesPorPresentacion = uploadedPresentationImages(req);
         const activo = req.body.activo === undefined ? 1 : (parseBoolean(req.body.activo) ? 1 : 0);
 
         if (!nombre || !categoriaId || (!tienePresentaciones && (!Number.isFinite(precio) || precio <= 0))) {
@@ -1096,7 +1154,7 @@ router.post('/products', requireMenuAdmin, subirImagen, async (req, res) => {
         const productoId = result.id;
 
         if (tienePresentaciones) {
-            await upsertProductPresentations(productoId, presentacionesValidadas.presentaciones);
+            await upsertProductPresentations(productoId, presentacionesValidadas.presentaciones, imagenesPorPresentacion);
         }
 
         await database.run(
@@ -1131,7 +1189,7 @@ router.post('/products', requireMenuAdmin, subirImagen, async (req, res) => {
 });
 
 // Actualizar producto
-router.put('/products/:id', requireMenuAdmin, subirImagen, async (req, res) => {
+router.put('/products/:id', requireMenuAdmin, subirImagenesProducto, async (req, res) => {
     const { id } = req.params;
     let transactionStarted = false;
 
@@ -1155,6 +1213,7 @@ router.put('/products/:id', requireMenuAdmin, subirImagen, async (req, res) => {
             : parseArray(req.body.presentaciones_seleccionadas);
         const precio = tienePresentaciones ? 0 : parseNumber(req.body.precio, producto.precio || 0);
         const imagen = uploadedImagePath(req) || producto.imagen || null;
+        const imagenesPorPresentacion = uploadedPresentationImages(req);
         const activo = req.body.activo === undefined ? (isActive(producto.activo) ? 1 : 0) : (parseBoolean(req.body.activo) ? 1 : 0);
 
         if (!nombre || !categoriaId || (!tienePresentaciones && (!Number.isFinite(precio) || precio <= 0))) {
@@ -1191,7 +1250,7 @@ router.put('/products/:id', requireMenuAdmin, subirImagen, async (req, res) => {
             WHERE id = ?
         `, [nombre, descripcion, precio, categoriaId, subcategoriaId, esCocina ? 1 : 0, imagen, tipoPresentacionId, activo, id]);
 
-        await upsertProductPresentations(id, tienePresentaciones ? presentacionesValidadas.presentaciones : []);
+        await upsertProductPresentations(id, tienePresentaciones ? presentacionesValidadas.presentaciones : [], imagenesPorPresentacion);
 
         await database.run(
             'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',

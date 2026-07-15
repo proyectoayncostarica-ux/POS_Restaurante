@@ -422,6 +422,13 @@ const Menu = {
 
         if (tiene_presentaciones) {
             payload.append("presentaciones_seleccionadas", JSON.stringify(presentaciones_seleccionadas));
+            presentaciones_seleccionadas.forEach(presentacion => {
+                const imageInput = document.getElementById(`imagen-presentacion-${presentacion.id}`);
+                const imageFile = imageInput?.files?.[0];
+                if (imageFile) {
+                    payload.append(`imagen_presentacion_${presentacion.id}`, imageFile);
+                }
+            });
         }
 
         const response = await Utils.request("/menu/products", {
@@ -457,7 +464,7 @@ const Menu = {
     const disabledAttr = (cond) => cond ? 'disabled' : '';
 
     // Imagen por defecto si no hay una definida
-    const imagenActual = product.imagen || `${window.location.origin}/uploads/ImagenGenerica.jpg`;
+    const imagenActual = this.normalizeImageUrl(product.imagen || product.imagen_url);
 
     Utils.showModal('Editar Producto', `
         <form id="edit-product-form" enctype="multipart/form-data">
@@ -1044,7 +1051,7 @@ const Menu = {
         }
     },
 
-    //Mostras presentación Asignada
+    // Mostrar presentaciones asignadas
     async loadPresentacionesAsignadas(productId) {
     try {
         const response = await Utils.request(`/menu/products/${productId}/presentaciones`);
@@ -1061,43 +1068,46 @@ const Menu = {
         }
 
         presentaciones.forEach(pres => {
-            const checkbox = document.createElement("input");
-            checkbox.type = "checkbox";
-            checkbox.value = pres.presentacion_id || pres.id;
-            checkbox.id = `edit-pres-${pres.presentacion_id || pres.id}`;
-            checkbox.name = "presentaciones[]";
-            checkbox.checked = Number(pres.asignada) === 1;
-
-            const label = document.createElement("label");
-            label.textContent = `${pres.nombre} (${pres.cantidad || '-'})`;
-            label.htmlFor = checkbox.id;
-
-            const inputPrecio = document.createElement("input");
-            inputPrecio.type = "number";
-            inputPrecio.min = 0;
-            inputPrecio.step = 0.01;
-            inputPrecio.placeholder = "₡";
-            inputPrecio.classList.add("input-precio-presentacion");
-            inputPrecio.name = `precio_presentacion_${checkbox.value}`;
-            inputPrecio.id = `precio-presentacion-${checkbox.value}`;
-
-            if (checkbox.checked) {
-                inputPrecio.value = pres.precio || '';
-                inputPrecio.style.display = "inline-block";
-            } else {
-                inputPrecio.style.display = "none";
-            }
-
-            checkbox.addEventListener("change", () => {
-                inputPrecio.style.display = checkbox.checked ? "inline-block" : "none";
-                if (!checkbox.checked) inputPrecio.value = "";
-            });
-
+            const presentacionId = pres.presentacion_id || pres.id;
+            const checked = Number(pres.asignada) === 1;
             const wrapper = document.createElement("div");
-            wrapper.className = "presentacion-item";
-            wrapper.appendChild(checkbox);
-            wrapper.appendChild(label);
-            wrapper.appendChild(inputPrecio);
+            wrapper.className = "presentacion-item presentacion-item-with-image";
+            const imageUrl = this.normalizeImageUrl(pres.imagen || pres.imagen_url);
+
+            wrapper.innerHTML = `
+                <label class="presentacion-check-label" for="edit-pres-${presentacionId}">
+                    <input type="checkbox"
+                           value="${presentacionId}"
+                           id="edit-pres-${presentacionId}"
+                           name="presentaciones[]"
+                           data-label="${this.escapeHtml(pres.nombre || '')}"
+                           ${checked ? 'checked' : ''}
+                           onchange="Menu.onTogglePresentacionCheck(this)">
+                    <span>${this.escapeHtml(pres.nombre || '')} (${this.escapeHtml(pres.cantidad || '-')})</span>
+                </label>
+                <input type="number"
+                       min="0"
+                       step="0.01"
+                       placeholder="₡"
+                       class="input-precio-presentacion"
+                       name="precio_presentacion_${presentacionId}"
+                       id="precio-presentacion-${presentacionId}"
+                       value="${checked ? (pres.precio || '') : ''}"
+                       ${checked ? '' : 'disabled'}>
+                <div class="presentacion-image-field">
+                    <div class="presentacion-image-preview">
+                        <img src="${imageUrl}" alt="${this.escapeHtml(pres.nombre || 'Presentación')}" onerror="this.src='/uploads/ImagenGenerica.jpg'">
+                        <small>${pres.imagen_origen === 'presentacion' ? 'Imagen propia' : 'Usa imagen del producto'}</small>
+                    </div>
+                    <label for="imagen-presentacion-${presentacionId}">Cambiar imagen</label>
+                    <input type="file"
+                           class="input-imagen-presentacion"
+                           name="imagen_presentacion_${presentacionId}"
+                           id="imagen-presentacion-${presentacionId}"
+                           accept="image/*"
+                           ${checked ? '' : 'disabled'}>
+                </div>
+            `;
 
             contenedor.appendChild(wrapper);
         });
@@ -1130,13 +1140,29 @@ const Menu = {
 },
 
     onTogglePresentacionCheck(checkbox) {
-    const precioInput = checkbox.closest('.presentacion-item').querySelector('.input-precio-presentacion');
+    const wrapper = checkbox.closest('.presentacion-item');
+    const precioInput = wrapper?.querySelector('.input-precio-presentacion');
+    const imagenInput = wrapper?.querySelector('.input-imagen-presentacion');
+
     if (checkbox.checked) {
-        precioInput.disabled = false;
-        precioInput.focus();
+        if (precioInput) {
+            precioInput.disabled = false;
+            precioInput.style.display = 'inline-block';
+            precioInput.focus();
+        }
+        if (imagenInput) {
+            imagenInput.disabled = false;
+        }
     } else {
-        precioInput.disabled = true;
-        precioInput.value = '';
+        if (precioInput) {
+            precioInput.disabled = true;
+            precioInput.value = '';
+            precioInput.style.display = '';
+        }
+        if (imagenInput) {
+            imagenInput.disabled = true;
+            imagenInput.value = '';
+        }
     }
 },
 
@@ -1165,13 +1191,13 @@ const Menu = {
             item.className = "presentacion-item";
 
             item.innerHTML = `
-                <label>
+                <label class="presentacion-check-label">
                     <input type="checkbox"
                            name="presentaciones[]"
                            value="${pres.id}"
                            data-label="${pres.nombre}"
                            onchange="Menu.onTogglePresentacionCheck(this)">
-                    ${pres.nombre} (${pres.cantidad || '-'})
+                    <span>${pres.nombre} (${pres.cantidad || '-'})</span>
                 </label>
                 <input type="number"
                        step="0.01"
@@ -1181,6 +1207,15 @@ const Menu = {
                        name="precio_presentacion_${pres.id}"
                        id="precio-presentacion-${pres.id}"
                        disabled>
+                <div class="presentacion-image-field">
+                    <label for="imagen-presentacion-${pres.id}">Imagen opcional</label>
+                    <input type="file"
+                           class="input-imagen-presentacion"
+                           name="imagen_presentacion_${pres.id}"
+                           id="imagen-presentacion-${pres.id}"
+                           accept="image/*"
+                           disabled>
+                </div>
             `;
 
             contenedor.appendChild(item);
@@ -2559,6 +2594,7 @@ const Menu = {
                     <table class="table menu-table">
                         <thead>
                             <tr>
+                                <th>Imagen</th>
                                 <th>Presentación</th>
                                 <th>Cantidad</th>
                                 <th>Grupo</th>
@@ -2568,6 +2604,7 @@ const Menu = {
                         <tbody>
                             ${asignadas.map(p => `
                                 <tr>
+                                    <td><img src="${this.normalizeImageUrl(p.imagen || p.imagen_url)}" alt="${this.escapeHtml(p.nombre)}" class="menu-presentation-thumb" onerror="this.src='/uploads/ImagenGenerica.jpg'"></td>
                                     <td><strong>${this.escapeHtml(p.nombre)}</strong></td>
                                     <td>${this.escapeHtml(p.cantidad || '-')}</td>
                                     <td>${this.escapeHtml(p.tipo_presentacion_nombre || '-')}</td>

@@ -774,3 +774,35 @@ Commit sugerido:
 ```powershell
 git commit -m "v2.2.5M.12: agrega importacion de Menu desde plantilla"
 ```
+
+## v2.2.5M.13 · Imágenes por presentación y producto
+
+Objetivo:
+- permitir imagen específica por relación producto-presentación;
+- mantener imagen base del producto como fallback;
+- entregar imagen efectiva en el contrato operativo de Menú;
+- preparar el regreso a Cuentas con imágenes coherentes.
+
+Alcance:
+- `presentaciones_producto.imagen` se usa como imagen específica de presentación del producto;
+- `productos.imagen` sigue funcionando para productos sin presentación y como fallback;
+- Menú administrativo permite cargar/editar imagen por presentación asignada;
+- el modal `Ver presentaciones` muestra miniaturas;
+- no se implementa ZIP de imágenes ni imágenes dentro de plantilla Excel.
+
+Archivos esperados:
+- `README.md`
+- `docs/avance-v2.2.5M.13-imagenes-presentacion-producto.md`
+- `docs/roadmap-v2.2.5M-normalizacion-menu.md`
+- `docs/roadmap-v2.2.5M11-13-plantillas-menu.md`
+- `server/routes/menu.js`
+- `public/js/components/menu.js`
+- `public/css/style.css`
+- `public/index.html`
+- `public/service-worker.js`
+
+Commit sugerido:
+
+```powershell
+git commit -m "v2.2.5M.13: agrega imagenes por presentacion de producto"
+```
