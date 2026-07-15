@@ -130,6 +130,76 @@ async function validarCategoria(categoriaId, subcategoriaId, esCocina) {
 }
 
 
+async function validarTipoPresentacionParaProducto(tipoPresentacionId, categoriaId, subcategoriaId) {
+    if (!tipoPresentacionId) {
+        return { ok: false, error: 'Debe seleccionar un tipo/grupo de presentación' };
+    }
+
+    const tipo = await database.get(`
+        SELECT
+            tp.*,
+            c.nombre AS categoria_nombre,
+            COALESCE(c.activa, 1) AS categoria_activa,
+            s.nombre AS subcategoria_nombre,
+            COALESCE(s.activa, 1) AS subcategoria_activa
+        FROM tipos_presentacion tp
+        JOIN categorias c ON tp.categoria_id = c.id
+        LEFT JOIN categorias s ON tp.subcategoria_id = s.id
+        WHERE tp.id = ?
+    `, [tipoPresentacionId]);
+
+    if (!tipo) {
+        return { ok: false, error: 'Tipo/grupo de presentación no encontrado' };
+    }
+
+    if (!isActive(tipo.activo)) {
+        return { ok: false, error: 'El tipo/grupo de presentación seleccionado está inactivo' };
+    }
+
+    if (!isActive(tipo.categoria_activa)) {
+        return { ok: false, error: 'La categoría del tipo/grupo de presentación está inactiva' };
+    }
+
+    if (tipo.subcategoria_id && !isActive(tipo.subcategoria_activa)) {
+        return { ok: false, error: 'La subcategoría del tipo/grupo de presentación está inactiva' };
+    }
+
+    if (Number(tipo.categoria_id) !== Number(categoriaId)) {
+        return { ok: false, error: 'El tipo/grupo de presentación no pertenece a la categoría del producto' };
+    }
+
+    if (tipo.subcategoria_id && Number(tipo.subcategoria_id) !== Number(subcategoriaId || 0)) {
+        return { ok: false, error: 'El tipo/grupo de presentación no pertenece a la subcategoría del producto' };
+    }
+
+    return { ok: true, tipo };
+}
+
+async function validarTipoPresentacionParaPresentacion(tipoPresentacionId) {
+    if (!tipoPresentacionId) {
+        return { ok: false, error: 'Debe seleccionar un tipo/grupo de presentación' };
+    }
+
+    const tipo = await database.get(`
+        SELECT tp.*, c.nombre AS categoria_nombre, s.nombre AS subcategoria_nombre
+        FROM tipos_presentacion tp
+        JOIN categorias c ON tp.categoria_id = c.id
+        LEFT JOIN categorias s ON tp.subcategoria_id = s.id
+        WHERE tp.id = ?
+    `, [tipoPresentacionId]);
+
+    if (!tipo) {
+        return { ok: false, error: 'Tipo/grupo de presentación no encontrado' };
+    }
+
+    if (!isActive(tipo.activo)) {
+        return { ok: false, error: 'El tipo/grupo de presentación seleccionado está inactivo' };
+    }
+
+    return { ok: true, tipo };
+}
+
+
 
 function moneyNumber(value, fallback = 0) {
     const parsed = Number(value);
@@ -159,6 +229,8 @@ function normalizePresentationForOperation(row) {
         nombre: row.nombre,
         tipo: row.tipo || 'tamaño',
         cantidad: row.cantidad || null,
+        tipo_presentacion_id: row.tipo_presentacion_id ? Number(row.tipo_presentacion_id) : null,
+        tipo_presentacion_nombre: row.tipo_presentacion_nombre || null,
         precio,
         precio_operativo: disponible ? precio : null,
         precio_configurado: precio,
@@ -209,6 +281,7 @@ function normalizePresentationSelectionInput(rawPresentations) {
 
 async function validatePresentationSelection(rawPresentations, options = {}) {
     const requireAtLeastOne = options.requireAtLeastOne === true;
+    const tipoPresentacionId = parseNumber(options.tipoPresentacionId, null);
     const { normalized, errors } = normalizePresentationSelectionInput(rawPresentations);
 
     if (requireAtLeastOne && normalized.length === 0) {
@@ -226,7 +299,7 @@ async function validatePresentationSelection(rawPresentations, options = {}) {
     const ids = normalized.map(item => item.presentacion_id);
     const placeholders = ids.map(() => '?').join(',');
     const rows = await database.all(`
-        SELECT id, nombre, activo
+        SELECT id, nombre, activo, tipo_presentacion_id
         FROM presentaciones
         WHERE id IN (${placeholders})
     `, ids);
@@ -247,6 +320,15 @@ async function validatePresentationSelection(rawPresentations, options = {}) {
                 ok: false,
                 error: `La presentación ${presentacion.nombre} está inactiva`,
                 errors: [`La presentación ${presentacion.nombre} está inactiva`],
+                presentaciones: []
+            };
+        }
+
+        if (tipoPresentacionId && Number(presentacion.tipo_presentacion_id || 0) !== Number(tipoPresentacionId)) {
+            return {
+                ok: false,
+                error: `La presentación ${presentacion.nombre} no pertenece al tipo/grupo seleccionado`,
+                errors: [`La presentación ${presentacion.nombre} no pertenece al tipo/grupo seleccionado`],
                 presentaciones: []
             };
         }
@@ -344,6 +426,8 @@ async function buildOperationalMenuPayload(options = {}) {
             p.subcategoria_id,
             p.es_cocina,
             p.imagen,
+            p.tipo_presentacion_id,
+            tp.nombre AS tipo_presentacion_nombre,
             COALESCE(p.activo, 1) AS activo,
             c.nombre AS categoria_nombre,
             c.permite_cocina AS categoria_permite_cocina,
@@ -354,6 +438,7 @@ async function buildOperationalMenuPayload(options = {}) {
         FROM productos p
         JOIN categorias c ON p.categoria_id = c.id
         LEFT JOIN categorias s ON p.subcategoria_id = s.id
+        LEFT JOIN tipos_presentacion tp ON p.tipo_presentacion_id = tp.id
         ORDER BY c.nombre, COALESCE(s.nombre, ''), p.nombre
     `);
 
@@ -365,13 +450,16 @@ async function buildOperationalMenuPayload(options = {}) {
             pr.nombre,
             pr.tipo,
             pr.cantidad,
+            pr.tipo_presentacion_id,
+            tp.nombre AS tipo_presentacion_nombre,
             COALESCE(pp.precio, 0) AS precio,
             pp.activo AS relacion_activa,
             pr.activo AS presentacion_activa,
             pp.imagen
         FROM presentaciones_producto pp
         JOIN presentaciones pr ON pp.presentacion_id = pr.id
-        ORDER BY pr.nombre
+        LEFT JOIN tipos_presentacion tp ON pr.tipo_presentacion_id = tp.id
+        ORDER BY tp.nombre, pr.nombre
     `);
 
     const presentationsByProduct = new Map();
@@ -442,6 +530,8 @@ async function buildOperationalMenuPayload(options = {}) {
             subcategoria_id: product.subcategoria_id ? Number(product.subcategoria_id) : null,
             subcategoria_nombre: product.subcategoria_nombre || null,
             subcategoria_activa: product.subcategoria_id ? (isActive(product.subcategoria_activa) ? 1 : 0) : null,
+            tipo_presentacion_id: product.tipo_presentacion_id ? Number(product.tipo_presentacion_id) : null,
+            tipo_presentacion_nombre: product.tipo_presentacion_nombre || null,
             categoria_operativa: categoriaNombre,
             es_cocina: Number(product.es_cocina) === 1 ? 1 : 0,
             requiere_comanda: Number(product.es_cocina) === 1 ? 1 : 0,
@@ -467,7 +557,7 @@ async function buildOperationalMenuPayload(options = {}) {
         : normalizedProducts.filter(product => product.disponible_operacion === 1);
 
     return {
-        version_contrato: 'v2.2.5M.4',
+        version_contrato: 'v2.2.5M.6',
         generado_en: new Date().toISOString(),
         categorias: buildOperationalCategoryList(categories, operationalProducts, includeEmptyCategories),
         productos: operationalProducts,
@@ -615,6 +705,187 @@ router.delete('/categories/:id', requireMenuAdmin, async (req, res) => {
     }
 });
 
+// Obtener tipos/grupos de presentación
+router.get('/presentation-types', async (req, res) => {
+    try {
+        const includeInactive = shouldIncludeInactive(req);
+        const tipos = await database.all(`
+            SELECT
+                tp.id,
+                tp.nombre,
+                tp.descripcion,
+                tp.categoria_id,
+                tp.subcategoria_id,
+                COALESCE(tp.activo, 1) AS activo,
+                tp.creado_en,
+                tp.actualizado_en,
+                c.nombre AS categoria_nombre,
+                COALESCE(c.activa, 1) AS categoria_activa,
+                s.nombre AS subcategoria_nombre,
+                COALESCE(s.activa, 1) AS subcategoria_activa,
+                COUNT(p.id) AS total_presentaciones
+            FROM tipos_presentacion tp
+            JOIN categorias c ON tp.categoria_id = c.id
+            LEFT JOIN categorias s ON tp.subcategoria_id = s.id
+            LEFT JOIN presentaciones p ON p.tipo_presentacion_id = tp.id
+            WHERE (? = 1 OR COALESCE(tp.activo, 1) = 1)
+            GROUP BY tp.id
+            ORDER BY COALESCE(tp.activo, 1) DESC, c.nombre, COALESCE(s.nombre, ''), tp.nombre
+        `, [includeInactive ? 1 : 0]);
+
+        res.json({ success: true, data: tipos });
+    } catch (error) {
+        console.error('Error obteniendo tipos/grupos de presentación:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// Crear tipo/grupo de presentación
+router.post('/presentation-types', requireMenuAdmin, async (req, res) => {
+    try {
+        const nombre = String(req.body.nombre || '').trim();
+        const descripcion = req.body.descripcion || '';
+        const categoriaId = parseNumber(req.body.categoria_id);
+        const subcategoriaId = parseNumber(req.body.subcategoria_id, null);
+        const activo = req.body.activo === undefined ? 1 : (parseBoolean(req.body.activo) ? 1 : 0);
+
+        if (!nombre || !categoriaId) {
+            return res.status(400).json({ error: 'Nombre y categoría son requeridos' });
+        }
+
+        const categoriaError = await validarCategoria(categoriaId, subcategoriaId, false);
+        if (categoriaError) {
+            return res.status(400).json({ error: categoriaError });
+        }
+
+        const now = new Date().toISOString();
+        const result = await database.run(`
+            INSERT INTO tipos_presentacion (nombre, descripcion, categoria_id, subcategoria_id, activo, creado_en, actualizado_en)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `, [nombre, descripcion, categoriaId, subcategoriaId, activo, now, now]);
+
+        await database.run(
+            'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+            ['crear_tipo_presentacion', req.session.userId, `Tipo/grupo de presentación ${nombre} creado`, now]
+        );
+
+        res.json({
+            success: true,
+            data: { id: result.id, nombre, descripcion, categoria_id: categoriaId, subcategoria_id: subcategoriaId, activo }
+        });
+    } catch (error) {
+        if (error.message && error.message.includes('UNIQUE constraint failed')) {
+            return res.status(400).json({ error: 'Ya existe un tipo/grupo de presentación con ese nombre' });
+        }
+        console.error('Error creando tipo/grupo de presentación:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// Actualizar tipo/grupo de presentación
+router.put('/presentation-types/:id', requireMenuAdmin, async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const tipo = await database.get('SELECT * FROM tipos_presentacion WHERE id = ?', [id]);
+        if (!tipo) {
+            return res.status(404).json({ error: 'Tipo/grupo de presentación no encontrado' });
+        }
+
+        const nombre = req.body.nombre !== undefined ? String(req.body.nombre || '').trim() : tipo.nombre;
+        const descripcion = req.body.descripcion !== undefined ? (req.body.descripcion || '') : (tipo.descripcion || '');
+        const categoriaId = parseNumber(req.body.categoria_id, tipo.categoria_id);
+        const subcategoriaId = req.body.subcategoria_id !== undefined ? parseNumber(req.body.subcategoria_id, null) : (tipo.subcategoria_id || null);
+        const activo = req.body.activo !== undefined || req.body.activa !== undefined
+            ? (parseBoolean(req.body.activo ?? req.body.activa) ? 1 : 0)
+            : (isActive(tipo.activo) ? 1 : 0);
+
+        if (!nombre || !categoriaId) {
+            return res.status(400).json({ error: 'Nombre y categoría son requeridos' });
+        }
+
+        const categoriaError = await validarCategoria(categoriaId, subcategoriaId, false);
+        if (categoriaError) {
+            return res.status(400).json({ error: categoriaError });
+        }
+
+        const now = new Date().toISOString();
+        await database.run(`
+            UPDATE tipos_presentacion
+            SET nombre = ?, descripcion = ?, categoria_id = ?, subcategoria_id = ?, activo = ?, actualizado_en = ?
+            WHERE id = ?
+        `, [nombre, descripcion, categoriaId, subcategoriaId, activo, now, id]);
+
+        await database.run(
+            'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+            ['actualizar_tipo_presentacion', req.session.userId, `Tipo/grupo de presentación ${nombre} actualizado`, now]
+        );
+
+        res.json({
+            success: true,
+            data: { id: Number(id), nombre, descripcion, categoria_id: categoriaId, subcategoria_id: subcategoriaId, activo }
+        });
+    } catch (error) {
+        if (error.message && error.message.includes('UNIQUE constraint failed')) {
+            return res.status(400).json({ error: 'Ya existe un tipo/grupo de presentación con ese nombre' });
+        }
+        console.error('Error actualizando tipo/grupo de presentación:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+router.put('/presentation-types/:id/active', requireMenuAdmin, async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const tipo = await database.get('SELECT * FROM tipos_presentacion WHERE id = ?', [id]);
+        if (!tipo) {
+            return res.status(404).json({ error: 'Tipo/grupo de presentación no encontrado' });
+        }
+
+        const activo = parseBoolean(req.body.activo) ? 1 : 0;
+        const now = new Date().toISOString();
+        await database.run('UPDATE tipos_presentacion SET activo = ?, actualizado_en = ? WHERE id = ?', [activo, now, id]);
+
+        await database.run(
+            'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+            [activo ? 'activar_tipo_presentacion' : 'desactivar_tipo_presentacion', req.session.userId, `Tipo/grupo de presentación ${tipo.nombre} ${activo ? 'activado' : 'desactivado'}`, now]
+        );
+
+        res.json({ success: true, data: { id: Number(id), activo } });
+    } catch (error) {
+        console.error('Error cambiando estado del tipo/grupo de presentación:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+router.delete('/presentation-types/:id', requireMenuAdmin, async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const tipo = await database.get('SELECT * FROM tipos_presentacion WHERE id = ?', [id]);
+        if (!tipo) {
+            return res.status(404).json({ error: 'Tipo/grupo de presentación no encontrado' });
+        }
+
+        const now = new Date().toISOString();
+        await database.run('UPDATE tipos_presentacion SET activo = 0, actualizado_en = ? WHERE id = ?', [now, id]);
+        await database.run('UPDATE presentaciones SET activo = 0, actualizado_en = ? WHERE tipo_presentacion_id = ?', [now, id]);
+
+        await database.run(
+            'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+            ['desactivar_tipo_presentacion', req.session.userId, `Tipo/grupo de presentación ${tipo.nombre} desactivado`, now]
+        );
+
+        res.json({ success: true, message: 'Tipo/grupo de presentación desactivado correctamente' });
+    } catch (error) {
+        console.error('Error desactivando tipo/grupo de presentación:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+
+
 
 
 
@@ -649,6 +920,7 @@ router.get('/products', async (req, res) => {
                 COALESCE(p.activo, 1) AS activo,
                 c.nombre as categoria_nombre,
                 COALESCE(c.activa, 1) AS categoria_activa,
+                tp.nombre AS tipo_presentacion_nombre,
                 s.nombre as subcategoria_nombre,
                 COALESCE(s.activa, 1) AS subcategoria_activa,
                 EXISTS (
@@ -663,6 +935,7 @@ router.get('/products', async (req, res) => {
             FROM productos p
             JOIN categorias c ON p.categoria_id = c.id
             LEFT JOIN categorias s ON p.subcategoria_id = s.id
+            LEFT JOIN tipos_presentacion tp ON p.tipo_presentacion_id = tp.id
             WHERE (? = 1 OR (COALESCE(p.activo, 1) = 1 AND COALESCE(c.activa, 1) = 1 AND (p.subcategoria_id IS NULL OR COALESCE(s.activa, 1) = 1)))
             ORDER BY COALESCE(p.activo, 1) DESC, c.nombre, s.nombre, p.nombre
         `, [includeInactive ? 1 : 0]);
@@ -684,7 +957,7 @@ router.get('/products/search', async (req, res) => {
         }
 
         const products = await database.all(`
-            SELECT p.*, COALESCE(p.activo, 1) AS activo, c.nombre as categoria_nombre, COALESCE(c.activa, 1) AS categoria_activa, s.nombre as subcategoria_nombre, COALESCE(s.activa, 1) AS subcategoria_activa,
+            SELECT p.*, COALESCE(p.activo, 1) AS activo, c.nombre as categoria_nombre, COALESCE(c.activa, 1) AS categoria_activa, tp.nombre AS tipo_presentacion_nombre, s.nombre as subcategoria_nombre, COALESCE(s.activa, 1) AS subcategoria_activa,
                    EXISTS (
                        SELECT 1 FROM presentaciones_producto pp
                        JOIN presentaciones pr ON pp.presentacion_id = pr.id
@@ -693,6 +966,7 @@ router.get('/products/search', async (req, res) => {
             FROM productos p
             JOIN categorias c ON p.categoria_id = c.id
             LEFT JOIN categorias s ON p.subcategoria_id = s.id
+            LEFT JOIN tipos_presentacion tp ON p.tipo_presentacion_id = tp.id
             WHERE (p.nombre LIKE ? OR COALESCE(p.descripcion, '') LIKE ?)
               AND (? = 1 OR (COALESCE(p.activo, 1) = 1 AND COALESCE(c.activa, 1) = 1 AND (p.subcategoria_id IS NULL OR COALESCE(s.activa, 1) = 1)))
             ORDER BY p.nombre
@@ -711,29 +985,34 @@ router.get('/products/:id/presentaciones', async (req, res) => {
     const { id } = req.params;
 
     try {
-        const producto = await database.get('SELECT nombre FROM productos WHERE id = ?', [id]);
+        const producto = await database.get('SELECT nombre, tipo_presentacion_id FROM productos WHERE id = ?', [id]);
         if (!producto) {
             return res.status(404).json({ error: 'Producto no encontrado' });
         }
 
+        const tipoPresentacionId = parseNumber(req.query.tipo_presentacion_id, producto.tipo_presentacion_id || null);
         const presentaciones = await database.all(`
-            SELECT 
+            SELECT
                 p.id,
                 p.id AS presentacion_id,
                 p.nombre,
                 p.tipo,
                 p.cantidad,
+                p.tipo_presentacion_id,
+                tp.nombre AS tipo_presentacion_nombre,
                 p.activo AS presentacion_activa,
                 pp.id AS producto_presentacion_id,
                 pp.activo AS relacion_activa,
                 COALESCE(pp.precio, 0) AS precio,
                 CASE WHEN pp.id IS NOT NULL AND pp.activo = 1 THEN 1 ELSE 0 END AS asignada
             FROM presentaciones p
+            LEFT JOIN tipos_presentacion tp ON p.tipo_presentacion_id = tp.id
             LEFT JOIN presentaciones_producto pp
                 ON pp.presentacion_id = p.id AND pp.producto_id = ?
             WHERE p.activo = 1
-            ORDER BY p.nombre
-        `, [id]);
+              AND (? IS NULL OR p.tipo_presentacion_id = ?)
+            ORDER BY tp.nombre, p.nombre
+        `, [id, tipoPresentacionId, tipoPresentacionId]);
 
         const presentacionesNormalizadas = presentaciones.map(row => {
             const normalizada = normalizePresentationForOperation(row);
@@ -748,9 +1027,11 @@ router.get('/products/:id/presentaciones', async (req, res) => {
         res.json({
             success: true,
             producto_nombre: producto.nombre,
+            tipo_presentacion_id: tipoPresentacionId,
             presentaciones: presentacionesNormalizadas,
             data: {
                 producto_nombre: producto.nombre,
+                tipo_presentacion_id: tipoPresentacionId,
                 presentaciones: presentacionesNormalizadas
             }
         });
@@ -771,6 +1052,7 @@ router.post('/products', requireMenuAdmin, subirImagen, async (req, res) => {
         const subcategoriaId = parseNumber(req.body.subcategoria_id, null);
         const esCocina = parseBoolean(req.body.es_cocina);
         const tienePresentaciones = parseBoolean(req.body.tiene_presentaciones);
+        const tipoPresentacionId = tienePresentaciones ? parseNumber(req.body.tipo_presentacion_id, null) : null;
         const presentacionesSeleccionadas = parseArray(req.body.presentaciones_seleccionadas);
         const precio = tienePresentaciones ? 0 : parseNumber(req.body.precio, NaN);
         const imagen = uploadedImagePath(req);
@@ -780,8 +1062,16 @@ router.post('/products', requireMenuAdmin, subirImagen, async (req, res) => {
             return res.status(400).json({ error: 'Nombre, precio (o presentaciones) y categoría son requeridos' });
         }
 
+        const tipoPresentacionValidado = tienePresentaciones
+            ? await validarTipoPresentacionParaProducto(tipoPresentacionId, categoriaId, subcategoriaId)
+            : { ok: true, tipo: null };
+
+        if (!tipoPresentacionValidado.ok) {
+            return res.status(400).json({ error: tipoPresentacionValidado.error });
+        }
+
         const presentacionesValidadas = tienePresentaciones
-            ? await validatePresentationSelection(presentacionesSeleccionadas, { requireAtLeastOne: true })
+            ? await validatePresentationSelection(presentacionesSeleccionadas, { requireAtLeastOne: true, tipoPresentacionId })
             : { ok: true, presentaciones: [] };
 
         if (!presentacionesValidadas.ok) {
@@ -797,9 +1087,9 @@ router.post('/products', requireMenuAdmin, subirImagen, async (req, res) => {
         transactionStarted = true;
 
         const result = await database.run(
-            `INSERT INTO productos (nombre, descripcion, precio, categoria_id, subcategoria_id, es_cocina, imagen, activo)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [nombre, descripcion, Number.isFinite(precio) ? precio : 0, categoriaId, subcategoriaId, esCocina ? 1 : 0, imagen, activo]
+            `INSERT INTO productos (nombre, descripcion, precio, categoria_id, subcategoria_id, es_cocina, imagen, tipo_presentacion_id, activo)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [nombre, descripcion, Number.isFinite(precio) ? precio : 0, categoriaId, subcategoriaId, esCocina ? 1 : 0, imagen, tipoPresentacionId, activo]
         );
 
         const productoId = result.id;
@@ -826,6 +1116,8 @@ router.post('/products', requireMenuAdmin, subirImagen, async (req, res) => {
                 subcategoria_id: subcategoriaId,
                 es_cocina: esCocina ? 1 : 0,
                 imagen,
+                tipo_presentacion_id: tipoPresentacionId,
+                tipo_presentacion_nombre: tipoPresentacionValidado.tipo?.nombre || null,
                 activo,
                 tiene_presentaciones: tienePresentaciones ? 1 : 0
             }
@@ -854,6 +1146,9 @@ router.put('/products/:id', requireMenuAdmin, subirImagen, async (req, res) => {
         const subcategoriaId = parseNumber(req.body.subcategoria_id, null);
         const esCocina = parseBoolean(req.body.es_cocina);
         const tienePresentaciones = parseBoolean(req.body.tiene_presentaciones) || req.body.presentaciones !== undefined;
+        const tipoPresentacionId = tienePresentaciones
+            ? parseNumber(req.body.tipo_presentacion_id, producto.tipo_presentacion_id || null)
+            : null;
         const presentaciones = req.body.presentaciones !== undefined
             ? parseArray(req.body.presentaciones)
             : parseArray(req.body.presentaciones_seleccionadas);
@@ -865,8 +1160,16 @@ router.put('/products/:id', requireMenuAdmin, subirImagen, async (req, res) => {
             return res.status(400).json({ error: 'Nombre, categoría y precio válido son requeridos' });
         }
 
+        const tipoPresentacionValidado = tienePresentaciones
+            ? await validarTipoPresentacionParaProducto(tipoPresentacionId, categoriaId, subcategoriaId)
+            : { ok: true, tipo: null };
+
+        if (!tipoPresentacionValidado.ok) {
+            return res.status(400).json({ error: tipoPresentacionValidado.error });
+        }
+
         const presentacionesValidadas = tienePresentaciones
-            ? await validatePresentationSelection(presentaciones, { requireAtLeastOne: true })
+            ? await validatePresentationSelection(presentaciones, { requireAtLeastOne: true, tipoPresentacionId })
             : { ok: true, presentaciones: [] };
 
         if (!presentacionesValidadas.ok) {
@@ -883,9 +1186,9 @@ router.put('/products/:id', requireMenuAdmin, subirImagen, async (req, res) => {
 
         await database.run(`
             UPDATE productos
-            SET nombre = ?, descripcion = ?, precio = ?, categoria_id = ?, subcategoria_id = ?, es_cocina = ?, imagen = ?, activo = ?
+            SET nombre = ?, descripcion = ?, precio = ?, categoria_id = ?, subcategoria_id = ?, es_cocina = ?, imagen = ?, tipo_presentacion_id = ?, activo = ?
             WHERE id = ?
-        `, [nombre, descripcion, precio, categoriaId, subcategoriaId, esCocina ? 1 : 0, imagen, activo, id]);
+        `, [nombre, descripcion, precio, categoriaId, subcategoriaId, esCocina ? 1 : 0, imagen, tipoPresentacionId, activo, id]);
 
         await upsertProductPresentations(id, tienePresentaciones ? presentacionesValidadas.presentaciones : []);
 
@@ -1005,12 +1308,24 @@ router.get('/completo', async (req, res) => {
 router.get('/presentaciones-globales', async (req, res) => {
     try {
         const includeInactive = shouldIncludeInactive(req);
+        const tipoPresentacionId = parseNumber(req.query.tipo_presentacion_id, null);
         const presentaciones = await database.all(`
-            SELECT id, nombre, tipo, cantidad, COALESCE(activo, 1) AS activo
-            FROM presentaciones
-            WHERE (? = 1 OR COALESCE(activo, 1) = 1)
-            ORDER BY COALESCE(activo, 1) DESC, nombre ASC
-        `, [includeInactive ? 1 : 0]);
+            SELECT
+                p.id,
+                p.nombre,
+                p.tipo,
+                p.cantidad,
+                p.tipo_presentacion_id,
+                tp.nombre AS tipo_presentacion_nombre,
+                tp.categoria_id AS tipo_categoria_id,
+                tp.subcategoria_id AS tipo_subcategoria_id,
+                COALESCE(p.activo, 1) AS activo
+            FROM presentaciones p
+            LEFT JOIN tipos_presentacion tp ON p.tipo_presentacion_id = tp.id
+            WHERE (? = 1 OR COALESCE(p.activo, 1) = 1)
+              AND (? IS NULL OR p.tipo_presentacion_id = ?)
+            ORDER BY COALESCE(p.activo, 1) DESC, tp.nombre, p.nombre ASC
+        `, [includeInactive ? 1 : 0, tipoPresentacionId, tipoPresentacionId]);
 
         res.json({ success: true, data: presentaciones });
     } catch (error) {
@@ -1023,6 +1338,7 @@ router.get('/presentaciones-globales', async (req, res) => {
 router.post('/presentaciones-globales', requireMenuAdmin, async (req, res) => {
     try {
         const nombre = String(req.body.nombre || '').trim();
+        const tipoPresentacionId = parseNumber(req.body.tipo_presentacion_id, null);
         const tipo = req.body.tipo || 'tamaño';
         const cantidad = req.body.cantidad || null;
 
@@ -1030,11 +1346,16 @@ router.post('/presentaciones-globales', requireMenuAdmin, async (req, res) => {
             return res.status(400).json({ error: 'El nombre es requerido' });
         }
 
+        const tipoPresentacionValidado = await validarTipoPresentacionParaPresentacion(tipoPresentacionId);
+        if (!tipoPresentacionValidado.ok) {
+            return res.status(400).json({ error: tipoPresentacionValidado.error });
+        }
+
         const now = new Date().toISOString();
         const result = await database.run(`
-            INSERT INTO presentaciones (nombre, tipo, cantidad, activo, creado_en, actualizado_en)
-            VALUES (?, ?, ?, 1, ?, ?)
-        `, [nombre, tipo, cantidad, now, now]);
+            INSERT INTO presentaciones (nombre, tipo, cantidad, tipo_presentacion_id, activo, creado_en, actualizado_en)
+            VALUES (?, ?, ?, ?, 1, ?, ?)
+        `, [nombre, tipo, cantidad, tipoPresentacionId, now, now]);
 
         await database.run(
             'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
@@ -1043,7 +1364,7 @@ router.post('/presentaciones-globales', requireMenuAdmin, async (req, res) => {
 
         res.json({
             success: true,
-            data: { id: result.id, nombre, tipo, cantidad, activo: 1 }
+            data: { id: result.id, nombre, tipo, cantidad, tipo_presentacion_id: tipoPresentacionId, tipo_presentacion_nombre: tipoPresentacionValidado.tipo.nombre, activo: 1 }
         });
     } catch (error) {
         if (error.message && error.message.includes('UNIQUE constraint failed')) {
@@ -1064,6 +1385,9 @@ router.put('/presentaciones-globales/:id', requireMenuAdmin, async (req, res) =>
         }
 
         const nombre = req.body.nombre !== undefined ? String(req.body.nombre || '').trim() : presentacion.nombre;
+        const tipoPresentacionId = req.body.tipo_presentacion_id !== undefined
+            ? parseNumber(req.body.tipo_presentacion_id, null)
+            : (presentacion.tipo_presentacion_id || null);
         const tipo = req.body.tipo !== undefined ? (req.body.tipo || 'tamaño') : (presentacion.tipo || 'tamaño');
         const cantidad = req.body.cantidad !== undefined ? (req.body.cantidad || null) : presentacion.cantidad;
         const activo = req.body.activo !== undefined ? (parseBoolean(req.body.activo) ? 1 : 0) : (isActive(presentacion.activo) ? 1 : 0);
@@ -1072,18 +1396,23 @@ router.put('/presentaciones-globales/:id', requireMenuAdmin, async (req, res) =>
             return res.status(400).json({ error: 'El nombre es requerido' });
         }
 
+        const tipoPresentacionValidado = await validarTipoPresentacionParaPresentacion(tipoPresentacionId);
+        if (!tipoPresentacionValidado.ok) {
+            return res.status(400).json({ error: tipoPresentacionValidado.error });
+        }
+
         await database.run(`
             UPDATE presentaciones
-            SET nombre = ?, tipo = ?, cantidad = ?, activo = ?, actualizado_en = ?
+            SET nombre = ?, tipo = ?, cantidad = ?, tipo_presentacion_id = ?, activo = ?, actualizado_en = ?
             WHERE id = ?
-        `, [nombre, tipo, cantidad, activo, new Date().toISOString(), id]);
+        `, [nombre, tipo, cantidad, tipoPresentacionId, activo, new Date().toISOString(), id]);
 
         await database.run(
             'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
             ['actualizar_presentacion', req.session.userId, `Presentación ${nombre} actualizada (${activo ? 'activa' : 'inactiva'})`, new Date().toISOString()]
         );
 
-        res.json({ success: true, data: { id: Number(id), nombre, tipo, cantidad, activo } });
+        res.json({ success: true, data: { id: Number(id), nombre, tipo, cantidad, tipo_presentacion_id: tipoPresentacionId, tipo_presentacion_nombre: tipoPresentacionValidado.tipo.nombre, activo } });
     } catch (error) {
         if (error.message && error.message.includes('UNIQUE constraint failed')) {
             return res.status(400).json({ error: 'Ya existe una presentación con ese nombre' });

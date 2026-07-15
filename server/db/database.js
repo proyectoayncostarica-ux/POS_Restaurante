@@ -150,6 +150,19 @@ class Database {
                 FOREIGN KEY (parent_id) REFERENCES categorias (id) ON DELETE RESTRICT
             )`,
 
+            `CREATE TABLE IF NOT EXISTS tipos_presentacion (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT NOT NULL UNIQUE,
+                descripcion TEXT,
+                categoria_id INTEGER NOT NULL,
+                subcategoria_id INTEGER,
+                activo INTEGER NOT NULL DEFAULT 1,
+                creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                actualizado_en TEXT,
+                FOREIGN KEY (categoria_id) REFERENCES categorias (id) ON DELETE RESTRICT,
+                FOREIGN KEY (subcategoria_id) REFERENCES categorias (id) ON DELETE SET NULL
+            )`,
+
             `CREATE TABLE IF NOT EXISTS productos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 nombre TEXT NOT NULL,
@@ -159,19 +172,24 @@ class Database {
                 subcategoria_id INTEGER,
                 es_cocina INTEGER NOT NULL DEFAULT 0,
                 imagen TEXT,
+                tipo_presentacion_id INTEGER,
                 activo INTEGER NOT NULL DEFAULT 1,
                 FOREIGN KEY (categoria_id) REFERENCES categorias (id) ON DELETE RESTRICT,
+                FOREIGN KEY (tipo_presentacion_id) REFERENCES tipos_presentacion (id) ON DELETE SET NULL,
                 FOREIGN KEY (subcategoria_id) REFERENCES categorias (id) ON DELETE SET NULL
             )`,
 
             `CREATE TABLE IF NOT EXISTS presentaciones (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nombre TEXT NOT NULL UNIQUE,
+                nombre TEXT NOT NULL,
                 tipo TEXT DEFAULT 'tamaño',
                 cantidad TEXT,
+                tipo_presentacion_id INTEGER,
                 activo INTEGER NOT NULL DEFAULT 1,
                 creado_en TEXT,
-                actualizado_en TEXT
+                actualizado_en TEXT,
+                UNIQUE(tipo_presentacion_id, nombre, cantidad),
+                FOREIGN KEY (tipo_presentacion_id) REFERENCES tipos_presentacion (id) ON DELETE SET NULL
             )`,
 
             `CREATE TABLE IF NOT EXISTS presentaciones_producto (
@@ -382,12 +400,15 @@ class Database {
 
         await this.ensureColumn('categorias', 'activa', 'INTEGER NOT NULL DEFAULT 1');
         await this.ensureColumn('productos', 'imagen', 'TEXT');
+        await this.ensureColumn('productos', 'tipo_presentacion_id', 'INTEGER');
         await this.ensureColumn('productos', 'activo', 'INTEGER NOT NULL DEFAULT 1');
         await this.ensureColumn('presentaciones', 'tipo', "TEXT DEFAULT 'tamaño'");
         await this.ensureColumn('presentaciones', 'cantidad', 'TEXT');
+        await this.ensureColumn('presentaciones', 'tipo_presentacion_id', 'INTEGER');
         await this.ensureColumn('presentaciones', 'activo', 'INTEGER NOT NULL DEFAULT 1');
         await this.ensureColumn('presentaciones', 'creado_en', 'TEXT');
         await this.ensureColumn('presentaciones', 'actualizado_en', 'TEXT');
+        await this.rebuildPresentacionesForPresentationTypes();
         await this.ensureColumn('presentaciones_producto', 'activo', 'INTEGER NOT NULL DEFAULT 1');
         await this.ensureColumn('presentaciones_producto', 'creado_en', 'TEXT DEFAULT CURRENT_TIMESTAMP');
         await this.ensureColumn('presentaciones_producto', 'actualizado_en', 'TEXT DEFAULT CURRENT_TIMESTAMP');
@@ -396,6 +417,9 @@ class Database {
         await this.run(`UPDATE productos SET activo = 1 WHERE activo IS NULL`);
         await this.run(`UPDATE presentaciones SET activo = 1 WHERE activo IS NULL`);
         await this.run(`UPDATE presentaciones_producto SET activo = 1 WHERE activo IS NULL`);
+        await this.run('CREATE INDEX IF NOT EXISTS idx_tipos_presentacion_categoria ON tipos_presentacion(categoria_id, subcategoria_id)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_presentaciones_tipo_presentacion ON presentaciones(tipo_presentacion_id)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_productos_tipo_presentacion ON productos(tipo_presentacion_id)');
 
         await this.ensureColumn('pedidos', 'cliente_nombre', 'TEXT');
         await this.ensureColumn('pedidos', 'rol_trabajo_id', 'INTEGER');
@@ -596,6 +620,49 @@ class Database {
         `);
         await this.run(`DROP TABLE ${tableName}`);
         await this.run(`ALTER TABLE ${newTable} RENAME TO ${tableName}`);
+    }
+
+    async rebuildPresentacionesForPresentationTypes() {
+        const exists = await this.tableExists('presentaciones');
+        if (!exists) return;
+
+        const currentSqlRow = await this.get(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'presentaciones'"
+        );
+        const currentSql = (currentSqlRow?.sql || '').toLowerCase();
+
+        const hasGlobalNameUnique = currentSql.includes('nombre text not null unique');
+        const hasTipoColumn = currentSql.includes('tipo_presentacion_id');
+        const hasCompositeUnique = currentSql.includes('unique(tipo_presentacion_id, nombre, cantidad)');
+
+        if (!hasGlobalNameUnique && hasTipoColumn && hasCompositeUnique) return;
+
+        const existingColumns = await this.getColumns('presentaciones');
+        const wantedColumns = ['id', 'nombre', 'tipo', 'cantidad', 'tipo_presentacion_id', 'activo', 'creado_en', 'actualizado_en'];
+        const insertColumns = wantedColumns.filter(col => existingColumns.includes(col));
+        if (!insertColumns.includes('id') || !insertColumns.includes('nombre')) return;
+
+        await this.run(`DROP TABLE IF EXISTS presentaciones_new`);
+        await this.run(`CREATE TABLE presentaciones_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL,
+            tipo TEXT DEFAULT 'tamaño',
+            cantidad TEXT,
+            tipo_presentacion_id INTEGER,
+            activo INTEGER NOT NULL DEFAULT 1,
+            creado_en TEXT,
+            actualizado_en TEXT,
+            UNIQUE(tipo_presentacion_id, nombre, cantidad),
+            FOREIGN KEY (tipo_presentacion_id) REFERENCES tipos_presentacion (id) ON DELETE SET NULL
+        )`);
+
+        await this.run(`
+            INSERT INTO presentaciones_new (${insertColumns.join(', ')})
+            SELECT ${insertColumns.join(', ')} FROM presentaciones
+        `);
+
+        await this.run(`DROP TABLE presentaciones`);
+        await this.run(`ALTER TABLE presentaciones_new RENAME TO presentaciones`);
     }
 
     async cleanupOrphanRows() {

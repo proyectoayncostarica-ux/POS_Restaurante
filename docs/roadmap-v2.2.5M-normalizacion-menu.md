@@ -303,19 +303,59 @@ git commit -m "v2.2.5M.5: protege administracion backend de Menu"
 
 ---
 
-## v2.2.5M.6 · Corrección y normalización visual del módulo Menú
+## v2.2.5M.6 · Tipos/Grupos de presentación
 
 ### Objetivo
 
-Corregir inconsistencias visuales y botones incompletos del módulo Menú.
+Agregar una capa nueva para agrupar presentaciones según categoría y subcategoría, evitando que el administrador vea una lista global plana al crear productos con presentación.
 
-### Hallazgo actual
-
-La UI llama a funciones que parecen incompletas o inexistentes, por ejemplo:
+### Lógica esperada
 
 ```text
-Menu.showEditCategoryModal()
+Categoría
+  ↓
+Subcategoría opcional
+  ↓
+Tipo/Grupo de presentación
+  ↓
+Presentaciones del grupo
+  ↓
+Producto con presentación
 ```
+
+### Ejemplo
+
+```text
+Categoría: Bebidas
+Subcategoría: Gaseosas
+Tipo/Grupo: Bebidas / Gaseosas
+Presentaciones: 350 ml, 600 ml, 1000 ml, 2.5 litros, 3 litros
+Producto: Coca Cola
+```
+
+### Criterio de éxito
+
+- El admin puede crear tipos/grupos de presentación.
+- Cada grupo pertenece a una categoría y opcionalmente a una subcategoría.
+- El admin puede crear presentaciones dentro de un grupo.
+- Al crear producto con presentación, primero se elige grupo.
+- El modal de producto solo muestra las presentaciones del grupo seleccionado.
+- Backend valida que el producto, grupo y presentaciones pertenezcan al mismo contexto.
+- Cuentas / Orders no se migra todavía, pero conserva compatibilidad con `/menu/products/:id/presentaciones`.
+
+### Commit sugerido
+
+```powershell
+git commit -m "v2.2.5M.6: agrega tipos y grupos de presentacion"
+```
+
+---
+
+## v2.2.5M.7 · Normalización visual final de Menú
+
+### Objetivo
+
+Modernizar y ordenar visualmente todos los modales y vistas administrativas de Menú después de tener cerrada la nueva lógica de tipos/grupos de presentación.
 
 ### Debe revisar
 
@@ -323,7 +363,9 @@ Menu.showEditCategoryModal()
 - Editar producto.
 - Crear categoría.
 - Editar categoría.
-- Crear presentación.
+- Crear subcategoría.
+- Crear tipo/grupo de presentación.
+- Crear presentación dentro de grupo.
 - Editar presentación.
 - Productos con presentación.
 - Productos sin presentación.
@@ -338,197 +380,51 @@ Menu.showEditCategoryModal()
 - Modales abren correctamente.
 - Formularios guardan y recargan.
 - Menú no deja estados inconsistentes.
-- No se rompe la UI móvil ni PC.
+- La UI se ve coherente en PC y móvil.
+- No se modifica todavía la lógica profunda de Cuentas.
 
 ### Commit sugerido
 
 ```powershell
-git commit -m "v2.2.5M.6: normaliza interfaz administrativa de Menu"
+git commit -m "v2.2.5M.7: normaliza visualmente el modulo Menu"
 ```
 
 ---
 
-## v2.2.5M.7 · Endpoint operativo único para Cuentas
+## v2.2.5M.8 · Integración Menú → Cuentas
 
 ### Objetivo
 
-Crear la fuente definitiva que usará Orders para crear y agregar productos.
+Con Menú ya normalizado, migrar Cuentas / Orders para consumir la fuente de verdad de Menú de forma limpia.
 
-### Endpoint sugerido
+### Alcance previsto
 
-```text
-GET /api/menu/operational-products
-```
-
-### Estructura esperada
-
-```json
-{
-  "categorias": [],
-  "productos": [
-    {
-      "id": 1,
-      "nombre": "Cerveza",
-      "descripcion": "",
-      "imagen_url": "",
-      "categoria_id": 2,
-      "categoria_nombre": "Bebidas",
-      "subcategoria": "Cervezas",
-      "es_cocina": false,
-      "tiene_presentaciones": true,
-      "precio_operativo": null,
-      "presentaciones": [
-        {
-          "id": 4,
-          "nombre": "Lata",
-          "precio": 1500,
-          "activa": true
-        }
-      ],
-      "activo": true
-    }
-  ]
-}
-```
-
-### Regla
-
-Orders debe dejar de armar por su cuenta la estructura de productos.
-
-Menú debe entregarla lista y confiable.
+- Revisar consumo actual de `orders.js`.
+- Migrar la carga de productos al contrato operativo de Menú.
+- Validar productos con y sin presentación.
+- Validar precios de presentación.
+- Validar cocina/comandas.
+- Revisar la nueva regla de imagen cuando un producto tiene presentación activa.
+- Evitar que Orders reconstruya lógica que ya pertenece a Menú.
 
 ### Criterio de éxito
 
-- Orders puede crear pedido usando este endpoint.
-- Orders puede agregar productos usando este endpoint.
-- Presentaciones salen completas.
-- Precios salen correctos.
-- Cocina/comanda sale marcada.
-- Los productos inactivos no aparecen.
-- Las presentaciones inactivas no aparecen.
+- Orders consume productos activos desde Menú sin duplicar lógica.
+- Productos con presentación muestran solo sus presentaciones asignadas.
+- Precios salen desde la relación correcta.
+- Cocina/comanda sigue funcionando.
+- Imágenes quedan alineadas con la regla final producto/presentación.
+- No se rompen cuentas existentes.
 
 ### Commit sugerido
 
 ```powershell
-git commit -m "v2.2.5M.7: agrega endpoint operativo de productos para Cuentas"
+git commit -m "v2.2.5M.8: integra Menu normalizado con Cuentas"
 ```
 
 ---
 
-## v2.2.5M.8 · Limpieza de funciones legacy de Menú
-
-### Objetivo
-
-Eliminar o aislar funciones incompletas, duplicadas o sin uso.
-
-### Archivos a revisar
-
-- `public/js/components/menu.js`
-- `server/routes/menu.js`
-- llamadas desde `index.html`
-- llamadas desde `main.js`
-- llamadas desde `orders.js`
-
-### Regla
-
-No eliminar ninguna función sin verificar llamadas desde:
-
-- HTML inline
-- modales dinámicos
-- main.js
-- orders.js
-- dashboard.js
-
-### Resultado esperado
-
-- Menú queda más legible.
-- Menú queda más mantenible.
-- No quedan botones rotos.
-- No quedan funciones obvias sin uso.
-- No se rompe Cuentas.
-
-### Commit sugerido
-
-```powershell
-git commit -m "v2.2.5M.8: limpia funciones legacy del modulo Menu"
-```
-
----
-
-## v2.2.5M.9 · Pruebas operativas Menú → Cuentas
-
-### Objetivo
-
-Validar que Menú entrega datos correctos antes de volver a Orders.
-
-### Checklist obligatorio
-
-1. Crear categoría.
-2. Editar categoría.
-3. Crear producto sin presentación.
-4. Crear producto con presentación.
-5. Crear varias presentaciones para un producto.
-6. Marcar producto como cocina.
-7. Cambiar precio de presentación.
-8. Desactivar producto.
-9. Desactivar presentación.
-10. Confirmar que Cuentas no muestra productos inactivos.
-11. Confirmar que Cuentas no muestra presentaciones inactivas.
-12. Confirmar que Cuentas muestra precios correctos.
-13. Confirmar que productos de cocina siguen marcados.
-14. Confirmar que productos históricos siguen visibles en cuentas ya pagadas.
-15. Confirmar que usuario estándar no puede administrar Menú.
-
-### Resultado esperado
-
-- `docs/pruebas-v2.2.5M.9-menu-cuentas.md`
-- `README.md` actualizado
-
-### Commit sugerido
-
-```powershell
-git commit -m "v2.2.5M.9: documenta pruebas operativas Menu hacia Cuentas"
-```
-
----
-
-## v2.2.5M.10 · Cierre de normalización base de Menú
-
-### Objetivo
-
-Cerrar Menú como fuente confiable para Cuentas.
-
-### Debe incluir
-
-- `docs/cierre-v2.2.5M-menu-base.md`
-- `README.md` actualizado
-- versionado interno actualizado
-- Service Worker actualizado
-
-### Criterio de cierre
-
-- Menú administra productos correctamente.
-- Menú protege edición solo para admin.
-- Menú entrega productos operativos listos para Orders.
-- Productos con presentación tienen precios confiables.
-- Productos sin presentación tienen precios confiables.
-- Productos de cocina quedan correctamente marcados.
-- Productos inactivos no aparecen en Cuentas.
-- Presentaciones inactivas no aparecen en Cuentas.
-- Cuentas puede continuar su normalización sin rehacer Menú.
-
-### Commit y tag sugerido
-
-```powershell
-git commit -m "v2.2.5M: cierra normalizacion base del modulo Menu"
-git tag v2.2.5M-cierre
-git push origin main
-git push origin v2.2.5M-cierre
-```
-
----
-
-## Orden recomendado
+## Resumen actualizado de subfases
 
 ```text
 v2.2.5M.0  Auditoría técnica                 ✅
@@ -537,9 +433,9 @@ v2.2.5M.2  Productos operativos backend
 v2.2.5M.3  Presentaciones y precios
 v2.2.5M.4  Estados activo/inactivo
 v2.2.5M.5  Protección backend admin
-v2.2.5M.6  UI administrativa Menú
-v2.2.5M.7  Endpoint operativo para Cuentas
-v2.2.5M.8  Limpieza legacy
+v2.2.5M.6  Tipos/Grupos de presentación
+v2.2.5M.7  Normalización visual final de Menú
+v2.2.5M.8  Integración Menú → Cuentas
 v2.2.5M.9  Pruebas Menú → Cuentas
 v2.2.5M.10 Cierre Menú base
 ```

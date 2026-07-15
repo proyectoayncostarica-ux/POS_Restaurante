@@ -3,6 +3,7 @@ const Menu = {
     categories: [],
     products: [],
     presentations: [],
+    presentationTypes: [],
     currentView: 'products', // 'products' o 'categories'
 
     canAdministerMenu() {
@@ -39,9 +40,14 @@ const Menu = {
                     </button>`;
         }
 
-        return `<button class="btn btn-success" onclick="Menu.showCreatePresentationModal()">
-                    <i class="fas fa-plus"></i> Nueva Presentación
-                </button>`;
+        return `
+            <button class="btn btn-success" onclick="Menu.showCreatePresentationTypeModal()">
+                <i class="fas fa-layer-group"></i> Nuevo Tipo/Grupo
+            </button>
+            <button class="btn btn-primary" onclick="Menu.showCreatePresentationModal()">
+                <i class="fas fa-plus"></i> Nueva Presentación
+            </button>
+        `;
     },
 
     isActive(value) {
@@ -58,21 +64,87 @@ const Menu = {
         return this.isActive(value) ? '' : ' class="menu-row-inactive"';
     },
 
+    formatPresentationTypeLabel(tipo) {
+        if (!tipo) return 'Sin tipo/grupo';
+        const categoria = tipo.categoria_nombre || 'Sin categoría';
+        const subcategoria = tipo.subcategoria_nombre ? ` / ${tipo.subcategoria_nombre}` : '';
+        return `${tipo.nombre} · ${categoria}${subcategoria}`;
+    },
+
+    getPresentationTypesForContext(categoriaId, subcategoriaId = null) {
+        const categoryId = Number(categoriaId || 0);
+        const subcategoryId = Number(subcategoriaId || 0);
+
+        if (!categoryId) return [];
+
+        return (this.presentationTypes || []).filter(tipo => {
+            if (!this.isActive(tipo.activo)) return false;
+            if (Number(tipo.categoria_id) !== categoryId) return false;
+
+            const tipoSubcategoriaId = Number(tipo.subcategoria_id || 0);
+
+            // Un grupo ligado solo a categoría sirve para productos con o sin subcategoría.
+            if (!tipoSubcategoriaId) return true;
+
+            // Un grupo ligado a subcategoría exige coincidencia exacta.
+            return subcategoryId && tipoSubcategoriaId === subcategoryId;
+        });
+    },
+
+    refreshProductPresentationTypes(prefix = 'product', selectedId = null) {
+        const categoriaSelect = document.getElementById(`${prefix}-categoria`);
+        const subcategoriaSelect = document.getElementById(`${prefix}-subcategoria`);
+        const tipoSelect = document.getElementById(`${prefix}-tipo-presentacion`);
+        const checkPresentaciones = document.getElementById(`${prefix}-tiene-presentaciones`);
+        const contenedorCheckboxes = document.getElementById(`${prefix}-presentaciones-checkboxes`);
+
+        if (!tipoSelect) return;
+
+        const tipos = this.getPresentationTypesForContext(categoriaSelect?.value, subcategoriaSelect?.value);
+        tipoSelect.innerHTML = '<option value="">Seleccione un tipo/grupo</option>';
+
+        tipos.forEach(tipo => {
+            const option = document.createElement('option');
+            option.value = tipo.id;
+            option.textContent = this.formatPresentationTypeLabel(tipo);
+            if (selectedId && Number(selectedId) === Number(tipo.id)) {
+                option.selected = true;
+            }
+            tipoSelect.appendChild(option);
+        });
+
+        if (checkPresentaciones?.checked && tipos.length === 0) {
+            if (contenedorCheckboxes) {
+                contenedorCheckboxes.innerHTML = '<p class="text-muted">No hay tipos/grupos de presentación activos para esta categoría/subcategoría.</p>';
+            }
+        } else if (checkPresentaciones?.checked && tipoSelect.value) {
+            this.loadPresentacionesGlobales(tipoSelect.value, `${prefix}-presentaciones-checkboxes`);
+        } else if (contenedorCheckboxes) {
+            contenedorCheckboxes.innerHTML = '<p class="text-muted">Seleccione primero un tipo/grupo de presentación.</p>';
+        }
+    },
+
+    onPresentationTypeChange(tipoPresentacionId, containerId = 'product-presentaciones-checkboxes') {
+        this.loadPresentacionesGlobales(tipoPresentacionId, containerId);
+    },
+
     // Cargar datos del menú
     async load(options = {}) {
             try {
                 const includeInactive = this.canAdministerMenu() && (options.includeInactive === true || (typeof currentSection !== 'undefined' && currentSection === 'menu'));
                 const inactiveQuery = includeInactive ? '?include_inactive=1' : '';
-                const [categoriesResponse, productsResponse, presentationsResponse] = await Promise.all([
+                const [categoriesResponse, productsResponse, presentationsResponse, presentationTypesResponse] = await Promise.all([
                         Utils.request(`/menu/categories${inactiveQuery}`),
                         Utils.request(`/menu/products${inactiveQuery}`),
-                        Utils.request(`/menu/presentaciones-globales${inactiveQuery}`)
+                        Utils.request(`/menu/presentaciones-globales${inactiveQuery}`),
+                        Utils.request(`/menu/presentation-types${inactiveQuery}`)
                 ]);
 
-                
+
                 this.categories = categoriesResponse.data;
                 this.products = productsResponse.data;
                 this.presentations = presentationsResponse.data;
+                this.presentationTypes = presentationTypesResponse.data || [];
                 this.render();
             } catch (error) {
                 console.error('Error cargando menú:', error);
@@ -363,14 +435,14 @@ const Menu = {
             </div>
             <div class="form-group">
                 <label for="product-categoria">Categoría *</label>
-                <select id="product-categoria" name="categoria_id" required onchange="Menu.onCategoriaChange(this)">
+                <select id="product-categoria" name="categoria_id" required onchange="Menu.onCategoriaChange(this); Menu.refreshProductPresentationTypes('product')">
                     <option value="">Seleccione una categoría</option>
                     ${mainCategories.map(cat => `<option value="${cat.id}">${cat.nombre}</option>`).join('')}
                 </select>
             </div>
             <div class="form-group">
                 <label for="product-subcategoria">Subcategoría</label>
-                <select id="product-subcategoria" name="subcategoria_id">
+                <select id="product-subcategoria" name="subcategoria_id" onchange="Menu.refreshProductPresentationTypes('product')">
                     <option value="">Seleccione una subcategoría</option>
                 </select>
             </div>
@@ -379,10 +451,17 @@ const Menu = {
                     <input type="checkbox" id="product-tiene-presentaciones" onchange="Menu.toggleSelectPresentaciones()"> ¿Tiene presentaciones?
                 </label>
             </div>
+            <div class="form-group" id="contenedor-tipo-presentacion" style="display: none;">
+                <label for="product-tipo-presentacion">Tipo/Grupo de presentación *</label>
+                <select id="product-tipo-presentacion" name="tipo_presentacion_id" onchange="Menu.onPresentationTypeChange(this.value, 'product-presentaciones-checkboxes')">
+                    <option value="">Seleccione un tipo/grupo</option>
+                </select>
+                <small class="text-muted">El grupo filtra las presentaciones disponibles para este producto.</small>
+            </div>
             <div class="form-group" id="contenedor-select-presentaciones" style="display: none;">
                 <label>Seleccionar presentaciones:</label>
                 <div id="product-presentaciones-checkboxes" class="presentaciones-checkboxes bordered-box">
-                    <!-- Checkboxes se insertan aquí -->
+                    <p class="text-muted">Seleccione primero un tipo/grupo de presentación.</p>
                 </div>
             </div>
             <div class="form-group" id="contenedor-checkbox-cocina" style="display: none;">
@@ -410,8 +489,8 @@ const Menu = {
         }
     ]);
 
-    Menu.loadPresentacionesGlobales();
     Menu.onCategoriaChange(document.getElementById('product-categoria'));
+    Menu.refreshProductPresentationTypes('product');
     },
 
     onCategoriaChange(selectElement) {
@@ -427,6 +506,7 @@ const Menu = {
         const contenedorCocina = document.getElementById("contenedor-checkbox-cocina");
 
         const checkPresentaciones = document.getElementById("product-tiene-presentaciones");
+        const contenedorTipoPresentacion = document.getElementById("contenedor-tipo-presentacion");
         const contenedorSelectPresentaciones = document.getElementById("contenedor-select-presentaciones");
 
         if (esComidas) {
@@ -438,6 +518,7 @@ const Menu = {
             if (checkPresentaciones) checkPresentaciones.checked = false;
             if (checkPresentaciones && checkPresentaciones.closest(".form-group"))
                 checkPresentaciones.closest(".form-group").style.display = "none";
+            if (contenedorTipoPresentacion) contenedorTipoPresentacion.style.display = "none";
             if (contenedorSelectPresentaciones) contenedorSelectPresentaciones.style.display = "none";
         } else {
             // Ocultar checkbox cocina
@@ -447,6 +528,7 @@ const Menu = {
             // Mostrar presentaciones
             if (checkPresentaciones && checkPresentaciones.closest(".form-group"))
                 checkPresentaciones.closest(".form-group").style.display = "block";
+            if (contenedorTipoPresentacion) contenedorTipoPresentacion.style.display = "none";
             if (contenedorSelectPresentaciones) contenedorSelectPresentaciones.style.display = "none";
             if (checkPresentaciones) checkPresentaciones.checked = false;
         }
@@ -509,11 +591,19 @@ const Menu = {
     const subcategoria_id = parseInt(formData.get("subcategoria_id")) || null;
     const es_cocina = formData.get("es_cocina") === "on";
     const tiene_presentaciones = document.getElementById("product-tiene-presentaciones").checked;
+    const tipo_presentacion_id = tiene_presentaciones
+        ? parseInt(document.getElementById("product-tipo-presentacion")?.value || 0)
+        : null;
     const imagenFile = formData.get("imagen");
 
     let presentaciones_seleccionadas = [];
 
     if (tiene_presentaciones) {
+        if (!tipo_presentacion_id) {
+            Utils.showNotification("Debes seleccionar un tipo/grupo de presentación.");
+            return;
+        }
+
         const checkboxes = document.querySelectorAll("input[name='presentaciones[]']:checked");
 
         presentaciones_seleccionadas = Array.from(checkboxes).map(checkbox => {
@@ -552,6 +642,7 @@ const Menu = {
         if (subcategoria_id) payload.append("subcategoria_id", subcategoria_id);
         payload.append("es_cocina", es_cocina);
         payload.append("tiene_presentaciones", tiene_presentaciones);
+        if (tipo_presentacion_id) payload.append("tipo_presentacion_id", tipo_presentacion_id);
         payload.append("activo", 1);
 
         if (imagenFile && imagenFile.size > 0) {
@@ -651,6 +742,17 @@ const Menu = {
                 </label>
             </div>
 
+            <div class="form-group" id="edit-contenedor-tipo-presentacion">
+                <label for="edit-product-tipo-presentacion">Tipo/Grupo de presentación</label>
+                <select id="edit-product-tipo-presentacion" name="tipo_presentacion_id" onchange="Menu.onPresentationTypeChange(this.value, 'edit-product-presentaciones-checkboxes')" ${product.tipo_presentacion_id ? 'disabled' : ''}>
+                    <option value="">Sin grupo asignado / legado</option>
+                    ${(this.presentationTypes || []).map(tipo => `
+                        <option value="${tipo.id}" ${Number(tipo.id) === Number(product.tipo_presentacion_id || 0) ? 'selected' : ''}>${this.formatPresentationTypeLabel(tipo)}</option>
+                    `).join('')}
+                </select>
+                <small class="text-muted">El grupo se conserva para mantener consistencia con las presentaciones del producto.</small>
+            </div>
+
             <div class="form-group" id="edit-contenedor-select-presentaciones">
                 <label>Seleccionar presentaciones:</label>
                 <div id="edit-product-presentaciones-checkboxes" class="presentaciones-checkboxes bordered-box"></div>
@@ -702,6 +804,13 @@ const Menu = {
         this.loadSubcategories(product.categoria_id, 'edit-product-subcategoria');
         if (product.subcategoria_id) {
             document.getElementById('edit-product-subcategoria').value = product.subcategoria_id;
+        }
+        if (tienePresentaciones) {
+            this.refreshProductPresentationTypes('edit-product', product.tipo_presentacion_id);
+            const tipoSelect = document.getElementById('edit-product-tipo-presentacion');
+            if (tipoSelect && product.tipo_presentacion_id) {
+                tipoSelect.value = product.tipo_presentacion_id;
+            }
         }
     }, 100);
 
@@ -779,8 +888,16 @@ const Menu = {
     formData.set('activo', document.getElementById('edit-product-activo')?.checked ? 1 : 0);
 
     const tienePresentaciones = document.getElementById('edit-product-tiene-presentaciones')?.checked;
+    const tipoPresentacionId = tienePresentaciones
+        ? parseInt(document.getElementById('edit-product-tipo-presentacion')?.value || 0)
+        : null;
 
     if (tienePresentaciones) {
+        if (!tipoPresentacionId) {
+            Utils.showNotification('Debe asignar un tipo/grupo de presentación al producto.', 'warning');
+            return;
+        }
+
         const checkboxes = document.querySelectorAll('input[name="presentaciones[]"]:checked');
         const presentaciones = [];
 
@@ -803,6 +920,7 @@ const Menu = {
         }
 
         formData.set('presentaciones', JSON.stringify(presentaciones));
+        formData.set('tipo_presentacion_id', tipoPresentacionId);
         formData.set('precio', 0); // Precio global = 0 si hay presentaciones
     } else {
         const precio = parseFloat(formData.get('precio'));
@@ -1086,110 +1204,264 @@ async createSubcategory() {
 
 
     // Renderizar vista de Presentaciones
-renderPresentationsView() {
-    const canAdmin = this.canAdministerMenu();
+    renderPresentationsView() {
+        const canAdmin = this.canAdministerMenu();
+        const tipos = this.presentationTypes || [];
+        const presentaciones = this.presentations || [];
 
-    if (!this.presentations || this.presentations.length === 0) {
+        const tiposHtml = tipos.length === 0
+            ? `<tr><td colspan="${canAdmin ? 7 : 6}" class="text-center">No hay tipos/grupos de presentación configurados</td></tr>`
+            : tipos.map(tipo => `
+                <tr${this.rowInactiveClass(tipo.activo)}>
+                    <td><strong>${tipo.nombre}</strong></td>
+                    <td>${tipo.categoria_nombre || '-'}</td>
+                    <td>${tipo.subcategoria_nombre || '-'}</td>
+                    <td>${tipo.descripcion || '-'}</td>
+                    <td>${tipo.total_presentaciones || 0}</td>
+                    <td>${this.renderStatusBadge(tipo.activo)}</td>
+                    ${canAdmin ? `
+                        <td>
+                            <div class="d-flex gap-1">
+                                <button class="btn btn-sm ${this.isActive(tipo.activo) ? 'btn-warning' : 'btn-success'}"
+                                        onclick="Menu.togglePresentationTypeActive(${tipo.id})"
+                                        title="${this.isActive(tipo.activo) ? 'Desactivar tipo/grupo' : 'Activar tipo/grupo'}">
+                                    <i class="fas ${this.isActive(tipo.activo) ? 'fa-eye-slash' : 'fa-eye'}"></i>
+                                </button>
+                            </div>
+                        </td>
+                    ` : ''}
+                </tr>
+            `).join('');
+
+        const presentacionesHtml = presentaciones.length === 0
+            ? `<tr><td colspan="${canAdmin ? 6 : 5}" class="text-center">No hay presentaciones configuradas aún</td></tr>`
+            : presentaciones.map(pres => `
+                <tr${this.rowInactiveClass(pres.activo)}>
+                    <td>${pres.nombre}</td>
+                    <td>${pres.cantidad || '-'}</td>
+                    <td>${pres.tipo_presentacion_nombre || '<span class="text-muted">Sin grupo / legado</span>'}</td>
+                    <td>${pres.tipo || '-'}</td>
+                    <td>${this.renderStatusBadge(pres.activo)}</td>
+                    ${canAdmin ? `
+                        <td>
+                            <button class="btn btn-sm ${this.isActive(pres.activo) ? 'btn-warning' : 'btn-success'}"
+                                    onclick="Menu.togglePresentationActive(${pres.id})"
+                                    title="${this.isActive(pres.activo) ? 'Desactivar presentación' : 'Activar presentación'}">
+                                <i class="fas ${this.isActive(pres.activo) ? 'fa-eye-slash' : 'fa-eye'}"></i>
+                            </button>
+                        </td>
+                    ` : ''}
+                </tr>
+            `).join('');
+
         return `
-            <div class="alert alert-info">
-                <i class="fas fa-info-circle"></i> No hay presentaciones configuradas aún.
+            <div class="alert alert-info mb-3">
+                <i class="fas fa-layer-group"></i>
+                Los tipos/grupos separan las presentaciones por contexto: categoría y subcategoría. Al crear un producto con presentaciones, primero se elige el grupo y luego solo aparecen sus presentaciones.
+            </div>
+
+            <div class="category-section mb-4">
+                <h3>Tipos/Grupos de presentación</h3>
+                <div class="table-responsive">
+                    <table class="table table-bordered table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Grupo</th>
+                                <th>Categoría</th>
+                                <th>Subcategoría</th>
+                                <th>Descripción</th>
+                                <th>Presentaciones</th>
+                                <th>Estado</th>
+                                ${canAdmin ? '<th style="width: 120px;">Acciones</th>' : ''}
+                            </tr>
+                        </thead>
+                        <tbody>${tiposHtml}</tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="category-section">
+                <h3>Presentaciones por grupo</h3>
+                <div class="table-responsive">
+                    <table class="table table-bordered table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Presentación</th>
+                                <th>Cantidad/Medida</th>
+                                <th>Tipo/Grupo</th>
+                                <th>Tipo interno</th>
+                                <th>Estado</th>
+                                ${canAdmin ? '<th style="width: 120px;">Acciones</th>' : ''}
+                            </tr>
+                        </thead>
+                        <tbody>${presentacionesHtml}</tbody>
+                    </table>
+                </div>
             </div>
         `;
-    }
+    },
 
-    return `
-        <div class="table-responsive">
-            <table class="table table-bordered table-hover">
-                <thead class="table-light">
-                    <tr>
-                        <th>Nombre</th>
-                        <th>Tipo</th>
-                        <th>Cantidad</th>
-                        <th>Estado</th>
-                        ${canAdmin ? '<th style="width: 120px;">Acciones</th>' : ''}
-                    </tr>
-                </thead>
-                <tbody>
-                    ${this.presentations.map(pres => `
-                        <tr${this.rowInactiveClass(pres.activo)}>
-                            <td>${pres.nombre}</td>
-                            <td>${pres.tipo}</td>
-                            <td>${pres.cantidad || '-'}</td>
-                            <td>${this.renderStatusBadge(pres.activo)}</td>
-                            ${canAdmin ? `
-                                <td>
-                                    <button class="btn btn-sm ${this.isActive(pres.activo) ? 'btn-warning' : 'btn-success'}" onclick="Menu.togglePresentationActive(${pres.id})" title="${this.isActive(pres.activo) ? 'Desactivar presentación' : 'Activar presentación'}">
-                                        <i class="fas ${this.isActive(pres.activo) ? 'fa-eye-slash' : 'fa-eye'}"></i>
-                                    </button>
-                                </td>
-                            ` : ''}
-                        </tr>
-                    `).join('')}
-                </tbody>
-            </table>
-        </div>
-    `;
-},
+    showCreatePresentationTypeModal() {
+        if (!this.canAdministerMenu()) return this.showAdminRequired();
+
+        const mainCategories = this.categories.filter(cat => cat.tipo === 'principal' && this.isActive(cat.activa));
+
+        Utils.showModal('Nuevo Tipo/Grupo de Presentación', `
+            <form id="create-presentation-type-form">
+                <div class="form-group">
+                    <label for="presentation-type-nombre">Nombre *</label>
+                    <input type="text" id="presentation-type-nombre" name="nombre" placeholder="Ej: Bebidas / Gaseosas" required>
+                </div>
+                <div class="form-group">
+                    <label for="presentation-type-categoria">Categoría *</label>
+                    <select id="presentation-type-categoria" name="categoria_id" required onchange="Menu.loadSubcategories(this.value, 'presentation-type-subcategoria')">
+                        <option value="">Seleccione una categoría</option>
+                        ${mainCategories.map(cat => `<option value="${cat.id}">${cat.nombre}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="presentation-type-subcategoria">Subcategoría</label>
+                    <select id="presentation-type-subcategoria" name="subcategoria_id">
+                        <option value="">Sin subcategoría / aplica a la categoría</option>
+                    </select>
+                    <small class="text-muted">Déjalo vacío si el grupo aplica a productos de la categoría sin importar subcategoría.</small>
+                </div>
+                <div class="form-group">
+                    <label for="presentation-type-descripcion">Descripción</label>
+                    <textarea id="presentation-type-descripcion" name="descripcion" rows="2" placeholder="Ej: Tamaños disponibles para gaseosas"></textarea>
+                </div>
+            </form>
+        `, [
+            { text: 'Cancelar', class: 'btn-light' },
+            { text: 'Crear Tipo/Grupo', class: 'btn-success', onclick: 'Menu.savePresentationType()' }
+        ]);
+    },
+
+    async savePresentationType() {
+        if (!this.canAdministerMenu()) return this.showAdminRequired();
+
+        const form = document.getElementById('create-presentation-type-form');
+        if (!Utils.validateForm(form)) {
+            Utils.showNotification('Por favor complete todos los campos requeridos', 'warning');
+            return;
+        }
+
+        const formData = new FormData(form);
+        const data = {
+            nombre: formData.get('nombre'),
+            descripcion: formData.get('descripcion') || '',
+            categoria_id: parseInt(formData.get('categoria_id')),
+            subcategoria_id: formData.get('subcategoria_id') ? parseInt(formData.get('subcategoria_id')) : null
+        };
+
+        try {
+            await Utils.request('/menu/presentation-types', {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+
+            Utils.hideModal();
+            Utils.showNotification('Tipo/grupo creado exitosamente', 'success');
+            this.load();
+        } catch (error) {
+            Utils.showNotification(error.message || 'Error al crear tipo/grupo', 'error');
+        }
+    },
+
+    async togglePresentationTypeActive(id) {
+        if (!this.canAdministerMenu()) return this.showAdminRequired();
+        const tipo = this.presentationTypes.find(item => item.id === id);
+        if (!tipo) return;
+
+        const nextActive = this.isActive(tipo.activo) ? 0 : 1;
+        const confirmed = await Utils.confirm(
+            `¿Desea ${nextActive ? 'activar' : 'desactivar'} el tipo/grupo "${tipo.nombre}"?`,
+            `${nextActive ? 'Activar' : 'Desactivar'} tipo/grupo`
+        );
+        if (!confirmed) return;
+
+        try {
+            await Utils.request(`/menu/presentation-types/${id}/active`, {
+                method: 'PUT',
+                body: JSON.stringify({ activo: nextActive })
+            });
+            Utils.showNotification(`Tipo/grupo ${nextActive ? 'activado' : 'desactivado'} correctamente`, 'success');
+            this.load();
+        } catch (error) {
+            Utils.showNotification(error.message || 'Error al cambiar estado del tipo/grupo', 'error');
+        }
+    },
 
     // Mostrar modal para crear presentación
-showCreatePresentationModal() {
-    if (!this.canAdministerMenu()) return this.showAdminRequired();
-    Utils.showModal('Nueva Presentación', `
-        <form id="create-presentation-form">
-            <div class="form-group">
-                <label for="presentation-nombre">Nombre *</label>
-                <input type="text" id="presentation-nombre" name="nombre" required>
-            </div>
-            <div class="form-group">
-                <label for="presentation-tipo">Tipo</label>
-                <input type="text" id="presentation-tipo" name="tipo" value="Tamaño" readonly class="form-control-plaintext">
-            </div>
-            <div class="form-group">
-                <label for="presentation-cantidad">Cantidad *</label>
-                <input type="text" id="presentation-cantidad" name="cantidad" placeholder="Ej: 750ml" required>
-            </div>
-        </form>
-    `, [
-        {
-            text: 'Cancelar',
-            class: 'btn-light'
-        },
-        {
-            text: 'Crear Presentación',
-            class: 'btn-primary',
-            onclick: 'Menu.savePresentation()'
-        }
-    ]);
-},
+    showCreatePresentationModal() {
+        if (!this.canAdministerMenu()) return this.showAdminRequired();
+
+        const activeTypes = (this.presentationTypes || []).filter(tipo => this.isActive(tipo.activo));
+
+        Utils.showModal('Nueva Presentación', `
+            <form id="create-presentation-form">
+                <div class="form-group">
+                    <label for="presentation-tipo-presentacion">Tipo/Grupo *</label>
+                    <select id="presentation-tipo-presentacion" name="tipo_presentacion_id" required>
+                        <option value="">Seleccione un tipo/grupo</option>
+                        ${activeTypes.map(tipo => `<option value="${tipo.id}">${this.formatPresentationTypeLabel(tipo)}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="presentation-nombre">Nombre *</label>
+                    <input type="text" id="presentation-nombre" name="nombre" placeholder="Ej: 350 ml, Shot, Especial" required>
+                </div>
+                <div class="form-group">
+                    <label for="presentation-tipo">Tipo interno</label>
+                    <input type="text" id="presentation-tipo" name="tipo" value="Tamaño">
+                </div>
+                <div class="form-group">
+                    <label for="presentation-cantidad">Cantidad / Medida *</label>
+                    <input type="text" id="presentation-cantidad" name="cantidad" placeholder="Ej: 350 ml" required>
+                </div>
+            </form>
+        `, [
+            { text: 'Cancelar', class: 'btn-light' },
+            { text: 'Crear Presentación', class: 'btn-primary', onclick: 'Menu.savePresentation()' }
+        ]);
+    },
+
     // Guardar presentación
-async savePresentation() {
-    if (!this.canAdministerMenu()) return this.showAdminRequired();
-    const form = document.getElementById('create-presentation-form');
-    if (!Utils.validateForm(form)) {
-        Utils.showNotification('Por favor complete todos los campos requeridos', 'warning');
-        return;
-    }
+    async savePresentation() {
+        if (!this.canAdministerMenu()) return this.showAdminRequired();
+        const form = document.getElementById('create-presentation-form');
+        if (!Utils.validateForm(form)) {
+            Utils.showNotification('Por favor complete todos los campos requeridos', 'warning');
+            return;
+        }
 
-    const formData = new FormData(form);
-    const data = {
-        nombre: formData.get('nombre'),
-        tipo: formData.get('tipo') || 'tamaño',
-        cantidad: formData.get('cantidad')
-    };
+        const formData = new FormData(form);
+        const data = {
+            nombre: formData.get('nombre'),
+            tipo: formData.get('tipo') || 'tamaño',
+            cantidad: formData.get('cantidad'),
+            tipo_presentacion_id: parseInt(formData.get('tipo_presentacion_id'))
+        };
 
-    try {
-        await Utils.request('/menu/presentaciones-globales', {
-            method: 'POST',
-            body: JSON.stringify(data)
-        });
+        if (!data.tipo_presentacion_id) {
+            Utils.showNotification('Debe seleccionar un tipo/grupo de presentación', 'warning');
+            return;
+        }
 
-        Utils.hideModal();
-        Utils.showNotification('Presentación creada exitosamente', 'success');
-        this.load();
-    } catch (error) {
-        Utils.showNotification(error.message || 'Error al guardar', 'error');
-    }
-},
+        try {
+            await Utils.request('/menu/presentaciones-globales', {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+
+            Utils.hideModal();
+            Utils.showNotification('Presentación creada exitosamente', 'success');
+            this.load();
+        } catch (error) {
+            Utils.showNotification(error.message || 'Error al guardar presentación', 'error');
+        }
+    },
+
     async togglePresentationActive(id) {
         if (!this.canAdministerMenu()) return this.showAdminRequired();
         const presentation = this.presentations.find(p => p.id === id);
@@ -1239,28 +1511,29 @@ async deletePresentation(id) {
 async loadPresentacionesAsignadas(productId) {
     try {
         const response = await Utils.request(`/menu/products/${productId}/presentaciones`);
-        const asignadas = response.data.presentaciones || [];
+        const presentaciones = response.data?.presentaciones || [];
 
-        // Obtener todas las presentaciones globales
-        const todas = await Utils.request("/menu/presentaciones-globales");
-        if (!todas || !Array.isArray(todas.data)) {
-            console.warn("No se pudieron cargar presentaciones globales.");
+        const contenedor = document.getElementById("edit-product-presentaciones-checkboxes");
+        if (!contenedor) return;
+
+        contenedor.innerHTML = "";
+
+        if (presentaciones.length === 0) {
+            contenedor.innerHTML = '<p class="text-muted">No hay presentaciones disponibles para el tipo/grupo asignado a este producto.</p>';
             return;
         }
 
-        const contenedor = document.getElementById("edit-product-presentaciones-checkboxes");
-        contenedor.innerHTML = "";
-
-        todas.data.forEach(pres => {
+        presentaciones.forEach(pres => {
             const checkbox = document.createElement("input");
             checkbox.type = "checkbox";
-            checkbox.value = pres.id;
-            checkbox.id = `edit-pres-${pres.id}`;
+            checkbox.value = pres.presentacion_id || pres.id;
+            checkbox.id = `edit-pres-${pres.presentacion_id || pres.id}`;
             checkbox.name = "presentaciones[]";
+            checkbox.checked = Number(pres.asignada) === 1;
 
             const label = document.createElement("label");
-            label.textContent = `${pres.nombre} (${pres.cantidad})`;
-            label.htmlFor = `edit-pres-${pres.id}`;
+            label.textContent = `${pres.nombre} (${pres.cantidad || '-'})`;
+            label.htmlFor = checkbox.id;
 
             const inputPrecio = document.createElement("input");
             inputPrecio.type = "number";
@@ -1268,15 +1541,11 @@ async loadPresentacionesAsignadas(productId) {
             inputPrecio.step = 0.01;
             inputPrecio.placeholder = "₡";
             inputPrecio.classList.add("input-precio-presentacion");
-            inputPrecio.name = `precio_presentacion_${pres.id}`;
-            inputPrecio.id = `precio-presentacion-${pres.id}`; // 👈✅ Esta línea es clave
+            inputPrecio.name = `precio_presentacion_${checkbox.value}`;
+            inputPrecio.id = `precio-presentacion-${checkbox.value}`;
 
-
-            // Verifica si ya está asignada
-            const asignada = asignadas.find(a => a.presentacion_id === pres.id);
-            if (asignada) {
-                checkbox.checked = true;
-                inputPrecio.value = asignada.precio;
+            if (checkbox.checked) {
+                inputPrecio.value = pres.precio || '';
                 inputPrecio.style.display = "inline-block";
             } else {
                 inputPrecio.style.display = "none";
@@ -1284,6 +1553,7 @@ async loadPresentacionesAsignadas(productId) {
 
             checkbox.addEventListener("change", () => {
                 inputPrecio.style.display = checkbox.checked ? "inline-block" : "none";
+                if (!checkbox.checked) inputPrecio.value = "";
             });
 
             const wrapper = document.createElement("div");
@@ -1296,11 +1566,12 @@ async loadPresentacionesAsignadas(productId) {
         });
     } catch (error) {
         console.error("Error al cargar presentaciones asignadas:", error);
+        Utils.showNotification("Error cargando presentaciones del producto", "error");
     }
 },
-
 async toggleSelectPresentaciones() {
     const checkbox = document.getElementById("product-tiene-presentaciones");
+    const contenedorTipoPresentacion = document.getElementById("contenedor-tipo-presentacion");
     const contenedorPresentaciones = document.getElementById("contenedor-select-presentaciones");
     const fieldPrecio = document.getElementById("field-product-precio");
 
@@ -1310,14 +1581,12 @@ async toggleSelectPresentaciones() {
     }
 
     if (checkbox.checked) {
+        if (contenedorTipoPresentacion) contenedorTipoPresentacion.style.display = "block";
         contenedorPresentaciones.style.display = "block";
         fieldPrecio.style.display = "none";
-
-        const presentacionesContainer = document.getElementById("product-presentaciones-checkboxes");
-        if (!presentacionesContainer.hasChildNodes()) {
-            await Menu.loadPresentacionesGlobales();
-        }
+        this.refreshProductPresentationTypes('product');
     } else {
+        if (contenedorTipoPresentacion) contenedorTipoPresentacion.style.display = "none";
         contenedorPresentaciones.style.display = "none";
         fieldPrecio.style.display = "block";
     }
@@ -1346,7 +1615,7 @@ async loadPresentacionesDisponibles(productId) {
 
     try {
         const response = await Utils.request(`/menu/products/${productId}/presentaciones`);
-        const presentaciones = response.presentaciones || [];
+        const presentaciones = response.data?.presentaciones || [];
 
         // Filtrar solo las NO asignadas
         const disponibles = presentaciones.filter(p => !p.asignada);
@@ -1378,6 +1647,7 @@ async loadPresentacionesDisponibles(productId) {
             inputPrecio.placeholder = "₡";
             inputPrecio.classList.add("input-precio-presentacion");
             inputPrecio.name = `precio_presentacion_${pres.presentacion_id}`;
+            inputPrecio.id = `precio-presentacion-${pres.presentacion_id}`;
             inputPrecio.style.display = "none";
 
             checkbox.addEventListener("change", () => {
@@ -1421,16 +1691,23 @@ onTogglePresentacionCheck(checkbox) {
     }
 },
 
-async loadPresentacionesGlobales() {
+async loadPresentacionesGlobales(tipoPresentacionId = null, containerId = "product-presentaciones-checkboxes") {
     try {
-        const response = await Utils.request("/menu/presentaciones-globales");
-        const presentaciones = response.data || [];
+        const contenedor = document.getElementById(containerId);
+        if (!contenedor) return;
 
-        const contenedor = document.getElementById("product-presentaciones-checkboxes");
         contenedor.innerHTML = "";
 
+        if (!tipoPresentacionId) {
+            contenedor.innerHTML = '<p class="text-muted">Seleccione primero un tipo/grupo de presentación.</p>';
+            return;
+        }
+
+        const response = await Utils.request(`/menu/presentaciones-globales?tipo_presentacion_id=${encodeURIComponent(tipoPresentacionId)}`);
+        const presentaciones = response.data || [];
+
         if (presentaciones.length === 0) {
-            contenedor.innerHTML = '<p class="text-muted">No hay presentaciones disponibles.</p>';
+            contenedor.innerHTML = '<p class="text-muted">No hay presentaciones disponibles para este tipo/grupo.</p>';
             return;
         }
 
@@ -1443,8 +1720,9 @@ async loadPresentacionesGlobales() {
                     <input type="checkbox"
                            name="presentaciones[]"
                            value="${pres.id}"
+                           data-label="${pres.nombre}"
                            onchange="Menu.onTogglePresentacionCheck(this)">
-                    ${pres.nombre} (${pres.cantidad})
+                    ${pres.nombre} (${pres.cantidad || '-'})
                 </label>
                 <input type="number"
                        step="0.01"
@@ -1452,6 +1730,7 @@ async loadPresentacionesGlobales() {
                        placeholder="₡"
                        class="input-precio-presentacion"
                        name="precio_presentacion_${pres.id}"
+                       id="precio-presentacion-${pres.id}"
                        disabled>
             `;
 
