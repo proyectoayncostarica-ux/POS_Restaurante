@@ -353,6 +353,10 @@ git commit -m "v2.2.5M.6: agrega tipos y grupos de presentacion"
 
 ## v2.2.5M.7 · Normalización visual final de Menú
 
+### Estado
+
+Implementada para prueba operativa.
+
 ### Objetivo
 
 Modernizar y ordenar visualmente todos los modales y vistas administrativas de Menú después de tener cerrada la nueva lógica de tipos/grupos de presentación.
@@ -387,6 +391,20 @@ Modernizar y ordenar visualmente todos los modales y vistas administrativas de M
 
 ```powershell
 git commit -m "v2.2.5M.7: normaliza visualmente el modulo Menu"
+```
+
+### Fixes derivados
+
+#### v2.2.5M.7 fix1 · Footer visible y subnavegación móvil de Menú
+
+- Corrige modales de Menú con footer oculto y sin scroll vertical interno.
+- Refuerza que en móvil no se dupliquen los tabs superiores cuando ya existe barra inferior de subnavegación.
+- No cambia backend, base de datos ni contrato operativo Menú → Cuentas.
+
+Commit sugerido:
+
+```powershell
+git commit -m "v2.2.5M.7 fix1: corrige modales y subnavegacion movil de Menu"
 ```
 
 ---
@@ -435,6 +453,7 @@ v2.2.5M.4  Estados activo/inactivo
 v2.2.5M.5  Protección backend admin
 v2.2.5M.6  Tipos/Grupos de presentación
 v2.2.5M.7  Normalización visual final de Menú
+v2.2.5M.7f1 Footer visible y subnavegación móvil
 v2.2.5M.8  Integración Menú → Cuentas
 v2.2.5M.9  Pruebas Menú → Cuentas
 v2.2.5M.10 Cierre Menú base
@@ -486,4 +505,27 @@ Después de esto, se retoma la línea principal:
 
 ```text
 v2.2.5 · Normalización y Estabilización del módulo Cuentas / Orders
+```
+
+#### v2.2.5M.7 fix2 · Resumen móvil compacto y columna de subcategorías
+
+Objetivo del fix:
+- compactar el resumen superior de Menú en móvil;
+- convertir cada card en acceso a mini modal informativo;
+- mover `+ Sub` a la columna `Subcategorías` en `Categorías Principales`;
+- dejar `Acciones` solo para `Editar` y `Ocultar/Visualizar`.
+
+Archivos esperados:
+- `README.md`
+- `docs/avance-v2.2.5M.7-fix2-summary-mobile.md`
+- `docs/roadmap-v2.2.5M-normalizacion-menu.md`
+- `public/js/components/menu.js`
+- `public/css/style.css`
+- `public/index.html`
+- `public/service-worker.js`
+
+Commit sugerido:
+
+```powershell
+git commit -m "v2.2.5M.7 fix2: compacta resumen movil y reordena subcategorias"
 ```

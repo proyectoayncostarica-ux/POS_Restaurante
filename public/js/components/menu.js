@@ -155,7 +155,7 @@ const Menu = {
     // Renderizar sección de menú
     render() {
             const section = document.getElementById('menu-section');
-            
+
             section.innerHTML = `
                 <div class="section-header">
                     <h2>${this.canAdministerMenu() ? 'Gestión de Menú' : 'Consulta de Menú'}</h2>
@@ -254,7 +254,7 @@ const Menu = {
                 <td>
                     ${
                         product.tiene_presentaciones
-                        ? `<button class="btn-presentaciones badge badge-info" 
+                        ? `<button class="btn-presentaciones badge badge-info"
                                     title="Ver presentaciones"
                                     onclick="Menu.showPresentacionesModal(${product.id})">
                                 <i class="fas fa-layer-group"></i> C/Pres.
@@ -266,8 +266,8 @@ const Menu = {
                 <td>${product.subcategoria_nombre || '-'}</td>
                 <td>
                     ${
-                        product.es_cocina 
-                            ? '<span class="badge badge-warning"><i class="fas fa-fire"></i> Sí</span>' 
+                        product.es_cocina
+                            ? '<span class="badge badge-warning"><i class="fas fa-fire"></i> Sí</span>'
                             : '<span class="badge badge-info">No</span>'
                     }
                 </td>
@@ -293,7 +293,7 @@ const Menu = {
             const mainCategories = this.categories.filter(cat => cat.tipo === 'principal');
             const subCategories = this.categories.filter(cat => cat.tipo === 'subcategoria');
             const canAdmin = this.canAdministerMenu();
-            
+
 
             return `
                 <div class="categories-grid">
@@ -315,8 +315,8 @@ const Menu = {
                                         <tr${this.rowInactiveClass(category.activa)}>
                                             <td><strong>${category.nombre}</strong></td>
                                             <td>
-                                                ${category.permite_cocina ? 
-                                                    '<span class="badge badge-success">Sí</span>' : 
+                                                ${category.permite_cocina ?
+                                                    '<span class="badge badge-success">Sí</span>' :
                                                     '<span class="badge badge-danger">No</span>'
                                                 }
                                             </td>
@@ -369,8 +369,8 @@ const Menu = {
                                             <td><strong>${subcategory.nombre}</strong></td>
                                             <td>${subcategory.categoria_padre}</td>
                                             <td>
-                                                ${subcategory.permite_cocina ? 
-                                                    '<span class="badge badge-success">Sí</span>' : 
+                                                ${subcategory.permite_cocina ?
+                                                    '<span class="badge badge-success">Sí</span>' :
                                                     '<span class="badge badge-danger">No</span>'
                                                 }
                                             </td>
@@ -487,7 +487,7 @@ const Menu = {
             class: 'btn-success',
             onclick: 'Menu.createProduct()'
         }
-    ]);
+    ], 'modal-menu modal-menu-product');
 
     Menu.onCategoriaChange(document.getElementById('product-categoria'));
     Menu.refreshProductPresentationTypes('product');
@@ -538,7 +538,7 @@ const Menu = {
     loadSubcategories(categoryId, selectId) {
             const select = document.getElementById(selectId);
             const subcategories = this.categories.filter(cat => cat.parent_id == categoryId && this.isActive(cat.activa));
-            
+
             select.innerHTML = '<option value="">Seleccione una subcategoría</option>';
             subcategories.forEach(sub => {
                 select.innerHTML += `<option value="${sub.id}">${sub.nombre}</option>`;
@@ -708,7 +708,7 @@ const Menu = {
 
             <div class="form-group">
                 <label for="edit-product-categoria">Categoría *</label>
-                <select id="edit-product-categoria" name="categoria_id" required 
+                <select id="edit-product-categoria" name="categoria_id" required
                     onchange="Menu.loadSubcategories(this.value, 'edit-product-subcategoria')"
                     ${disabledAttr(tienePresentaciones || isCocina)}>
                     <option value="">Seleccione una categoría</option>
@@ -797,7 +797,7 @@ const Menu = {
             class: 'btn-primary',
             onclick: `Menu.updateProduct(${productId})`
         }
-    ]);
+    ], 'modal-menu modal-menu-product');
 
     // Cargar subcategorías
     setTimeout(() => {
@@ -998,7 +998,7 @@ const Menu = {
     showCreateCategoryModal() {
             if (!this.canAdministerMenu()) return this.showAdminRequired();
             const mainCategories = this.categories.filter(cat => cat.tipo === 'principal' && this.isActive(cat.activa));
-            
+
             Utils.showModal('Nueva Categoría', `
                 <form id="create-category-form">
                     <div class="form-group">
@@ -1029,14 +1029,14 @@ const Menu = {
                     class: 'btn-success',
                     onclick: 'Menu.createCategory()'
                 }
-            ]);
+            ], 'modal-menu modal-menu-narrow');
     },
 
     // Mostrar modal para crear subcategoría
     showCreateSubcategoryModal(parentId) {
             if (!this.canAdministerMenu()) return this.showAdminRequired();
             const parentCategory = this.categories.find(cat => cat.id === parentId);
-            
+
             Utils.showModal('Nueva Subcategoría', `
                 <form id="create-subcategory-form">
                     <div class="form-group">
@@ -1064,7 +1064,7 @@ const Menu = {
                     class: 'btn-success',
                     onclick: 'Menu.createSubcategory()'
                 }
-            ]);
+            ], 'modal-menu modal-menu-narrow');
     },
 
     // Crear categoría
@@ -1334,7 +1334,7 @@ async createSubcategory() {
         `, [
             { text: 'Cancelar', class: 'btn-light' },
             { text: 'Crear Tipo/Grupo', class: 'btn-success', onclick: 'Menu.savePresentationType()' }
-        ]);
+        ], 'modal-menu');
     },
 
     async savePresentationType() {
@@ -1423,7 +1423,7 @@ async createSubcategory() {
         `, [
             { text: 'Cancelar', class: 'btn-light' },
             { text: 'Crear Presentación', class: 'btn-primary', onclick: 'Menu.savePresentation()' }
-        ]);
+        ], 'modal-menu');
     },
 
     // Guardar presentación
@@ -1598,7 +1598,7 @@ async toggleEditPresentaciones() {
 
     const isChecked = checkbox.checked;
     const contenedor = document.getElementById('edit-contenedor-select-presentaciones');
-    
+
     if (isChecked) {
         contenedor.style.display = 'block';
         this.loadPresentacionesSelect('edit');
@@ -1815,5 +1815,798 @@ async showPresentacionesModal(productId) {
         Utils.showNotification("Error al cargar presentaciones del producto.", "error");
     }
 },
+
+    // ===== v2.2.5M.7 · Normalización visual final de Menú =====
+    escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    },
+
+    normalizeImageUrl(image) {
+        if (!image) return '/uploads/ImagenGenerica.jpg';
+        if (/^https?:\/\//i.test(image)) return image;
+        return image.startsWith('/') ? image : `/${image}`;
+    },
+
+    countInactive(items, field = 'activo') {
+        return (items || []).filter(item => !this.isActive(item?.[field])).length;
+    },
+
+    renderEmptyTable(message, colspan, icon = 'fa-inbox') {
+        return `
+            <tr>
+                <td colspan="${colspan}" class="text-center">
+                    <div class="menu-empty-state menu-empty-state-inline">
+                        <i class="fas ${icon}"></i>
+                        <strong>${this.escapeHtml(message)}</strong>
+                    </div>
+                </td>
+            </tr>
+        `;
+    },
+
+    getSummaryStats() {
+        const productos = this.products || [];
+        const categorias = this.categories || [];
+        const tipos = this.presentationTypes || [];
+        const presentaciones = this.presentations || [];
+        const categoriasPrincipales = categorias.filter(cat => cat.tipo === 'principal');
+        const subcategorias = categorias.filter(cat => cat.tipo === 'subcategoria');
+        const productosConPresentacion = productos.filter(product => Number(product.tiene_presentaciones) === 1 || Number(product.tipo_presentacion_id || 0) > 0).length;
+        const productosCocina = productos.filter(product => Number(product.es_cocina) === 1).length;
+        const inactiveProducts = this.countInactive(productos, 'activo');
+        const inactiveCategories = this.countInactive(categorias, 'activa');
+        const inactiveTypes = this.countInactive(tipos, 'activo');
+        const inactivePresentations = this.countInactive(presentaciones, 'activo');
+
+        return {
+            productos: {
+                key: 'products',
+                icon: 'fa-utensils',
+                label: 'Productos',
+                value: productos.length,
+                desktopDetail: `${productosConPresentacion} con presentación · ${productosCocina} cocina`,
+                mobileTitle: 'Productos',
+                mobileDetail: `${productos.length} producto${productos.length === 1 ? '' : 's'} registrados.`,
+                mobileBreakdown: [
+                    `${productosConPresentacion} con presentación`,
+                    `${productosCocina} de cocina`
+                ]
+            },
+            estructura: {
+                key: 'structure',
+                icon: 'fa-tags',
+                label: 'Estructura',
+                value: categoriasPrincipales.length,
+                desktopDetail: `${subcategorias.length} subcategoría${subcategorias.length === 1 ? '' : 's'}`,
+                mobileTitle: 'Estructura',
+                mobileDetail: `${categoriasPrincipales.length} categoría${categoriasPrincipales.length === 1 ? '' : 's'} principales.`,
+                mobileBreakdown: [
+                    `${subcategorias.length} subcategoría${subcategorias.length === 1 ? '' : 's'}`
+                ]
+            },
+            tipos: {
+                key: 'presentation-groups',
+                icon: 'fa-layer-group',
+                label: 'Tipos/Grupos',
+                value: tipos.length,
+                desktopDetail: `${presentaciones.length} presentación${presentaciones.length === 1 ? '' : 'es'}`,
+                mobileTitle: 'Tipos y Presentaciones',
+                mobileDetail: `${tipos.length} tipo/grupo${tipos.length === 1 ? '' : 's'} configurados.`,
+                mobileBreakdown: [
+                    `${presentaciones.length} presentación${presentaciones.length === 1 ? '' : 'es'}`
+                ]
+            },
+            inactivos: {
+                key: 'inactive',
+                icon: 'fa-toggle-off',
+                label: 'Inactivos',
+                value: inactiveProducts + inactiveCategories + inactiveTypes + inactivePresentations,
+                desktopDetail: this.canAdministerMenu() ? 'visibles para admin' : 'ocultos en operación',
+                mobileTitle: 'Elementos inactivos',
+                mobileDetail: `${inactiveProducts + inactiveCategories + inactiveTypes + inactivePresentations} elemento${(inactiveProducts + inactiveCategories + inactiveTypes + inactivePresentations) === 1 ? '' : 's'} inactivo${(inactiveProducts + inactiveCategories + inactiveTypes + inactivePresentations) === 1 ? '' : 's'}.`,
+                mobileBreakdown: [
+                    `${inactiveProducts} productos`,
+                    `${inactiveCategories} categorías/subcategorías`,
+                    `${inactiveTypes} tipos/grupos`,
+                    `${inactivePresentations} presentaciones`
+                ]
+            }
+        };
+    },
+
+    showSummaryCardModal(summaryKey) {
+        if (window.innerWidth > 768) return;
+
+        const stats = this.getSummaryStats();
+        const summary = Object.values(stats).find(item => item.key === summaryKey);
+        if (!summary) return;
+
+        const breakdown = (summary.mobileBreakdown || []).map(item => `<li>${this.escapeHtml(item)}</li>`).join('');
+
+        Utils.showModal(summary.mobileTitle, `
+            <div class="menu-summary-modal-content">
+                <div class="menu-summary-modal-head">
+                    <span class="menu-summary-icon"><i class="fas ${summary.icon}"></i></span>
+                    <div>
+                        <strong>${summary.value}</strong>
+                        <p>${this.escapeHtml(summary.mobileDetail)}</p>
+                    </div>
+                </div>
+                <div class="menu-summary-modal-body">
+                    <ul class="menu-summary-modal-list">
+                        ${breakdown}
+                    </ul>
+                </div>
+            </div>
+        `, [
+            {
+                text: 'Cerrar',
+                class: 'btn-primary'
+            }
+        ], 'modal-menu modal-menu-narrow');
+    },
+
+    renderMenuSummary() {
+        const stats = this.getSummaryStats();
+        const cards = [stats.productos, stats.estructura, stats.tipos, stats.inactivos];
+
+        return `
+            <div class="menu-summary-grid" aria-label="Resumen del menú">
+                ${cards.map(card => `
+                    <button type="button" class="menu-summary-card menu-summary-card-clickable" onclick="Menu.showSummaryCardModal('${card.key}')">
+                        <span class="menu-summary-icon"><i class="fas ${card.icon}"></i></span>
+                        <span class="menu-summary-label">${card.label}</span>
+                        <strong>${card.value}</strong>
+                        <small>${card.desktopDetail}</small>
+                    </button>
+                `).join('')}
+            </div>
+        `;
+    },
+
+    render() {
+        const section = document.getElementById('menu-section');
+        if (!section) return;
+
+        section.innerHTML = `
+            <div class="section-header menu-section-header">
+                <div>
+                    <h2>${this.canAdministerMenu() ? 'Gestión de Menú' : 'Consulta de Menú'}</h2>
+                    <p>${this.canAdministerMenu() ? 'Administra catálogo, grupos de presentación, precios y disponibilidad operativa' : 'Consulta productos, categorías y presentaciones activas para la operación'}</p>
+                </div>
+            </div>
+
+            <div class="menu-view-shell">
+                <div class="menu-tabs-row internal-tabs" aria-label="Vistas del menú">
+                    <button class="btn ${this.currentView === 'products' ? 'btn-primary active' : 'btn-light'}" data-subnav-item="products" onclick="Navigation.selectInternal('menu', 'products')">
+                        <i class="fas fa-utensils"></i> Productos
+                    </button>
+                    <button class="btn ${this.currentView === 'categories' ? 'btn-primary active' : 'btn-light'}" data-subnav-item="categories" onclick="Navigation.selectInternal('menu', 'categories')">
+                        <i class="fas fa-tags"></i> Categorías
+                    </button>
+                    <button class="btn ${this.currentView === 'presentations' ? 'btn-primary active' : 'btn-light'}" data-subnav-item="presentations" onclick="Navigation.selectInternal('menu', 'presentations')">
+                        <i class="fas fa-layer-group"></i> Presentaciones
+                    </button>
+                </div>
+
+                <div class="internal-view-panel menu-panel" data-internal-panel="menu">
+                    <div class="menu-actions-bar">
+                        <div class="menu-actions-main">
+                            ${this.renderCreateAction()}
+                        </div>
+                        <button class="btn btn-secondary btn-sm" onclick="Menu.load()" title="Actualizar menú">
+                            <i class="fas fa-sync text-white"></i> Actualizar
+                        </button>
+                    </div>
+
+                    ${this.renderAdminOnlyNotice()}
+                    ${this.renderMenuSummary()}
+
+                    ${
+                        this.currentView === 'products'
+                            ? this.renderProductsView()
+                            : this.currentView === 'categories'
+                                ? this.renderCategoriesView()
+                                : this.renderPresentationsView()
+                    }
+                </div>
+            </div>
+        `;
+    },
+
+    renderProductsView() {
+        return `
+            <div class="menu-toolbar">
+                <div class="menu-search">
+                    <label for="product-search" class="sr-only">Buscar productos</label>
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="product-search" placeholder="Buscar por nombre o descripción..." onkeyup="Menu.searchProducts(this.value)">
+                </div>
+            </div>
+
+            <div class="table-container menu-table-card">
+                <table class="table menu-table menu-products-table">
+                    <thead>
+                        <tr>
+                            <th>Producto</th>
+                            <th>Precio / Presentación</th>
+                            <th>Categoría</th>
+                            <th>Subcategoría</th>
+                            <th>Grupo</th>
+                            <th>Cocina</th>
+                            <th>Estado</th>
+                            ${this.canAdministerMenu() ? '<th>Acciones</th>' : ''}
+                        </tr>
+                    </thead>
+                    <tbody id="products-table-body">
+                        ${this.renderProductsTable()}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    },
+
+    renderProductsTable(filteredProducts = null) {
+        const products = filteredProducts || this.products || [];
+        const canAdmin = this.canAdministerMenu();
+        const colspan = canAdmin ? 8 : 7;
+
+        if (products.length === 0) {
+            return this.renderEmptyTable('No hay productos configurados', colspan, 'fa-utensils');
+        }
+
+        return products.map(product => {
+            const imageUrl = this.normalizeImageUrl(product.imagen || product.imagen_url);
+            const productName = this.escapeHtml(product.nombre);
+            const descripcion = this.escapeHtml(product.descripcion || 'Sin descripción');
+            const categoria = this.escapeHtml(product.categoria_nombre || '-');
+            const subcategoria = this.escapeHtml(product.subcategoria_nombre || '-');
+            const grupo = this.escapeHtml(product.tipo_presentacion_nombre || '-');
+            const tienePresentaciones = Number(product.tiene_presentaciones) === 1 || Number(product.tipo_presentacion_id || 0) > 0;
+
+            return `
+                <tr${this.rowInactiveClass(product.activo)}>
+                    <td>
+                        <div class="menu-product-cell">
+                            <img src="${imageUrl}" alt="${productName}" class="menu-product-thumb" onerror="this.src='/uploads/ImagenGenerica.jpg'">
+                            <div>
+                                <strong>${productName}</strong>
+                                <small>${descripcion}</small>
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        ${tienePresentaciones
+                            ? `<button class="btn-presentaciones" title="Ver presentaciones" onclick="Menu.showPresentacionesModal(${product.id})">
+                                    <i class="fas fa-layer-group"></i> Ver presentaciones
+                               </button>`
+                            : `<span class="menu-price-pill">${Utils.formatCurrency(product.precio)}</span>`
+                        }
+                    </td>
+                    <td>${categoria}</td>
+                    <td>${subcategoria}</td>
+                    <td>${grupo}</td>
+                    <td>
+                        ${Number(product.es_cocina) === 1
+                            ? '<span class="badge badge-warning"><i class="fas fa-fire"></i> Cocina</span>'
+                            : '<span class="badge badge-info">No</span>'
+                        }
+                    </td>
+                    <td>${this.renderStatusBadge(product.activo)}</td>
+                    ${canAdmin ? `
+                        <td>
+                            <div class="menu-action-group">
+                                <button class="btn btn-secondary btn-sm" onclick="Menu.showEditProductModal(${product.id})" title="Editar producto">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn ${this.isActive(product.activo) ? 'btn-warning' : 'btn-success'} btn-sm" onclick="Menu.toggleProductActive(${product.id})" title="${this.isActive(product.activo) ? 'Desactivar producto' : 'Activar producto'}">
+                                    <i class="fas ${this.isActive(product.activo) ? 'fa-eye-slash' : 'fa-eye'}"></i>
+                                </button>
+                            </div>
+                        </td>
+                    ` : ''}
+                </tr>
+            `;
+        }).join('');
+    },
+
+    async searchProducts(query) {
+        if (query.length < 2) {
+            document.getElementById('products-table-body').innerHTML = this.renderProductsTable();
+            return;
+        }
+
+        try {
+            const inactiveQuery = this.canAdministerMenu() ? '&include_inactive=1' : '';
+            const response = await Utils.request(`/menu/products/search?q=${encodeURIComponent(query)}${inactiveQuery}`);
+            document.getElementById('products-table-body').innerHTML = this.renderProductsTable(response.data || []);
+        } catch (error) {
+            console.error('Error buscando productos:', error);
+            Utils.showNotification('Error buscando productos', 'error');
+        }
+    },
+
+    renderCategoriesView() {
+        const mainCategories = (this.categories || []).filter(cat => cat.tipo === 'principal');
+        const subCategories = (this.categories || []).filter(cat => cat.tipo === 'subcategoria');
+        const canAdmin = this.canAdministerMenu();
+
+        const mainRows = mainCategories.length === 0
+            ? this.renderEmptyTable('No hay categorías principales configuradas', canAdmin ? 5 : 4, 'fa-tags')
+            : mainCategories.map(category => {
+                const subCount = subCategories.filter(sub => Number(sub.parent_id) === Number(category.id)).length;
+                return `
+                    <tr${this.rowInactiveClass(category.activa)}>
+                        <td><strong>${this.escapeHtml(category.nombre)}</strong></td>
+                        <td>${Number(category.permite_cocina) === 1 ? '<span class="badge badge-success">Sí</span>' : '<span class="badge badge-danger">No</span>'}</td>
+                        <td>
+                            <div class="menu-subcategory-cell">
+                                <span class="menu-subcategory-count">${subCount}</span>
+                                ${canAdmin ? `
+                                    <button class="btn btn-success btn-sm" onclick="Menu.showCreateSubcategoryModal(${category.id})" ${this.isActive(category.activa) ? '' : 'disabled'} title="Nueva subcategoría">
+                                        <i class="fas fa-plus"></i> Sub
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </td>
+                        <td>${this.renderStatusBadge(category.activa)}</td>
+                        ${canAdmin ? `
+                            <td>
+                                <div class="menu-action-group">
+                                    <button class="btn btn-secondary btn-sm" onclick="Menu.showEditCategoryModal(${category.id})" title="Editar categoría">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button class="btn ${this.isActive(category.activa) ? 'btn-warning' : 'btn-success'} btn-sm" onclick="Menu.toggleCategoryActive(${category.id})" title="${this.isActive(category.activa) ? 'Desactivar categoría' : 'Activar categoría'}">
+                                        <i class="fas ${this.isActive(category.activa) ? 'fa-eye-slash' : 'fa-eye'}"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        ` : ''}
+                    </tr>
+                `;
+            }).join('');
+
+        const subRows = subCategories.length === 0
+            ? this.renderEmptyTable('No hay subcategorías configuradas', canAdmin ? 5 : 4, 'fa-sitemap')
+            : subCategories.map(subcategory => `
+                <tr${this.rowInactiveClass(subcategory.activa)}>
+                    <td><strong>${this.escapeHtml(subcategory.nombre)}</strong></td>
+                    <td>${this.escapeHtml(subcategory.categoria_padre || '-')}</td>
+                    <td>${Number(subcategory.permite_cocina) === 1 ? '<span class="badge badge-success">Sí</span>' : '<span class="badge badge-danger">No</span>'}</td>
+                    <td>${this.renderStatusBadge(subcategory.activa)}</td>
+                    ${canAdmin ? `
+                        <td>
+                            <div class="menu-action-group">
+                                <button class="btn btn-secondary btn-sm" onclick="Menu.showEditCategoryModal(${subcategory.id})" title="Editar subcategoría">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn ${this.isActive(subcategory.activa) ? 'btn-warning' : 'btn-success'} btn-sm" onclick="Menu.toggleCategoryActive(${subcategory.id})" title="${this.isActive(subcategory.activa) ? 'Desactivar subcategoría' : 'Activar subcategoría'}">
+                                    <i class="fas ${this.isActive(subcategory.activa) ? 'fa-eye-slash' : 'fa-eye'}"></i>
+                                </button>
+                            </div>
+                        </td>
+                    ` : ''}
+                </tr>
+            `).join('');
+
+        return `
+            <div class="categories-grid menu-categories-grid">
+                <div class="category-section menu-card-section">
+                    <h3><i class="fas fa-tags"></i> Categorías Principales</h3>
+                    <div class="table-container menu-table-card">
+                        <table class="table menu-table">
+                            <thead>
+                                <tr>
+                                    <th>Nombre</th>
+                                    <th>Permite Cocina</th>
+                                    <th>Subcategorías</th>
+                                    <th>Estado</th>
+                                    ${canAdmin ? '<th>Acciones</th>' : ''}
+                                </tr>
+                            </thead>
+                            <tbody>${mainRows}</tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="category-section menu-card-section">
+                    <h3><i class="fas fa-sitemap"></i> Subcategorías</h3>
+                    <div class="table-container menu-table-card">
+                        <table class="table menu-table">
+                            <thead>
+                                <tr>
+                                    <th>Nombre</th>
+                                    <th>Categoría Padre</th>
+                                    <th>Permite Cocina</th>
+                                    <th>Estado</th>
+                                    ${canAdmin ? '<th>Acciones</th>' : ''}
+                                </tr>
+                            </thead>
+                            <tbody>${subRows}</tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    renderPresentationsView() {
+        const canAdmin = this.canAdministerMenu();
+        const tipos = this.presentationTypes || [];
+        const presentaciones = this.presentations || [];
+
+        const tiposHtml = tipos.length === 0
+            ? this.renderEmptyTable('No hay tipos/grupos de presentación configurados', canAdmin ? 7 : 6, 'fa-layer-group')
+            : tipos.map(tipo => `
+                <tr${this.rowInactiveClass(tipo.activo)}>
+                    <td><strong>${this.escapeHtml(tipo.nombre)}</strong></td>
+                    <td>${this.escapeHtml(tipo.categoria_nombre || '-')}</td>
+                    <td>${this.escapeHtml(tipo.subcategoria_nombre || '-')}</td>
+                    <td>${this.escapeHtml(tipo.descripcion || '-')}</td>
+                    <td>${Number(tipo.total_presentaciones || 0)}</td>
+                    <td>${this.renderStatusBadge(tipo.activo)}</td>
+                    ${canAdmin ? `
+                        <td>
+                            <div class="menu-action-group">
+                                <button class="btn btn-secondary btn-sm" onclick="Menu.showEditPresentationTypeModal(${tipo.id})" title="Editar tipo/grupo">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-sm ${this.isActive(tipo.activo) ? 'btn-warning' : 'btn-success'}" onclick="Menu.togglePresentationTypeActive(${tipo.id})" title="${this.isActive(tipo.activo) ? 'Desactivar tipo/grupo' : 'Activar tipo/grupo'}">
+                                    <i class="fas ${this.isActive(tipo.activo) ? 'fa-eye-slash' : 'fa-eye'}"></i>
+                                </button>
+                            </div>
+                        </td>
+                    ` : ''}
+                </tr>
+            `).join('');
+
+        const presentacionesHtml = presentaciones.length === 0
+            ? this.renderEmptyTable('No hay presentaciones configuradas aún', canAdmin ? 6 : 5, 'fa-box-open')
+            : presentaciones.map(pres => `
+                <tr${this.rowInactiveClass(pres.activo)}>
+                    <td><strong>${this.escapeHtml(pres.nombre)}</strong></td>
+                    <td>${this.escapeHtml(pres.cantidad || '-')}</td>
+                    <td>${pres.tipo_presentacion_nombre ? this.escapeHtml(pres.tipo_presentacion_nombre) : '<span class="text-muted">Sin grupo / legado</span>'}</td>
+                    <td>${this.escapeHtml(pres.tipo || '-')}</td>
+                    <td>${this.renderStatusBadge(pres.activo)}</td>
+                    ${canAdmin ? `
+                        <td>
+                            <div class="menu-action-group">
+                                <button class="btn btn-secondary btn-sm" onclick="Menu.showEditPresentationModal(${pres.id})" title="Editar presentación">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-sm ${this.isActive(pres.activo) ? 'btn-warning' : 'btn-success'}" onclick="Menu.togglePresentationActive(${pres.id})" title="${this.isActive(pres.activo) ? 'Desactivar presentación' : 'Activar presentación'}">
+                                    <i class="fas ${this.isActive(pres.activo) ? 'fa-eye-slash' : 'fa-eye'}"></i>
+                                </button>
+                            </div>
+                        </td>
+                    ` : ''}
+                </tr>
+            `).join('');
+
+        return `
+            <div class="menu-info-banner">
+                <i class="fas fa-layer-group"></i>
+                <div>
+                    <strong>Tipos/Grupos de presentación</strong>
+                    <p>Ordenan las presentaciones por categoría y subcategoría para que cada producto muestre solo opciones válidas.</p>
+                </div>
+            </div>
+
+            <div class="category-section menu-card-section mb-4">
+                <h3><i class="fas fa-layer-group"></i> Tipos/Grupos de presentación</h3>
+                <div class="table-container menu-table-card">
+                    <table class="table menu-table">
+                        <thead>
+                            <tr>
+                                <th>Grupo</th>
+                                <th>Categoría</th>
+                                <th>Subcategoría</th>
+                                <th>Descripción</th>
+                                <th>Presentaciones</th>
+                                <th>Estado</th>
+                                ${canAdmin ? '<th>Acciones</th>' : ''}
+                            </tr>
+                        </thead>
+                        <tbody>${tiposHtml}</tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="category-section menu-card-section">
+                <h3><i class="fas fa-box-open"></i> Presentaciones</h3>
+                <div class="table-container menu-table-card">
+                    <table class="table menu-table">
+                        <thead>
+                            <tr>
+                                <th>Nombre</th>
+                                <th>Cantidad / Medida</th>
+                                <th>Tipo/Grupo</th>
+                                <th>Tipo interno</th>
+                                <th>Estado</th>
+                                ${canAdmin ? '<th>Acciones</th>' : ''}
+                            </tr>
+                        </thead>
+                        <tbody>${presentacionesHtml}</tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    },
+
+    showEditCategoryModal(categoryId) {
+        if (!this.canAdministerMenu()) return this.showAdminRequired();
+        const category = this.categories.find(cat => Number(cat.id) === Number(categoryId));
+        if (!category) return;
+
+        const tipo = category.tipo === 'principal' ? 'Categoría' : 'Subcategoría';
+        Utils.showModal(`Editar ${tipo}`, `
+            <form id="edit-category-form" class="menu-modern-form">
+                <div class="menu-form-grid single">
+                    <div class="form-group">
+                        <label for="edit-category-nombre">Nombre *</label>
+                        <input type="text" id="edit-category-nombre" name="nombre" value="${this.escapeHtml(category.nombre)}" required>
+                    </div>
+                    ${category.tipo !== 'principal' ? `
+                        <div class="form-group">
+                            <label>Categoría Padre</label>
+                            <input type="text" value="${this.escapeHtml(category.categoria_padre || '')}" readonly>
+                        </div>
+                    ` : ''}
+                    <div class="form-group menu-checkbox-row">
+                        <label>
+                            <input type="checkbox" id="edit-category-permite-cocina" name="permite_cocina" ${Number(category.permite_cocina) === 1 ? 'checked' : ''}>
+                            Permite productos de cocina
+                        </label>
+                    </div>
+                    <div class="form-group menu-checkbox-row">
+                        <label>
+                            <input type="checkbox" id="edit-category-activa" name="activa" ${this.isActive(category.activa) ? 'checked' : ''}>
+                            Activa
+                        </label>
+                    </div>
+                </div>
+            </form>
+        `, [
+            { text: 'Cancelar', class: 'btn-light' },
+            { text: 'Guardar Cambios', class: 'btn-primary', onclick: `Menu.updateCategory(${categoryId})` }
+        ], 'modal-menu modal-menu-narrow');
+    },
+
+    async updateCategory(categoryId) {
+        if (!this.canAdministerMenu()) return this.showAdminRequired();
+        const form = document.getElementById('edit-category-form');
+        if (!Utils.validateForm(form)) {
+            Utils.showNotification('Por favor complete todos los campos requeridos', 'warning');
+            return;
+        }
+
+        const formData = new FormData(form);
+        const data = {
+            nombre: formData.get('nombre'),
+            permite_cocina: formData.get('permite_cocina') === 'on',
+            activa: formData.get('activa') === 'on'
+        };
+
+        try {
+            await Utils.request(`/menu/categories/${categoryId}`, {
+                method: 'PUT',
+                body: JSON.stringify(data)
+            });
+            Utils.hideModal();
+            Utils.showNotification('Categoría actualizada correctamente', 'success');
+            this.load();
+        } catch (error) {
+            Utils.showNotification(error.message || 'Error al actualizar categoría', 'error');
+        }
+    },
+
+    showEditPresentationTypeModal(id) {
+        if (!this.canAdministerMenu()) return this.showAdminRequired();
+        const tipo = this.presentationTypes.find(item => Number(item.id) === Number(id));
+        if (!tipo) return;
+        const mainCategories = this.categories.filter(cat => cat.tipo === 'principal' && (this.isActive(cat.activa) || Number(cat.id) === Number(tipo.categoria_id)));
+        const subcategories = this.categories.filter(cat => Number(cat.parent_id) === Number(tipo.categoria_id) && (this.isActive(cat.activa) || Number(cat.id) === Number(tipo.subcategoria_id)));
+
+        Utils.showModal('Editar Tipo/Grupo de Presentación', `
+            <form id="edit-presentation-type-form" class="menu-modern-form">
+                <div class="menu-form-grid">
+                    <div class="form-group">
+                        <label for="edit-presentation-type-nombre">Nombre *</label>
+                        <input type="text" id="edit-presentation-type-nombre" name="nombre" value="${this.escapeHtml(tipo.nombre)}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-presentation-type-categoria">Categoría *</label>
+                        <select id="edit-presentation-type-categoria" name="categoria_id" required onchange="Menu.loadSubcategories(this.value, 'edit-presentation-type-subcategoria')">
+                            <option value="">Seleccione una categoría</option>
+                            ${mainCategories.map(cat => `<option value="${cat.id}" ${Number(cat.id) === Number(tipo.categoria_id) ? 'selected' : ''}>${this.escapeHtml(cat.nombre)}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-presentation-type-subcategoria">Subcategoría</label>
+                        <select id="edit-presentation-type-subcategoria" name="subcategoria_id">
+                            <option value="">Aplica a toda la categoría</option>
+                            ${subcategories.map(sub => `<option value="${sub.id}" ${Number(sub.id) === Number(tipo.subcategoria_id) ? 'selected' : ''}>${this.escapeHtml(sub.nombre)}</option>`).join('')}
+                        </select>
+                        <small class="text-muted">Déjalo vacío si aplica a toda la categoría.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-presentation-type-descripcion">Descripción</label>
+                        <textarea id="edit-presentation-type-descripcion" name="descripcion" rows="2">${this.escapeHtml(tipo.descripcion || '')}</textarea>
+                    </div>
+                    <div class="form-group menu-checkbox-row">
+                        <label>
+                            <input type="checkbox" id="edit-presentation-type-activo" name="activo" ${this.isActive(tipo.activo) ? 'checked' : ''}>
+                            Activo
+                        </label>
+                    </div>
+                </div>
+            </form>
+        `, [
+            { text: 'Cancelar', class: 'btn-light' },
+            { text: 'Guardar Cambios', class: 'btn-primary', onclick: `Menu.updatePresentationType(${id})` }
+        ], 'modal-menu');
+    },
+
+    async updatePresentationType(id) {
+        if (!this.canAdministerMenu()) return this.showAdminRequired();
+        const form = document.getElementById('edit-presentation-type-form');
+        if (!Utils.validateForm(form)) {
+            Utils.showNotification('Por favor complete todos los campos requeridos', 'warning');
+            return;
+        }
+
+        const formData = new FormData(form);
+        const data = {
+            nombre: formData.get('nombre'),
+            descripcion: formData.get('descripcion') || '',
+            categoria_id: parseInt(formData.get('categoria_id')),
+            subcategoria_id: formData.get('subcategoria_id') ? parseInt(formData.get('subcategoria_id')) : null,
+            activo: formData.get('activo') === 'on'
+        };
+
+        try {
+            await Utils.request(`/menu/presentation-types/${id}`, {
+                method: 'PUT',
+                body: JSON.stringify(data)
+            });
+            Utils.hideModal();
+            Utils.showNotification('Tipo/grupo actualizado correctamente', 'success');
+            this.load();
+        } catch (error) {
+            Utils.showNotification(error.message || 'Error al actualizar tipo/grupo', 'error');
+        }
+    },
+
+    showEditPresentationModal(id) {
+        if (!this.canAdministerMenu()) return this.showAdminRequired();
+        const pres = this.presentations.find(item => Number(item.id) === Number(id));
+        if (!pres) return;
+        const activeTypes = (this.presentationTypes || []).filter(tipo => this.isActive(tipo.activo) || Number(tipo.id) === Number(pres.tipo_presentacion_id));
+
+        Utils.showModal('Editar Presentación', `
+            <form id="edit-presentation-form" class="menu-modern-form">
+                <div class="menu-form-grid">
+                    <div class="form-group">
+                        <label for="edit-presentation-tipo-presentacion">Tipo/Grupo *</label>
+                        <select id="edit-presentation-tipo-presentacion" name="tipo_presentacion_id" required>
+                            <option value="">Seleccione un tipo/grupo</option>
+                            ${activeTypes.map(tipo => `<option value="${tipo.id}" ${Number(tipo.id) === Number(pres.tipo_presentacion_id) ? 'selected' : ''}>${this.escapeHtml(this.formatPresentationTypeLabel(tipo))}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-presentation-nombre">Nombre *</label>
+                        <input type="text" id="edit-presentation-nombre" name="nombre" value="${this.escapeHtml(pres.nombre)}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-presentation-tipo">Tipo interno</label>
+                        <input type="text" id="edit-presentation-tipo" name="tipo" value="${this.escapeHtml(pres.tipo || 'Tamaño')}">
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-presentation-cantidad">Cantidad / Medida *</label>
+                        <input type="text" id="edit-presentation-cantidad" name="cantidad" value="${this.escapeHtml(pres.cantidad || '')}" required>
+                    </div>
+                    <div class="form-group menu-checkbox-row">
+                        <label>
+                            <input type="checkbox" id="edit-presentation-activo" name="activo" ${this.isActive(pres.activo) ? 'checked' : ''}>
+                            Activa
+                        </label>
+                    </div>
+                </div>
+            </form>
+        `, [
+            { text: 'Cancelar', class: 'btn-light' },
+            { text: 'Guardar Cambios', class: 'btn-primary', onclick: `Menu.updatePresentation(${id})` }
+        ], 'modal-menu');
+    },
+
+    async updatePresentation(id) {
+        if (!this.canAdministerMenu()) return this.showAdminRequired();
+        const form = document.getElementById('edit-presentation-form');
+        if (!Utils.validateForm(form)) {
+            Utils.showNotification('Por favor complete todos los campos requeridos', 'warning');
+            return;
+        }
+
+        const formData = new FormData(form);
+        const data = {
+            nombre: formData.get('nombre'),
+            tipo: formData.get('tipo') || 'tamaño',
+            cantidad: formData.get('cantidad'),
+            tipo_presentacion_id: parseInt(formData.get('tipo_presentacion_id')),
+            activo: formData.get('activo') === 'on'
+        };
+
+        try {
+            await Utils.request(`/menu/presentaciones-globales/${id}`, {
+                method: 'PUT',
+                body: JSON.stringify(data)
+            });
+            Utils.hideModal();
+            Utils.showNotification('Presentación actualizada correctamente', 'success');
+            this.load();
+        } catch (error) {
+            Utils.showNotification(error.message || 'Error al actualizar presentación', 'error');
+        }
+    },
+
+    async showPresentacionesModal(productId) {
+        try {
+            const response = await Utils.request(`/menu/products/${productId}/presentaciones`);
+            const data = response.data || response;
+            const productoNombre = data.producto_nombre || response.producto_nombre || 'Producto';
+            const presentaciones = data.presentaciones || response.presentaciones || [];
+            const asignadas = presentaciones.filter(p => Number(p.asignada) === 1);
+
+            if (asignadas.length === 0) {
+                Utils.showNotification('Este producto no tiene presentaciones asignadas.', 'info');
+                return;
+            }
+
+            const contenido = `
+                <div class="presentaciones-modal menu-presentations-detail">
+                    <div class="menu-info-banner compact">
+                        <i class="fas fa-box-open"></i>
+                        <div>
+                            <strong>${this.escapeHtml(productoNombre)}</strong>
+                            <p>${asignadas.length} presentación${asignadas.length === 1 ? '' : 'es'} asignada${asignadas.length === 1 ? '' : 's'}.</p>
+                        </div>
+                    </div>
+                    <table class="table menu-table">
+                        <thead>
+                            <tr>
+                                <th>Presentación</th>
+                                <th>Cantidad</th>
+                                <th>Grupo</th>
+                                <th>Precio</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${asignadas.map(p => `
+                                <tr>
+                                    <td><strong>${this.escapeHtml(p.nombre)}</strong></td>
+                                    <td>${this.escapeHtml(p.cantidad || '-')}</td>
+                                    <td>${this.escapeHtml(p.tipo_presentacion_nombre || '-')}</td>
+                                    <td>${Utils.formatCurrency ? Utils.formatCurrency(p.precio) : `₡${parseFloat(p.precio || 0).toFixed(2)}`}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
+            Utils.showModal('Presentaciones del producto', contenido, [
+                { text: 'Cerrar', class: 'btn-primary' }
+            ], 'modal-menu');
+        } catch (error) {
+            console.error('Error al cargar presentaciones:', error);
+            Utils.showNotification('Error al cargar presentaciones del producto.', 'error');
+        }
+    },
 
 };

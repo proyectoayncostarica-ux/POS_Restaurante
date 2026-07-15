@@ -1,4 +1,4 @@
-const MUNDIPOS_SW_VERSION = 'v2.2.5M.6-presentation-types';
+const MUNDIPOS_SW_VERSION = 'v2.2.5M.7-fix2-summary-mobile';
 const APP_SHELL_CACHE = `mundipos-shell-${MUNDIPOS_SW_VERSION}`;
 const RUNTIME_CACHE = `mundipos-runtime-${MUNDIPOS_SW_VERSION}`;
 
@@ -9,23 +9,23 @@ const APP_SHELL_URLS = [
   '/POS/manifest.webmanifest',
   '/POS/favicon.ico',
   '/POS/css/style.css',
-  '/POS/css/style.css?v=2.2.5M.6-presentation-types',
+  '/POS/css/style.css?v=2.2.5M.7-fix1-menu-modals',
   '/POS/js/main.js',
-  '/POS/js/main.js?v=2.2.5M.6-presentation-types',
+  '/POS/js/main.js?v=2.2.5M.7-fix1-menu-modals',
   '/POS/js/components/dashboard.js',
-  '/POS/js/components/dashboard.js?v=2.2.5M.6-presentation-types',
+  '/POS/js/components/dashboard.js?v=2.2.5M.7-fix1-menu-modals',
   '/POS/js/components/tables.js',
-  '/POS/js/components/tables.js?v=2.2.5M.6-presentation-types',
+  '/POS/js/components/tables.js?v=2.2.5M.7-fix1-menu-modals',
   '/POS/js/components/menu.js',
-  '/POS/js/components/menu.js?v=2.2.5M.6-presentation-types',
+  '/POS/js/components/menu.js?v=2.2.5M.7-fix1-menu-modals',
   '/POS/js/components/orders.js',
-  '/POS/js/components/orders.js?v=2.2.5M.6-presentation-types',
+  '/POS/js/components/orders.js?v=2.2.5M.7-fix1-menu-modals',
   '/POS/js/components/accounts.js',
-  '/POS/js/components/accounts.js?v=2.2.5M.6-presentation-types',
+  '/POS/js/components/accounts.js?v=2.2.5M.7-fix1-menu-modals',
   '/POS/js/components/users.js',
-  '/POS/js/components/users.js?v=2.2.5M.6-presentation-types',
+  '/POS/js/components/users.js?v=2.2.5M.7-fix1-menu-modals',
   '/POS/js/components/settings.js',
-  '/POS/js/components/settings.js?v=2.2.5M.6-presentation-types',
+  '/POS/js/components/settings.js?v=2.2.5M.7-fix1-menu-modals',
   '/POS/assets/brand/mundipos-mark.png',
   '/POS/assets/icons/mundipos-icon-192.png',
   '/POS/assets/icons/mundipos-maskable-192.png',
