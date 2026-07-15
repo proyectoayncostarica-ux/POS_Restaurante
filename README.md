@@ -804,3 +804,24 @@ Archivos modificados en esta subfase:
 - `README.md`
 - `docs/avance-v2.2.5M.9-pruebas-menu-cuentas.md`
 - `docs/roadmap-v2.2.5M-normalizacion-menu.md`
+
+### v2.2.5M.9 fix1 · Pulido visual global y Menú premium
+
+- **Objetivo:** corregir inconsistencias visuales detectadas antes de cerrar las pruebas Menú → Cuentas, manteniendo uniformidad con Dashboard y Zonas.
+- **Botones globales de footer:** se actualiza el estilo de botones de los footers de modales para toda la app, con diseño más moderno, mayor jerarquía visual, mejor área táctil y comportamiento diferenciado PC/móvil.
+- **Menú:** se elimina el botón `Actualizar` de la barra de acciones porque no aporta valor operativo en la vista administrativa.
+- **Acciones principales:** `Nuevo Producto`, `Nueva Categoría`, `Nuevo Tipo/Grupo` y `Nueva Presentación` reciben estilo moderno/premium.
+- **Tablas:** se modernizan badges de estado, botones de acciones, botones de presentación, tabla de productos, categorías, tipos/grupos y presentaciones.
+- **PC/móvil:** en PC se prioriza lectura amplia y acciones horizontales; en móvil se priorizan botones táctiles, acciones de ancho completo y respeto por la barra inferior existente.
+- **Compatibilidad:** no cambia backend, base de datos, permisos ni contrato Menú → Cuentas.
+- **Cache/PWA:** `index.html` y `service-worker.js` avanzan a `v2.2.5M.9-fix1-menu-polish`.
+
+Archivos modificados en este fix:
+
+- `README.md`
+- `docs/avance-v2.2.5M.9-fix1-pulido-visual-menu.md`
+- `docs/roadmap-v2.2.5M-normalizacion-menu.md`
+- `public/js/components/menu.js`
+- `public/css/style.css`
+- `public/index.html`
+- `public/service-worker.js`

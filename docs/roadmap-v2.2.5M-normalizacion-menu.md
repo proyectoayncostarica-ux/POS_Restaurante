@@ -598,3 +598,27 @@ node --check server/app.js
 ```powershell
 git commit -m "v2.2.5M.9: documenta pruebas Menu Cuentas"
 ```
+
+#### v2.2.5M.9 fix1 · Pulido visual global y Menú premium
+
+Objetivo del fix:
+- actualizar botones globales de footer al estilo visual de Dashboard/Zonas;
+- eliminar el botón `Actualizar` del módulo Menú;
+- modernizar botones principales de Menú;
+- modernizar estados, acciones y tablas del módulo Menú;
+- diferenciar correctamente PC y móvil sin duplicar navegación superior en móvil.
+
+Archivos esperados:
+- `README.md`
+- `docs/avance-v2.2.5M.9-fix1-pulido-visual-menu.md`
+- `docs/roadmap-v2.2.5M-normalizacion-menu.md`
+- `public/js/components/menu.js`
+- `public/css/style.css`
+- `public/index.html`
+- `public/service-worker.js`
+
+Commit sugerido:
+
+```powershell
+git commit -m "v2.2.5M.9 fix1: pule visualmente Menu y botones globales"
+```

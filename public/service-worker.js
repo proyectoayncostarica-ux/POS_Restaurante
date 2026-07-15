@@ -1,4 +1,4 @@
-const MUNDIPOS_SW_VERSION = 'v2.2.5M.8-menu-orders-integration';
+const MUNDIPOS_SW_VERSION = 'v2.2.5M.9-fix1-menu-polish';
 const APP_SHELL_CACHE = `mundipos-shell-${MUNDIPOS_SW_VERSION}`;
 const RUNTIME_CACHE = `mundipos-runtime-${MUNDIPOS_SW_VERSION}`;
 

@@ -178,13 +178,9 @@ const Menu = {
                 </div>
 
                 <div class="internal-view-panel" data-internal-panel="menu">
-                    <!-- Línea 2: botón crear + botón actualizar + botón Presentaciones-->
+                    <!-- Línea 2: acciones administrativas de la vista -->
                     <div class="d-flex gap-2 flex-wrap mb-3">
                         ${this.renderCreateAction()}
-
-                        <button class="btn btn-secondary btn-sm" onclick="Menu.load()" title="Actualizar menú">
-                            <i class="fas fa-sync text-white"></i>
-                        </button>
                     </div>
 
                     ${this.renderAdminOnlyNotice()}
@@ -1999,9 +1995,6 @@ async showPresentacionesModal(productId) {
                         <div class="menu-actions-main">
                             ${this.renderCreateAction()}
                         </div>
-                        <button class="btn btn-secondary btn-sm" onclick="Menu.load()" title="Actualizar menú">
-                            <i class="fas fa-sync text-white"></i> Actualizar
-                        </button>
                     </div>
 
                     ${this.renderAdminOnlyNotice()}
