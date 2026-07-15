@@ -5,6 +5,45 @@ const Menu = {
     presentations: [],
     currentView: 'products', // 'products' o 'categories'
 
+    canAdministerMenu() {
+        const userType = String(currentUser?.tipo || '').trim().toLowerCase();
+        return userType === 'administrador' || userType === 'admin';
+    },
+
+    showAdminRequired() {
+        Utils.showNotification('Solo los administradores pueden administrar productos, categorías, precios y presentaciones del Menú.', 'warning');
+        return false;
+    },
+
+    renderAdminOnlyNotice() {
+        if (this.canAdministerMenu()) return '';
+        return `
+            <div class="alert alert-info mb-3">
+                <i class="fas fa-lock"></i> Modo consulta: tu usuario puede ver el menú operativo, pero solo un administrador puede crear, editar, cambiar precios, activar o desactivar elementos.
+            </div>
+        `;
+    },
+
+    renderCreateAction() {
+        if (!this.canAdministerMenu()) return '';
+
+        if (this.currentView === 'products') {
+            return `<button class="btn btn-success" onclick="Menu.showCreateProductModal()">
+                        <i class="fas fa-plus"></i> Nuevo Producto
+                    </button>`;
+        }
+
+        if (this.currentView === 'categories') {
+            return `<button class="btn btn-success" onclick="Menu.showCreateCategoryModal()">
+                        <i class="fas fa-plus"></i> Nueva Categoría
+                    </button>`;
+        }
+
+        return `<button class="btn btn-success" onclick="Menu.showCreatePresentationModal()">
+                    <i class="fas fa-plus"></i> Nueva Presentación
+                </button>`;
+    },
+
     isActive(value) {
         return Number(value ?? 1) === 1;
     },
@@ -22,7 +61,7 @@ const Menu = {
     // Cargar datos del menú
     async load(options = {}) {
             try {
-                const includeInactive = options.includeInactive === true || (typeof currentSection !== 'undefined' && currentSection === 'menu');
+                const includeInactive = this.canAdministerMenu() && (options.includeInactive === true || (typeof currentSection !== 'undefined' && currentSection === 'menu'));
                 const inactiveQuery = includeInactive ? '?include_inactive=1' : '';
                 const [categoriesResponse, productsResponse, presentationsResponse] = await Promise.all([
                         Utils.request(`/menu/categories${inactiveQuery}`),
@@ -47,8 +86,8 @@ const Menu = {
             
             section.innerHTML = `
                 <div class="section-header">
-                    <h2>Gestión de Menú</h2>
-                    <p>Administra categorías y productos del menú</p>
+                    <h2>${this.canAdministerMenu() ? 'Gestión de Menú' : 'Consulta de Menú'}</h2>
+                    <p>${this.canAdministerMenu() ? 'Administra categorías, productos, precios y presentaciones del menú' : 'Consulta productos, categorías y presentaciones activas para la operación'}</p>
                 </div>
 
                 <div class="mb-3">
@@ -69,24 +108,14 @@ const Menu = {
                 <div class="internal-view-panel" data-internal-panel="menu">
                     <!-- Línea 2: botón crear + botón actualizar + botón Presentaciones-->
                     <div class="d-flex gap-2 flex-wrap mb-3">
-                        ${
-                            this.currentView === 'products'
-                                ? `<button class="btn btn-success" onclick="Menu.showCreateProductModal()">
-                                        <i class="fas fa-plus"></i> Nuevo Producto
-                                </button>`
-                                : this.currentView === 'categories'
-                                ? `<button class="btn btn-success" onclick="Menu.showCreateCategoryModal()">
-                                        <i class="fas fa-plus"></i> Nueva Categoría
-                                </button>`
-                                : `<button class="btn btn-success" onclick="Menu.showCreatePresentationModal()">
-                                        <i class="fas fa-plus"></i> Nueva Presentación
-                                </button>`
-                        }
+                        ${this.renderCreateAction()}
 
                         <button class="btn btn-secondary btn-sm" onclick="Menu.load()" title="Actualizar menú">
                             <i class="fas fa-sync text-white"></i>
                         </button>
                     </div>
+
+                    ${this.renderAdminOnlyNotice()}
 
                     ${
                         this.currentView === 'products'
@@ -126,7 +155,7 @@ const Menu = {
                                 <th>Subcategoría</th>
                                 <th>Cocina</th>
                                 <th>Estado</th>
-                                <th>Acciones</th>
+                                ${this.canAdministerMenu() ? '<th>Acciones</th>' : ''}
                             </tr>
                         </thead>
                         <tbody id="products-table-body">
@@ -140,9 +169,10 @@ const Menu = {
     // Renderizar tabla de productos
     renderProductsTable(filteredProducts = null) {
         const products = filteredProducts || this.products;
+        const canAdmin = this.canAdministerMenu();
 
         if (products.length === 0) {
-            return '<tr><td colspan="8" class="text-center">No hay productos configurados</td></tr>';
+            return `<tr><td colspan="${canAdmin ? 8 : 7}" class="text-center">No hay productos configurados</td></tr>`;
         }
 
         return products.map(product => `
@@ -170,16 +200,18 @@ const Menu = {
                     }
                 </td>
                 <td>${this.renderStatusBadge(product.activo)}</td>
-                <td>
-                    <div class="d-flex gap-1">
-                        <button class="btn btn-secondary btn-sm" onclick="Menu.showEditProductModal(${product.id})">
-                            <i class="fas fa-edit"></i>
-                        </button>
-                        <button class="btn ${this.isActive(product.activo) ? 'btn-warning' : 'btn-success'} btn-sm" onclick="Menu.toggleProductActive(${product.id})" title="${this.isActive(product.activo) ? 'Desactivar producto' : 'Activar producto'}">
-                            <i class="fas ${this.isActive(product.activo) ? 'fa-eye-slash' : 'fa-eye'}"></i>
-                        </button>
-                    </div>
-                </td>
+                ${canAdmin ? `
+                    <td>
+                        <div class="d-flex gap-1">
+                            <button class="btn btn-secondary btn-sm" onclick="Menu.showEditProductModal(${product.id})">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn ${this.isActive(product.activo) ? 'btn-warning' : 'btn-success'} btn-sm" onclick="Menu.toggleProductActive(${product.id})" title="${this.isActive(product.activo) ? 'Desactivar producto' : 'Activar producto'}">
+                                <i class="fas ${this.isActive(product.activo) ? 'fa-eye-slash' : 'fa-eye'}"></i>
+                            </button>
+                        </div>
+                    </td>
+                ` : ''}
             </tr>
         `).join('');
     },
@@ -188,6 +220,7 @@ const Menu = {
     renderCategoriesView() {
             const mainCategories = this.categories.filter(cat => cat.tipo === 'principal');
             const subCategories = this.categories.filter(cat => cat.tipo === 'subcategoria');
+            const canAdmin = this.canAdministerMenu();
             
 
             return `
@@ -202,7 +235,7 @@ const Menu = {
                                         <th>Permite Cocina</th>
                                         <th>Subcategorías</th>
                                         <th>Estado</th>
-                                        <th>Acciones</th>
+                                        ${canAdmin ? '<th>Acciones</th>' : ''}
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -219,22 +252,24 @@ const Menu = {
                                                 ${subCategories.filter(sub => sub.parent_id === category.id).length}
                                             </td>
                                             <td>${this.renderStatusBadge(category.activa)}</td>
-                                            <td>
-                                                <div class="d-flex gap-1">
-                                                    <button class="btn btn-success btn-sm" onclick="Menu.showCreateSubcategoryModal(${category.id})" ${this.isActive(category.activa) ? '' : 'disabled'}>
-                                                        <i class="fas fa-plus"></i> Sub
-                                                    </button>
-                                                    <button class="btn btn-secondary btn-sm" onclick="Menu.showEditCategoryModal(${category.id})">
-                                                        <i class="fas fa-edit"></i>
-                                                    </button>
-                                                    <button class="btn ${this.isActive(category.activa) ? 'btn-warning' : 'btn-success'} btn-sm"
-                                                            onclick="Menu.toggleCategoryActive(${category.id})"
-                                                            title="${this.isActive(category.activa) ? 'Desactivar categoría' : 'Activar categoría'}">
-                                                        <i class="fas ${this.isActive(category.activa) ? 'fa-eye-slash' : 'fa-eye'}"></i>
-                                                    </button>
+                                            ${canAdmin ? `
+                                                <td>
+                                                    <div class="d-flex gap-1">
+                                                        <button class="btn btn-success btn-sm" onclick="Menu.showCreateSubcategoryModal(${category.id})" ${this.isActive(category.activa) ? '' : 'disabled'}>
+                                                            <i class="fas fa-plus"></i> Sub
+                                                        </button>
+                                                        <button class="btn btn-secondary btn-sm" onclick="Menu.showEditCategoryModal(${category.id})">
+                                                            <i class="fas fa-edit"></i>
+                                                        </button>
+                                                        <button class="btn ${this.isActive(category.activa) ? 'btn-warning' : 'btn-success'} btn-sm"
+                                                                onclick="Menu.toggleCategoryActive(${category.id})"
+                                                                title="${this.isActive(category.activa) ? 'Desactivar categoría' : 'Activar categoría'}">
+                                                            <i class="fas ${this.isActive(category.activa) ? 'fa-eye-slash' : 'fa-eye'}"></i>
+                                                        </button>
 
-                                                </div>
-                                            </td>
+                                                    </div>
+                                                </td>
+                                            ` : ''}
 
                                         </tr>
                                     `).join('')}
@@ -253,7 +288,7 @@ const Menu = {
                                         <th>Categoría Padre</th>
                                         <th>Permite Cocina</th>
                                         <th>Estado</th>
-                                        <th>Acciones</th>
+                                        ${canAdmin ? '<th>Acciones</th>' : ''}
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -268,16 +303,18 @@ const Menu = {
                                                 }
                                             </td>
                                             <td>${this.renderStatusBadge(subcategory.activa)}</td>
-                                            <td>
-                                                <div class="d-flex gap-1">
-                                                    <button class="btn btn-secondary btn-sm" onclick="Menu.showEditCategoryModal(${subcategory.id})">
-                                                        <i class="fas fa-edit"></i>
-                                                    </button>
-                                                    <button class="btn ${this.isActive(subcategory.activa) ? 'btn-warning' : 'btn-success'} btn-sm" onclick="Menu.toggleCategoryActive(${subcategory.id})" title="${this.isActive(subcategory.activa) ? 'Desactivar subcategoría' : 'Activar subcategoría'}">
-                                                        <i class="fas ${this.isActive(subcategory.activa) ? 'fa-eye-slash' : 'fa-eye'}"></i>
-                                                    </button>
-                                                </div>
-                                            </td>
+                                            ${canAdmin ? `
+                                                <td>
+                                                    <div class="d-flex gap-1">
+                                                        <button class="btn btn-secondary btn-sm" onclick="Menu.showEditCategoryModal(${subcategory.id})">
+                                                            <i class="fas fa-edit"></i>
+                                                        </button>
+                                                        <button class="btn ${this.isActive(subcategory.activa) ? 'btn-warning' : 'btn-success'} btn-sm" onclick="Menu.toggleCategoryActive(${subcategory.id})" title="${this.isActive(subcategory.activa) ? 'Desactivar subcategoría' : 'Activar subcategoría'}">
+                                                            <i class="fas ${this.isActive(subcategory.activa) ? 'fa-eye-slash' : 'fa-eye'}"></i>
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            ` : ''}
                                         </tr>
                                     `).join('')}
                                 </tbody>
@@ -296,7 +333,8 @@ const Menu = {
             }
 
             try {
-                const response = await Utils.request(`/menu/products/search?q=${encodeURIComponent(query)}&include_inactive=1`);
+                const inactiveQuery = this.canAdministerMenu() ? '&include_inactive=1' : '';
+                const response = await Utils.request(`/menu/products/search?q=${encodeURIComponent(query)}${inactiveQuery}`);
                 console.log("🔍 Respuesta cruda del backend:", response);
                 document.getElementById('products-table-body').innerHTML = this.renderProductsTable(response.data);
             } catch (error) {
@@ -306,6 +344,7 @@ const Menu = {
 
     //Modal de Creacion de Productos
     showCreateProductModal() {
+    if (!this.canAdministerMenu()) return this.showAdminRequired();
     const mainCategories = this.categories.filter(cat => cat.tipo === 'principal' && this.isActive(cat.activa));
 
     Utils.showModal('Nuevo Producto', `
@@ -459,6 +498,7 @@ const Menu = {
 
     // MODIFICADA: Crear producto incluyendo imagen (si se proporciona)
     async createProduct() {
+    if (!this.canAdministerMenu()) return this.showAdminRequired();
     const form = document.getElementById("create-product-form");
     const formData = new FormData(form);
 
@@ -542,6 +582,7 @@ const Menu = {
 
     // Mostrar modal para editar producto
     showEditProductModal(productId) {
+    if (!this.canAdministerMenu()) return this.showAdminRequired();
     const product = this.products.find(p => p.id === productId);
     if (!product) return;
 
@@ -716,6 +757,7 @@ const Menu = {
 
     // Actualizar producto
     async updateProduct(productId) {
+    if (!this.canAdministerMenu()) return this.showAdminRequired();
     const form = document.getElementById('edit-product-form');
     if (!Utils.validateForm(form)) {
         Utils.showNotification('Por favor complete todos los campos requeridos', 'warning');
@@ -786,6 +828,7 @@ const Menu = {
     },
 
     async toggleProductActive(productId) {
+        if (!this.canAdministerMenu()) return this.showAdminRequired();
         const product = this.products.find(p => p.id === productId);
         if (!product) return;
 
@@ -810,6 +853,7 @@ const Menu = {
 
     // Eliminar producto
     async deleteProduct(productId) {
+        if (!this.canAdministerMenu()) return this.showAdminRequired();
         const product = this.products.find(p => p.id === productId);
         if (!product) return;
 
@@ -834,6 +878,7 @@ const Menu = {
 
     // Mostrar modal para crear categoría
     showCreateCategoryModal() {
+            if (!this.canAdministerMenu()) return this.showAdminRequired();
             const mainCategories = this.categories.filter(cat => cat.tipo === 'principal' && this.isActive(cat.activa));
             
             Utils.showModal('Nueva Categoría', `
@@ -871,6 +916,7 @@ const Menu = {
 
     // Mostrar modal para crear subcategoría
     showCreateSubcategoryModal(parentId) {
+            if (!this.canAdministerMenu()) return this.showAdminRequired();
             const parentCategory = this.categories.find(cat => cat.id === parentId);
             
             Utils.showModal('Nueva Subcategoría', `
@@ -905,6 +951,7 @@ const Menu = {
 
     // Crear categoría
 async createCategory() {
+    if (!this.canAdministerMenu()) return this.showAdminRequired();
         const form = document.getElementById('create-category-form');
         if (!Utils.validateForm(form)) {
             Utils.showNotification('Por favor complete todos los campos requeridos', 'warning');
@@ -933,6 +980,7 @@ async createCategory() {
 },
 
     async toggleCategoryActive(categoryId) {
+        if (!this.canAdministerMenu()) return this.showAdminRequired();
         const categoria = this.categories.find(cat => cat.id === categoryId);
         if (!categoria) return;
 
@@ -958,6 +1006,7 @@ async createCategory() {
 
     //Eliminar Categoría
 async deleteCategory(categoryId) {
+    if (!this.canAdministerMenu()) return this.showAdminRequired();
     const categoria = this.categories.find(cat => cat.id === categoryId);
     if (!categoria) return;
 
@@ -1007,6 +1056,7 @@ async deleteCategory(categoryId) {
 
     // Crear subcategoría
 async createSubcategory() {
+    if (!this.canAdministerMenu()) return this.showAdminRequired();
         const form = document.getElementById('create-subcategory-form');
         if (!Utils.validateForm(form)) {
             Utils.showNotification('Por favor complete todos los campos requeridos', 'warning');
@@ -1037,6 +1087,8 @@ async createSubcategory() {
 
     // Renderizar vista de Presentaciones
 renderPresentationsView() {
+    const canAdmin = this.canAdministerMenu();
+
     if (!this.presentations || this.presentations.length === 0) {
         return `
             <div class="alert alert-info">
@@ -1054,7 +1106,7 @@ renderPresentationsView() {
                         <th>Tipo</th>
                         <th>Cantidad</th>
                         <th>Estado</th>
-                        <th style="width: 120px;">Acciones</th>
+                        ${canAdmin ? '<th style="width: 120px;">Acciones</th>' : ''}
                     </tr>
                 </thead>
                 <tbody>
@@ -1064,11 +1116,13 @@ renderPresentationsView() {
                             <td>${pres.tipo}</td>
                             <td>${pres.cantidad || '-'}</td>
                             <td>${this.renderStatusBadge(pres.activo)}</td>
-                            <td>
-                                <button class="btn btn-sm ${this.isActive(pres.activo) ? 'btn-warning' : 'btn-success'}" onclick="Menu.togglePresentationActive(${pres.id})" title="${this.isActive(pres.activo) ? 'Desactivar presentación' : 'Activar presentación'}">
-                                    <i class="fas ${this.isActive(pres.activo) ? 'fa-eye-slash' : 'fa-eye'}"></i>
-                                </button>
-                            </td>
+                            ${canAdmin ? `
+                                <td>
+                                    <button class="btn btn-sm ${this.isActive(pres.activo) ? 'btn-warning' : 'btn-success'}" onclick="Menu.togglePresentationActive(${pres.id})" title="${this.isActive(pres.activo) ? 'Desactivar presentación' : 'Activar presentación'}">
+                                        <i class="fas ${this.isActive(pres.activo) ? 'fa-eye-slash' : 'fa-eye'}"></i>
+                                    </button>
+                                </td>
+                            ` : ''}
                         </tr>
                     `).join('')}
                 </tbody>
@@ -1079,6 +1133,7 @@ renderPresentationsView() {
 
     // Mostrar modal para crear presentación
 showCreatePresentationModal() {
+    if (!this.canAdministerMenu()) return this.showAdminRequired();
     Utils.showModal('Nueva Presentación', `
         <form id="create-presentation-form">
             <div class="form-group">
@@ -1108,6 +1163,7 @@ showCreatePresentationModal() {
 },
     // Guardar presentación
 async savePresentation() {
+    if (!this.canAdministerMenu()) return this.showAdminRequired();
     const form = document.getElementById('create-presentation-form');
     if (!Utils.validateForm(form)) {
         Utils.showNotification('Por favor complete todos los campos requeridos', 'warning');
@@ -1135,6 +1191,7 @@ async savePresentation() {
     }
 },
     async togglePresentationActive(id) {
+        if (!this.canAdministerMenu()) return this.showAdminRequired();
         const presentation = this.presentations.find(p => p.id === id);
         if (!presentation) return;
 
@@ -1159,6 +1216,7 @@ async savePresentation() {
 
     // Borrar presentación
 async deletePresentation(id) {
+    if (!this.canAdministerMenu()) return this.showAdminRequired();
     if (!confirm('¿Estás seguro de eliminar esta presentación?')) return;
 
     try {

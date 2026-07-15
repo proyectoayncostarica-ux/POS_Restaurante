@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 2.0
 - **Estado de producto:** versión funcional operativa en proceso de estabilización
-- **Línea de trabajo actual:** v2.2.4 · Zonas dinámicas, roles de trabajo y permisos
+- **Línea de trabajo actual:** v2.2.5M.5 · Protección administrativa del módulo Menú
 
 La versión visible para usuarios, configuración pública y metadata base de la app debe mantenerse como **2.0** hasta que se decida publicar una nueva versión funcional mayor. Las líneas internas **v2.1** y **v2.2** no representan todavía una versión visible para usuarios finales; representan etapas trazables de estabilización.
 
@@ -657,3 +657,24 @@ Archivos modificados en esta subfase:
 - Los elementos históricos no se eliminan para proteger cuentas, pagos y reportes.
 - El contrato de productos operativos avanza a `v2.2.5M.4`.
 - Documento técnico: `docs/avance-v2.2.5M.4-estados-activos-menu.md`.
+
+
+### v2.2.5M.5 · Protección backend administrativa del módulo Menú
+
+- **Objetivo:** separar la operación diaria del local de la administración del catálogo, precios y estructura del Menú.
+- **Regla de seguridad:** usuarios estándar/básicos pueden consultar el menú operativo, pero no pueden crear, editar, cambiar precios, activar/desactivar ni eliminar/desactivar productos, categorías, subcategorías o presentaciones.
+- **Protección backend:** `server/routes/menu.js` incorpora `requireMenuAdmin` y lo aplica a todas las rutas mutantes de Menú.
+- **Consultas operativas:** `GET /api/menu/products`, `GET /api/menu/categories`, `GET /api/menu/presentaciones-globales`, `GET /api/menu/products/:id/presentaciones`, `GET /api/menu/completo` y `GET /api/menu/operational-products` siguen disponibles para usuarios autenticados.
+- **Datos inactivos/diagnóstico:** usuarios no administradores no pueden forzar `include_inactive`, `include_invalid` ni diagnósticos administrativos mediante query string.
+- **UI:** `public/js/components/menu.js` muestra Menú en modo consulta para usuarios estándar, oculta acciones administrativas y evita abrir acciones mutantes desde consola de UI.
+- **Cache/PWA:** `index.html` y `service-worker.js` avanzan a `v2.2.5M.5-menu-admin-protection` para evitar mezcla de assets antiguos.
+- **Alcance:** no cambia Cuentas / Orders todavía; no cambia base de datos; no cambia la versión visible 2.0.
+
+Archivos modificados en esta subfase:
+
+- `README.md`
+- `docs/avance-v2.2.5M.5-proteccion-backend-menu.md`
+- `server/routes/menu.js`
+- `public/js/components/menu.js`
+- `public/index.html`
+- `public/service-worker.js`

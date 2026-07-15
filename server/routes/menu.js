@@ -51,7 +51,27 @@ function isActive(value) {
     return Number(value ?? 1) === 1;
 }
 
+function normalizeUserType(value = '') {
+    return String(value || '').trim().toLowerCase();
+}
+
+function isMenuAdmin(req) {
+    const userType = normalizeUserType(req.session?.userType);
+    return userType === 'administrador' || userType === 'admin';
+}
+
+function requireMenuAdmin(req, res, next) {
+    if (isMenuAdmin(req)) {
+        return next();
+    }
+
+    return res.status(403).json({
+        error: 'Solo los administradores pueden administrar productos, categorías, precios y presentaciones del Menú'
+    });
+}
+
 function shouldIncludeInactive(req) {
+    if (!isMenuAdmin(req)) return false;
     return parseBoolean(req.query.include_inactive) || parseBoolean(req.query.includeInactive) || parseBoolean(req.query.include_invalid);
 }
 
@@ -483,7 +503,7 @@ router.get('/categories', async (req, res) => {
 });
 
 // Crear nueva categoría
-router.post('/categories', async (req, res) => {
+router.post('/categories', requireMenuAdmin, async (req, res) => {
     try {
         const { nombre, parent_id, permite_cocina, activa } = req.body;
         const nombreLimpio = String(nombre || '').trim();
@@ -529,7 +549,7 @@ router.post('/categories', async (req, res) => {
 });
 
 // Actualizar categoría o subcategoría
-router.put('/categories/:id', async (req, res) => {
+router.put('/categories/:id', requireMenuAdmin, async (req, res) => {
     const { id } = req.params;
 
     try {
@@ -573,7 +593,7 @@ router.put('/categories/:id', async (req, res) => {
 
 // Eliminar categoría o subcategoría
 // En v2.2.5M.4 la eliminación operativa se convierte en desactivación segura.
-router.delete('/categories/:id', async (req, res) => {
+router.delete('/categories/:id', requireMenuAdmin, async (req, res) => {
     const { id } = req.params;
 
     try {
@@ -601,8 +621,8 @@ router.delete('/categories/:id', async (req, res) => {
 // Obtener productos normalizados para operación de Cuentas/Orders
 router.get('/operational-products', async (req, res) => {
     try {
-        const includeInvalid = parseBoolean(req.query.include_invalid);
-        const includeEmptyCategories = parseBoolean(req.query.include_empty_categories);
+        const includeInvalid = isMenuAdmin(req) && parseBoolean(req.query.include_invalid);
+        const includeEmptyCategories = isMenuAdmin(req) && parseBoolean(req.query.include_empty_categories);
         const payload = await buildOperationalMenuPayload({ includeInvalid, includeEmptyCategories });
 
         res.json({
@@ -741,7 +761,7 @@ router.get('/products/:id/presentaciones', async (req, res) => {
 });
 
 // Crear nuevo producto
-router.post('/products', subirImagen, async (req, res) => {
+router.post('/products', requireMenuAdmin, subirImagen, async (req, res) => {
     let transactionStarted = false;
 
     try {
@@ -818,7 +838,7 @@ router.post('/products', subirImagen, async (req, res) => {
 });
 
 // Actualizar producto
-router.put('/products/:id', subirImagen, async (req, res) => {
+router.put('/products/:id', requireMenuAdmin, subirImagen, async (req, res) => {
     const { id } = req.params;
     let transactionStarted = false;
 
@@ -885,7 +905,7 @@ router.put('/products/:id', subirImagen, async (req, res) => {
 });
 
 // Cambiar estado activo/inactivo de producto
-router.put('/products/:id/active', async (req, res) => {
+router.put('/products/:id/active', requireMenuAdmin, async (req, res) => {
     const { id } = req.params;
 
     try {
@@ -910,7 +930,7 @@ router.put('/products/:id/active', async (req, res) => {
 
 // Eliminar producto
 // En v2.2.5M.4 el delete operativo desactiva para conservar historial.
-router.delete('/products/:id', async (req, res) => {
+router.delete('/products/:id', requireMenuAdmin, async (req, res) => {
     const { id } = req.params;
 
     try {
@@ -1000,7 +1020,7 @@ router.get('/presentaciones-globales', async (req, res) => {
 });
 
 
-router.post('/presentaciones-globales', async (req, res) => {
+router.post('/presentaciones-globales', requireMenuAdmin, async (req, res) => {
     try {
         const nombre = String(req.body.nombre || '').trim();
         const tipo = req.body.tipo || 'tamaño';
@@ -1034,7 +1054,7 @@ router.post('/presentaciones-globales', async (req, res) => {
     }
 });
 
-router.put('/presentaciones-globales/:id', async (req, res) => {
+router.put('/presentaciones-globales/:id', requireMenuAdmin, async (req, res) => {
     const { id } = req.params;
 
     try {
@@ -1073,7 +1093,7 @@ router.put('/presentaciones-globales/:id', async (req, res) => {
     }
 });
 
-router.put('/presentaciones-globales/:id/active', async (req, res) => {
+router.put('/presentaciones-globales/:id/active', requireMenuAdmin, async (req, res) => {
     const { id } = req.params;
 
     try {
@@ -1096,7 +1116,7 @@ router.put('/presentaciones-globales/:id/active', async (req, res) => {
     }
 });
 
-router.delete('/presentaciones-globales/:id', async (req, res) => {
+router.delete('/presentaciones-globales/:id', requireMenuAdmin, async (req, res) => {
     const { id } = req.params;
 
     try {

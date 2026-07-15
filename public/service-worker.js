@@ -1,4 +1,4 @@
-const MUNDIPOS_SW_VERSION = 'v2.2.5M.4-menu-active-states';
+const MUNDIPOS_SW_VERSION = 'v2.2.5M.5-menu-admin-protection';
 const APP_SHELL_CACHE = `mundipos-shell-${MUNDIPOS_SW_VERSION}`;
 const RUNTIME_CACHE = `mundipos-runtime-${MUNDIPOS_SW_VERSION}`;
 
