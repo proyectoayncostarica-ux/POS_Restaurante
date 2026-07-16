@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.0.0 · Auditoría y contrato de arquitectura modular
+- **Línea de trabajo actual:** v3.0.0 fix2 · Fuente financiera única y roadmap consolidado
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -978,8 +978,8 @@ Archivos modificados:
 
 - **Cambio de versión:** MundiPOS pasa a versión visible `3.0` y seguimiento técnico `v3.0.0`.
 - **Objetivo:** verificar la viabilidad de separar Cuentas, Pagos, Comandas e Impresiones, manteniendo la UI/UX operativa actual.
-- **Compatibilidad:** el botón `Pagar`, los flujos de crédito, las acciones de comanda y las acciones de reimpresión conservan su ubicación e intención; internamente delegarán a servicios nuevos.
-- **Navegación:** no se crearán módulos visuales principales para Pagos ni Impresiones. La configuración de impresoras vivirá en una pestaña interna de Configuración.
+- **Compatibilidad inicial:** la auditoría base propuso conservar los puntos de entrada visibles. El contrato fue recalibrado en `v3.0.0 fix1`: Cuentas emitirá prefacturas y el cobro se trasladará a la sección Caja del header.
+- **Navegación:** Payments e Impresiones no serán módulos visuales principales. `v3.0.0 fix1` aprueba Caja como sección operativa del header; la configuración de impresoras vivirá en una pestaña interna de Configuración.
 - **Hallazgos:** Orders mezcla cuenta, carrito, cobro, crédito, comanda e impresión; pagos no son transaccionales ni idempotentes; la división no tiene persistencia suficiente; `accounts` y `credits` duplican backend; las impresiones actuales son placeholders o preparación de datos.
 - **Viabilidad:** la arquitectura actual permite una migración gradual mediante servicios, rutas adaptadoras y fachadas frontend. No se recomienda una reescritura total.
 - **Roadmap:** se documentan fases `v3.0.1` a `v3.9.0`, comenzando por transacciones, pruebas y acceso operativo compartido.
@@ -991,3 +991,42 @@ Documentos creados:
 - `docs/contrato-v3.0-compatibilidad-ui.md`
 - `docs/roadmap-v3.0-arquitectura-modular.md`
 - `docs/avance-v3.0.0-auditoria-arquitectura.md`
+
+### v3.0.0 fix1 · Auditoría de Caja, prefacturas y subcuentas
+
+- **Objetivo:** contrastar el código actual con el flujo operativo aprobado donde el personal de atención administra consumo y emite prefacturas, mientras Caja cobra documentos independientes.
+- **Cajero:** se define como rol/capacidad operativa y no como tercer tipo rígido de usuario. Puede existir como usuario exclusivo o combinarse con Salonero/Bartender.
+- **Caja visible:** se aprueba una sección visual Caja accesible desde el header únicamente para usuarios autorizados. Payments continúa como servicio interno.
+- **Cuenta dividida:** la división se realiza desde Ver pedido, una subcuenta a la vez, seleccionando ítems y cantidades y confirmando nombre/total en minimodal.
+- **Continuidad:** pagar una prefactura no libera la mesa ni cierra la cuenta principal; pueden agregarse nuevos productos después del pago.
+- **Cierre:** la mesa solo se libera mediante Finalizar servicio cuando no quedan consumos sin prefacturar ni documentos pendientes.
+- **Hallazgos:** el modelo actual carece de prefacturas, cantidades asignadas, capacidades de Caja, números documentales e idempotencia; además el endpoint actual de pago libera la mesa y no persiste ítems cubiertos.
+- **Roadmap:** se recalibran las fases v3 para implementar primero transacciones/pruebas, capacidades, Cuentas, prefacturas, Caja/Payments, finalización, Kitchen y Printing.
+- **Alcance:** actualización documental; no cambia código operativo ni metadata 3.0.0.
+
+Documentos relacionados:
+
+- `docs/auditoria-v3.0.0-fix1-caja-prefacturas-subcuentas.md`
+- `docs/contrato-v3.0-operacion-caja-prefacturas.md`
+- `docs/contrato-v3.0-compatibilidad-ui.md`
+- `docs/roadmap-v3.0-arquitectura-modular.md`
+- `docs/avance-v3.0.0-fix1-auditoria-caja-prefacturas.md`
+
+### v3.0.0 fix2 · Fuente financiera única y roadmap consolidado
+
+- **Objetivo:** consolidar el proceso MundiPOS 3.0 después de aprobar Caja, prefacturas divididas, continuidad del consumo y la cuenta global como única fuente financiera interna.
+- **Fuente de verdad:** la venta y los reportes financieros se construyen desde la cuenta global de la mesa/banco, conservando cliente principal, zona y responsables de atención.
+- **Documentos parciales:** cada prefactura, recibo o factura parcial puede tener número, pagador, ítems y pagos propios, pero no se registra como una venta independiente adicional.
+- **Conciliación:** una cuenta global de ₡5.000 liquidada mediante pagos de ₡3.000 y ₡2.000 representa una venta consolidada de ₡5.000 y dos movimientos de Caja que suman ₡5.000.
+- **Continuidad:** pagar una subcuenta no cierra la mesa; las cantidades pagadas quedan en historial, se excluyen del consumo disponible y la cuenta puede recibir productos nuevos.
+- **Responsabilidad:** los nombres de los pagadores parciales no reemplazan al cliente principal ni al mesero/salonero/bartender responsable de la cuenta global.
+- **Reportes:** Ventas utiliza una fila por cuenta global conciliada; Caja utiliza una fila por transacción monetaria. Ambos modelos deben conciliar sin doble contabilización.
+- **Roadmap:** se consolidan las fases desde `v3.0.1` hasta `v3.7.0`, incluyendo transacciones, capacidades, cuenta global, prefacturas, Caja, Payments, cierre explícito, Kitchen, Printing, reportes, realtime y limpieza legacy.
+- **Alcance:** actualización documental; no cambia lógica operativa, base de datos, PWA ni metadata `3.0.0`.
+
+Documentos relacionados:
+
+- `docs/README-v3.0.md`
+- `docs/roadmap-v3.0-arquitectura-modular.md`
+- `docs/contrato-v3.0-cuenta-global-fuente-financiera.md`
+- `docs/avance-v3.0.0-fix2-roadmap-financiero-consolidado.md`
