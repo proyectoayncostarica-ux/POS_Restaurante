@@ -5,11 +5,11 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 ## Identidad y versión actual
 
 - **Nombre oficial de la app:** MundiPOS
-- **Versión visible/funcional de la app:** 2.0
-- **Estado de producto:** versión funcional operativa en proceso de estabilización
-- **Línea de trabajo actual:** v2.2.5.0 · Auditoría técnica post-Menú del módulo Cuentas / Orders
+- **Versión visible/funcional de la app:** 3.0
+- **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
+- **Línea de trabajo actual:** v3.0.0 · Auditoría y contrato de arquitectura modular
 
-La versión visible para usuarios, configuración pública y metadata base de la app debe mantenerse como **2.0** hasta que se decida publicar una nueva versión funcional mayor. Las líneas internas **v2.1** y **v2.2** no representan todavía una versión visible para usuarios finales; representan etapas trazables de estabilización.
+Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
 ## Control de versionado del proyecto
 
@@ -22,14 +22,16 @@ Este proyecto se trabajará con versionado trazable por etapa, fase y fix.
 | v1 | Prototipo | Primera versión experimental del POS. |
 | v2.0 | Operativa | Versión funcional con módulos, permisos y operatividad base. |
 | v2.1 | Estabilidad | Etapa cerrada: estabilidad visual, navegación, PWA y base técnica. |
-| v2.2 | Estabilización de Dashboard | Etapa actual: consolidar el Dashboard como panel operativo real para restaurante/bar. |
+| v2.2 | Estabilización funcional | Etapa cerrada: Dashboard, zonas, roles, permisos y normalización base de Menú. |
+| v3.0 | Arquitectura modular | Etapa actual: separar internamente Cuentas, Pagos, Comandas e Impresiones sin cambiar la operación visible. |
 
 ### Fases de estabilidad
 
-Durante las etapas de estabilidad se usará el formato:
+Durante las etapas de estabilidad y modernización se usará el formato:
 
 ```text
 v2.x.x
+v3.x.x
 ```
 
 Ejemplos:
@@ -972,3 +974,20 @@ Archivos modificados:
 - `docs/auditoria-v2.2.5.0-modulo-cuentas-orders.md`
 - `docs/roadmap-v2.2.5-normalizacion-cuentas.md`
 
+### v3.0.0 · Auditoría y contrato de arquitectura modular
+
+- **Cambio de versión:** MundiPOS pasa a versión visible `3.0` y seguimiento técnico `v3.0.0`.
+- **Objetivo:** verificar la viabilidad de separar Cuentas, Pagos, Comandas e Impresiones, manteniendo la UI/UX operativa actual.
+- **Compatibilidad:** el botón `Pagar`, los flujos de crédito, las acciones de comanda y las acciones de reimpresión conservan su ubicación e intención; internamente delegarán a servicios nuevos.
+- **Navegación:** no se crearán módulos visuales principales para Pagos ni Impresiones. La configuración de impresoras vivirá en una pestaña interna de Configuración.
+- **Hallazgos:** Orders mezcla cuenta, carrito, cobro, crédito, comanda e impresión; pagos no son transaccionales ni idempotentes; la división no tiene persistencia suficiente; `accounts` y `credits` duplican backend; las impresiones actuales son placeholders o preparación de datos.
+- **Viabilidad:** la arquitectura actual permite una migración gradual mediante servicios, rutas adaptadoras y fachadas frontend. No se recomienda una reescritura total.
+- **Roadmap:** se documentan fases `v3.0.1` a `v3.9.0`, comenzando por transacciones, pruebas y acceso operativo compartido.
+- **Alcance:** esta fase cambia documentación y metadata de versión; no modifica la lógica operativa.
+
+Documentos creados:
+
+- `docs/auditoria-v3.0.0-arquitectura-modular.md`
+- `docs/contrato-v3.0-compatibilidad-ui.md`
+- `docs/roadmap-v3.0-arquitectura-modular.md`
+- `docs/avance-v3.0.0-auditoria-arquitectura.md`
