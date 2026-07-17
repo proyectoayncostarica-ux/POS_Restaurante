@@ -1,8 +1,8 @@
 # Prompt de continuidad canónico · MundiPOS 3.0
 
-**Actualizado:** 17 de julio de 2026  
-**Estado funcional recuperado:** `v3.2.5`  
-**Próxima fase funcional:** `v3.3.0 · Dominio Kitchen / Comandas`  
+**Actualizado:** 17 de julio de 2026
+**Estado funcional recuperado:** `v3.2.5`
+**Próxima fase funcional:** `v3.3.0 · Dominio Kitchen / Comandas`
 **Repositorio local activo:** `C:\Repos\POS_Restaurante`
 
 > **Uso en un nuevo chat:** adjunta este archivo junto con un ZIP nuevo del repositorio actual y pega la sección **“Prompt listo para usar”** como primer mensaje. Este documento reemplaza el prompt de continuidad anterior. Conserva sus contratos útiles, corrige su estado obsoleto e incorpora la recuperación, normalización y limpieza realizadas el 17 de julio de 2026.
@@ -36,8 +36,8 @@ Trabaja en español. En tareas de PowerShell entrega un solo bloque por turno y 
 
 # 1. Identidad, propósito y repositorios
 
-**Proyecto:** MundiPOS / POS Restaurante  
-**Stack:** Node.js, Express, SQLite, frontend JavaScript vanilla y PWA.  
+**Proyecto:** MundiPOS / POS Restaurante
+**Stack:** Node.js, Express, SQLite, frontend JavaScript vanilla y PWA.
 **Objetivo de MundiPOS 3.0:** separar dominios operativos y financieros sin romper innecesariamente la experiencia existente.
 
 Repositorio activo:
