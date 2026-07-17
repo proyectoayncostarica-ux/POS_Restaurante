@@ -814,14 +814,14 @@ const Dashboard = {
         `;
     },
 
-    // Mostrar detalle de ventas del día
+    // Mostrar una fila por cuenta global conciliada. Las prefacturas y pagos son trazabilidad.
     async mostrarDetalleVentas() {
         try {
             const response = await Utils.request('/dashboard/ventas-detalle');
             const ventasDetalle = response.data;
 
             if (!ventasDetalle || ventasDetalle.length === 0) {
-                Utils.showModal('Ventas del Día', '<p class="text-center">No hay ventas registradas hoy</p>', [
+                Utils.showModal('Ventas globales del día', '<p class="text-center">No hay cuentas globales conciliadas hoy</p>', [
                     { text: 'Cerrar', class: 'btn-light' }
                 ]);
                 return;
@@ -829,170 +829,167 @@ const Dashboard = {
 
             const modalContent = `
                 <div class="ventas-modal-content">
-                    <h3>Desglose Detallado de Ventas del Día</h3>
+                    <h3>Ventas globales del día</h3>
+                    <p class="text-muted">Cada fila representa una cuenta global. Los documentos operativos y los movimientos de Caja no se suman como ventas adicionales.</p>
                     <table class="ventas-detalle-table">
                         <thead>
                             <tr>
+                                <th>Cuenta</th>
                                 <th>Zona</th>
-                                <th>Cliente</th>
-                                <th>Hora de Venta</th>
-                                <th>Total</th>
+                                <th>Cliente principal</th>
+                                <th>Documentos / pagos</th>
+                                <th>Fecha financiera</th>
+                                <th>Total global</th>
                                 <th>Acciones</th>
                             </tr>
                         </thead>
                         <tbody>
-                            ${ventasDetalle.map(venta => {
-                                return `
+                            ${ventasDetalle.map(venta => `
                                 <tr>
+                                    <td>${this.escapeHTML(venta.numero_cuenta || `CTA-${venta.id}`)}</td>
                                     <td>${this.escapeHTML(this.getSeatDisplayLabel(venta, this.getSeatTypeLabel(venta)))}</td>
-                                    <td>${venta.cliente_nombre || 'Cliente anónimo'}</td>
-                                    <td>${Utils.formatDateTime(venta.fecha_venta)}</td>
-                                    <td>₡${Utils.formatNumber(venta.total)}</td>
+                                    <td>${this.escapeHTML(venta.cliente_principal || venta.cliente_nombre || 'Cliente anónimo')}</td>
+                                    <td>${Number(venta.cantidad_documentos || 0)} / ${Number(venta.cantidad_pagos || 0)}</td>
+                                    <td>${Utils.formatDateTime(venta.fecha_financiera || venta.fecha_venta)}</td>
+                                    <td>₡${Utils.formatNumber(venta.total_global || venta.total || 0)}</td>
                                     <td>
-                                        <i class="fas fa-search-plus search-icon" 
-                                           onclick="Dashboard.verDetalleVenta(${venta.id}, '${venta.tipo_asiento}')" 
-                                           title="Ver detalle" style="cursor: pointer; margin-right: 10px;"></i>
-                                        <i class="fas fa-print print-icon" 
-                                           onclick="Dashboard.reimprimirFactura(${venta.id})" 
-                                           title="Reimprimir factura" style="cursor: pointer;"></i>
+                                        <i class="fas fa-search-plus search-icon"
+                                           onclick="Dashboard.verDetalleVenta(${venta.id}, '${venta.tipo_asiento || 'mesa'}')"
+                                           title="Ver cuenta global" style="cursor: pointer; margin-right: 10px;"></i>
+                                        <i class="fas fa-print print-icon"
+                                           onclick="Dashboard.reimprimirFactura(${venta.id})"
+                                           title="Reimprimir" style="cursor: pointer;"></i>
                                     </td>
                                 </tr>
-                                `;
-                            }).join('')}
+                            `).join('')}
                         </tbody>
                     </table>
                 </div>
             `;
 
-            Utils.showModal('Ventas del Día', modalContent, [
-                {
-                    text: 'Cerrar',
-                    class: 'btn-light'
-                }
+            Utils.showModal('Ventas globales del día', modalContent, [
+                { text: 'Cerrar', class: 'btn-light' }
             ]);
         } catch (error) {
-            Utils.showNotification('Error cargando detalle de ventas', 'error');
+            Utils.showNotification('Error cargando el consolidado financiero', 'error');
         }
     },
 
-    // Ver detalle específico de una venta
-async verDetalleVenta(ventaId, tipo) {
-    try {
-        const response = await Utils.request(`/accounts/${ventaId}`);
-        const venta = response.data;
+    renderFinancialDocuments(documents = []) {
+        if (!documents.length) {
+            return '<p class="text-muted">Sin documentos operativos. La cuenta fue liquidada mediante el flujo no dividido.</p>';
+        }
+        return `
+            <table class="table">
+                <thead><tr><th>Documento</th><th>Pagador</th><th>Estado</th><th>Total</th></tr></thead>
+                <tbody>
+                    ${documents.map(document => `
+                        <tr>
+                            <td>${this.escapeHTML(document.numero_documento || '')}</td>
+                            <td>${this.escapeHTML(document.pagador_nombre || 'Sin nombre')}</td>
+                            <td>${this.escapeHTML(document.estado || '')}</td>
+                            <td>₡${Utils.formatNumber(document.total || 0)}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    },
 
-        const nombreZona = this.getSeatDisplayLabel(venta, this.getSeatTypeLabel(venta));
+    renderFinancialMovements(movements = []) {
+        if (!movements.length) {
+            return '<p class="text-muted">No existen movimientos de Caja registrados.</p>';
+        }
+        return `
+            <table class="table">
+                <thead><tr><th>Fecha</th><th>Método</th><th>Monto</th></tr></thead>
+                <tbody>
+                    ${movements.map(movement => `
+                        <tr>
+                            <td>${Utils.formatDateTime(movement.fecha)}</td>
+                            <td>${this.escapeHTML(movement.metodo_pago || '')}</td>
+                            <td>₡${Utils.formatNumber(movement.monto || 0)}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    },
+
+    async showFinancialAccountModal(accountId, modalTitle = 'Cuenta global') {
+        const response = await Utils.request(`/accounts/${accountId}`);
+        const account = response.data;
+        const nombreZona = this.getSeatDisplayLabel(account, this.getSeatTypeLabel(account));
+        const items = Array.isArray(account.items) ? account.items : [];
+        const documents = Array.isArray(account.documentos_operativos) ? account.documentos_operativos : [];
+        const movements = Array.isArray(account.movimientos_caja) ? account.movimientos_caja : [];
 
         const modalContent = `
             <div class="venta-detalle">
-                <h3>Detalle de Venta #${venta.id}</h3>
+                <h3>${this.escapeHTML(account.numero_cuenta || `Cuenta #${account.id}`)}</h3>
                 <div class="venta-info">
+                    <p><strong>Fuente financiera:</strong> Cuenta global</p>
                     <p><strong>Puesto:</strong> ${this.escapeHTML(nombreZona)}</p>
-                    <p><strong>Cliente?:</strong> ${venta.cliente_nombre}</p>
-                    <p><strong>Fecha:</strong> ${Utils.formatDateTime(venta.fecha)}</p>
-                    <p><strong>Total:</strong> ₡${Utils.formatNumber(venta.total)}</p>
+                    <p><strong>Cliente principal:</strong> ${this.escapeHTML(account.cliente_principal || account.cliente_nombre || 'Cliente anónimo')}</p>
+                    <p><strong>Responsable:</strong> ${this.escapeHTML(account.responsable_principal || account.usuario_nombre || 'Sin asignar')}</p>
+                    <p><strong>Fecha financiera:</strong> ${Utils.formatDateTime(account.fecha_financiera || account.fecha)}</p>
+                    <p><strong>Total global:</strong> ₡${Utils.formatNumber(account.total_global || account.total || 0)}</p>
+                    <p><strong>Total pagado:</strong> ₡${Utils.formatNumber(account.total_pagado || 0)}</p>
+                    <p><strong>Saldo:</strong> ₡${Utils.formatNumber(account.saldo_pendiente || 0)}</p>
+                    <p><strong>Observación:</strong> ${this.escapeHTML(account.observacion_financiera || '')}</p>
                 </div>
                 <div class="venta-items">
-                    <h4>Productos:</h4>
+                    <h4>Consumo de la cuenta global</h4>
                     <table class="table">
-                        <thead>
-                            <tr>
-                                <th>Producto</th>
-                                <th>Cantidad</th>
-                                <th>Precio</th>
-                                <th>Subtotal</th>
-                            </tr>
-                        </thead>
+                        <thead><tr><th>Producto</th><th>Cantidad</th><th>Precio</th><th>Subtotal</th></tr></thead>
                         <tbody>
-                            ${venta.items.map(item => `
+                            ${items.map(item => `
                                 <tr>
-                                    <td>${item.producto_nombre}</td>
-                                    <td>${item.cantidad}</td>
-                                    <td>₡${Utils.formatNumber(item.precio)}</td>
-                                    <td>₡${Utils.formatNumber(item.subtotal)}</td>
+                                    <td>${this.escapeHTML(item.producto_nombre || '')}</td>
+                                    <td>${Number(item.cantidad || 0)}</td>
+                                    <td>₡${Utils.formatNumber(item.precio || item.precio_unitario || 0)}</td>
+                                    <td>₡${Utils.formatNumber(item.subtotal || 0)}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
                     </table>
                 </div>
-            </div>
-        `;
-
-        Utils.showModal('Detalle de Venta', modalContent, [
-            {
-                text: 'Reimprimir Factura',
-                class: 'btn-primary',
-                onclick: `Dashboard.reimprimirFactura(${ventaId})`
-            },
-            {
-                text: 'Cerrar',
-                class: 'btn-light'
-            }
-        ]);
-    } catch (error) {
-        Utils.showNotification('Error cargando detalle de venta', 'error');
-    }
-}
-,
-
-    // Ver cuenta específica
-async verCuenta(cuentaId) {
-    try {
-        const response = await Utils.request(`/accounts/${cuentaId}`);
-        const cuenta = response.data;
-
-        const nombreZona = this.getSeatDisplayLabel(cuenta, this.getSeatTypeLabel(cuenta));
-
-        const modalContent = `
-            <div class="cuenta-detalle">
-                <h3>Detalle de Cuenta #${cuenta.id}</h3>
-                <div class="cuenta-info">
-                    <p><strong>Puesto:</strong> ${this.escapeHTML(nombreZona)}</p>
-                    <p><strong>Cliente:</strong> ${cuenta.cliente_nombre}</p>
-                    <p><strong>Fecha:</strong> ${Utils.formatDateTime(cuenta.fecha)}</p>
-                    <p><strong>Total:</strong> ₡${Utils.formatNumber(cuenta.total)}</p>
+                <div class="venta-items">
+                    <h4>Documentos operativos</h4>
+                    ${this.renderFinancialDocuments(documents)}
                 </div>
-                <div class="cuenta-items">
-                    <h4>Productos:</h4>
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>Producto</th>
-                                <th>Cantidad</th>
-                                <th>Precio</th>
-                                <th>Subtotal</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${cuenta.items.map(item => `
-                                <tr>
-                                    <td>${item.producto_nombre}</td>
-                                    <td>${item.cantidad}</td>
-                                    <td>₡${Utils.formatNumber(item.precio)}</td>
-                                    <td>₡${Utils.formatNumber(item.subtotal)}</td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
+                <div class="venta-items">
+                    <h4>Movimientos de Caja</h4>
+                    ${this.renderFinancialMovements(movements)}
                 </div>
             </div>
         `;
 
-        Utils.showModal('Detalle de Cuenta', modalContent, [
+        Utils.showModal(modalTitle, modalContent, [
             {
-                text: 'Reimprimir Factura',
+                text: 'Reimprimir factura',
                 class: 'btn-primary',
-                onclick: `Dashboard.reimprimirFactura(${cuentaId})`
+                onclick: `Dashboard.reimprimirFactura(${accountId})`
             },
-            {
-                text: 'Cerrar',
-                class: 'btn-light'
-            }
+            { text: 'Cerrar', class: 'btn-light' }
         ]);
-    } catch (error) {
-        Utils.showNotification('Error cargando detalle de cuenta', 'error');
-    }
-}, 
+    },
+
+    async verDetalleVenta(ventaId) {
+        try {
+            await this.showFinancialAccountModal(ventaId, 'Detalle financiero consolidado');
+        } catch (error) {
+            Utils.showNotification('Error cargando detalle de venta', 'error');
+        }
+    },
+
+    async verCuenta(cuentaId) {
+        try {
+            await this.showFinancialAccountModal(cuentaId, 'Detalle de cuenta global');
+        } catch (error) {
+            Utils.showNotification('Error cargando detalle de cuenta', 'error');
+        }
+    },
 
     // Reimprimir factura
     async reimprimirFactura(cuentaId) {

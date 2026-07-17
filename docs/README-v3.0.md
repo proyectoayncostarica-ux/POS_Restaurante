@@ -636,3 +636,27 @@ El adaptador de pago normal sin prefacturas ahora liquida solo el saldo vigente 
 `Ver pedido` muestra consumo activo, consumo documentado pendiente e historial liquidado en secciones separadas. Las responsabilidades, el cliente principal y la trazabilidad de la cuenta global se conservan.
 
 La suite automática cuenta con 57 pruebas aprobadas. La siguiente fase construirá el read model financiero consolidado para Dashboard, Caja, reportes y cierre.
+
+## 22. Estado actual · v3.1.5
+
+MundiPOS ya posee una lectura financiera única basada en la cuenta global. Dashboard, Caja y detalle dejan de interpretar cada pago o prefactura como una venta independiente.
+
+La separación canónica es:
+
+```text
+cuenta global          fuente financiera y venta
+prefacturas            documentos operativos por pagador
+pagos                   movimientos individuales de Caja
+```
+
+Una cuenta dividida de ₡5.000, pagada mediante movimientos de ₡3.000 y ₡2.000, genera una sola venta global de ₡5.000. Los dos pagos permanecen visibles en Caja y las dos prefacturas conservan sus nombres de pagador.
+
+El cliente principal y los responsables se leen desde los snapshots de la cuenta global. Los pagadores parciales no sustituyen al cliente registrado al ocupar la mesa ni trasladan la responsabilidad comercial.
+
+Las ventas utilizan la fecha de conciliación; los movimientos de Caja utilizan la fecha individual de pago. Cuando ocurren en fechas diferentes, los totales diarios pueden no coincidir, pero el detalle mantiene la conciliación completa.
+
+Dashboard presenta una fila por cuenta global, y su detalle separa consumo, documentos operativos y movimientos. Caja muestra métricas distintas para ventas globales y movimientos del día.
+
+La tabla legacy `pagos` aún no identifica la prefactura exacta liquidada. Ese vínculo, junto con cajero, idempotencia y estados de pago, se incorporará en `v3.2.0`.
+
+La suite automática cuenta con 62 pruebas aprobadas. La siguiente fase inicia Payments por prefactura.

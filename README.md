@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.1.4 · Continuidad del consumo después de documentos y pagos
+- **Línea de trabajo actual:** v3.1.5 · Read model financiero consolidado
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -1177,3 +1177,23 @@ Documento técnico:
 Documento técnico:
 
 - `docs/avance-v3.1.4-continuidad-consumo.md`
+
+### v3.1.5 · Read model financiero consolidado
+
+- **Objetivo:** consolidar Dashboard, Caja, detalle y estadísticas sobre una sola venta por cuenta global.
+- **Servicio:** `financialReadService` separa cuenta global, documentos operativos y movimientos de Caja sin ejecutar escrituras.
+- **Venta:** una cuenta conciliada produce una sola fila y un solo total financiero, aunque tenga varias prefacturas y pagos.
+- **Trazabilidad:** las prefacturas conservan pagadores y números propios; los pagos continúan como movimientos individuales.
+- **Responsabilidad:** el cliente principal y el responsable comercial provienen de los snapshots de la cuenta global.
+- **Fechas:** ventas usan la fecha de conciliación; movimientos usan la fecha de cada pago. Pueden diferir entre días sin duplicar ingresos.
+- **Continuidad:** si una cuenta con saldo cero recibe nuevos productos, deja de considerarse conciliada hasta liquidar nuevamente el total.
+- **Dashboard:** ventas del día, últimas cuentas y estadísticas se calculan por cuenta global, no por filas de `pagos`.
+- **Caja:** muestra por separado ventas globales, movimientos del día y cuentas pendientes.
+- **API:** se agregan `/api/cash/movements` y `/api/cash/accounts/:id/financial-read`; `/api/accounts/:id` adopta el read model manteniendo compatibilidad.
+- **Limitación temporal:** `pagos` todavía no tiene `prefactura_id`; el vínculo exacto pago-documento llegará con Payments en `v3.2.0`.
+- **Pruebas:** 5 casos financieros y 62 casos totales aprobados sin fallos.
+- **Versión:** visible `3.0`, package y seguimiento interno `3.1.5`.
+
+Documento técnico:
+
+- `docs/avance-v3.1.5-read-model-financiero.md`

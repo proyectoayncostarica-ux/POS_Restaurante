@@ -815,11 +815,26 @@ git commit -m "v3.1.4: mantiene cuentas activas tras pagos parciales"
 
 ## v3.1.5 · Read model financiero consolidado
 
+### Estado
+
+Implementado.
+
 ### Objetivo
 
 Crear una lectura única para Dashboard, reportes, Caja y cierre sin sumar documentos parciales como ventas independientes.
 
-### Lecturas previstas
+### Implementación
+
+```text
+financialReadService
+├── cuenta global consolidada
+├── documentos operativos
+├── movimientos de Caja
+├── resumen por período
+└── estadísticas por fecha financiera
+```
+
+Lecturas expuestas:
 
 ```text
 Cuenta global
@@ -831,22 +846,40 @@ Cantidad de documentos
 Cantidad de pagos
 Estado operativo
 Estado financiero
+Cliente principal
+Responsable principal
+Fecha de conciliación
+Observación financiera
 ```
 
 ### Regla de reportes
 
-- venta: una cuenta global;
+- venta: una cuenta global conciliada;
 - movimientos de Caja: una fila por pago;
-- pagadores parciales: detalle operativo;
+- pagadores parciales: detalle operativo de prefacturas;
 - responsable comercial: snapshot de la cuenta global;
-- fecha financiera principal: conciliación final.
+- fecha de venta: conciliación vigente;
+- fecha de movimiento: fecha individual del pago.
 
-### Criterios de aprobación
+### Resultado validado
 
 - ₡3.000 + ₡2.000 no aparecen como dos ventas adicionales;
-- el total de Caja sí muestra ambos movimientos;
-- ambos reportes concilian con ₡5.000;
-- el cliente principal sigue siendo Juan aunque Pedro pague una parte.
+- Caja muestra ambos movimientos;
+- una cuenta global de ₡5.000 produce una sola venta de ₡5.000;
+- el cliente principal sigue siendo Juan aunque Pedro pague una parte;
+- un pago parcial no crea una venta conciliada;
+- nuevo consumo retira una conciliación temporal hasta el siguiente pago total;
+- 5 pruebas específicas y 62 pruebas totales aprobadas.
+
+### Limitación trasladada a Payments
+
+La tabla legacy `pagos` todavía no tiene `prefactura_id`. El vínculo exacto entre movimiento, prefactura, pagador y cajero se implementará en `v3.2.0`.
+
+### Documento
+
+```text
+docs/avance-v3.1.5-read-model-financiero.md
+```
 
 ### Commit
 

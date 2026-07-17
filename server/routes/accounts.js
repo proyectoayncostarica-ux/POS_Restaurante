@@ -1,5 +1,6 @@
 const express = require("express");
 const database = require("../db/database");
+const financialReadService = require("../services/financialReadService");
 
 const router = express.Router();
 
@@ -18,46 +19,17 @@ router.get("/", async (req, res) => {
     }
 });
 
-// Obtener detalle de un pedido/cuenta específica
+// Obtener detalle financiero consolidado de una cuenta global.
 router.get("/:id", async (req, res) => {
     try {
-        const { id } = req.params;
-        
-        // Obtener información del pedido
-        const pedido = await database.get(`
-            SELECT p.id, p.total, p.fecha, p.estado,
-                   m.numero as mesa_numero, COALESCE(p.cliente_nombre, m.cliente_nombre) as cliente_nombre,
-                   u.nombre as usuario_nombre
-            FROM pedidos p
-            JOIN mesas m ON p.mesa_id = m.id
-            JOIN usuarios u ON p.usuario_id = u.id
-            WHERE p.id = ?
-        `, [id]);
-        
-        if (!pedido) {
-            return res.status(404).json({ error: "Pedido no encontrado" });
-        }
-
-        // Obtener items del pedido
-        const items = await database.all(`
-            SELECT pp.cantidad, pp.precio_unitario as precio, 
-                   (pp.cantidad * pp.precio_unitario) as subtotal,
-                   pr.nombre as producto_nombre, pr.descripcion
-            FROM pedido_productos pp
-            JOIN productos pr ON pp.producto_id = pr.id
-            WHERE pp.pedido_id = ?
-        `, [id]);
-
-        res.json({
-            success: true,
-            data: {
-                ...pedido,
-                items
-            }
-        });
+        const data = await financialReadService.getAccountFinancialRead(req.params.id);
+        res.json({ success: true, data });
     } catch (error) {
-        console.error("Error obteniendo detalle del pedido:", error);
-        res.status(500).json({ error: "Error interno del servidor" });
+        console.error("Error obteniendo detalle financiero de la cuenta global:", error);
+        res.status(error.statusCode || 500).json({
+            error: error.statusCode ? error.message : "Error interno del servidor",
+            code: error.code
+        });
     }
 });
 
