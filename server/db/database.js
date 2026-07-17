@@ -418,8 +418,10 @@ class Database {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 pedido_id INTEGER NOT NULL,
                 prefactura_id INTEGER,
+                credito_id INTEGER,
                 numero_pago TEXT UNIQUE,
                 numero_secuencia INTEGER UNIQUE,
+                naturaleza TEXT NOT NULL DEFAULT 'liquidacion_venta' CHECK(naturaleza IN ('liquidacion_venta', 'cobro_credito')),
                 estado TEXT NOT NULL DEFAULT 'confirmado' CHECK(estado IN ('pendiente', 'confirmado', 'anulado')),
                 metodo_pago TEXT NOT NULL CHECK(metodo_pago IN ('efectivo', 'tarjeta', 'credito')),
                 metodo_pago_v3 TEXT,
@@ -444,6 +446,7 @@ class Database {
                 actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE CASCADE,
                 FOREIGN KEY (prefactura_id) REFERENCES prefacturas (id) ON DELETE RESTRICT,
+                FOREIGN KEY (credito_id) REFERENCES cuentas_credito (id) ON DELETE RESTRICT,
                 FOREIGN KEY (cajero_usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL,
                 FOREIGN KEY (anulado_por_usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
             )`,
@@ -500,14 +503,47 @@ class Database {
 
             `CREATE TABLE IF NOT EXISTS cuentas_credito (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                cliente_nombre TEXT NOT NULL,
-                monto_total REAL NOT NULL,
-                fecha TEXT NOT NULL,
                 pedido_id INTEGER,
-                usuario_origen TEXT,
-                autorizado_por TEXT,
+                prefactura_id INTEGER,
+                pago_apertura_id INTEGER,
+                numero_credito TEXT UNIQUE,
+                numero_secuencia INTEGER UNIQUE,
+                cliente_nombre TEXT NOT NULL,
+                pagador_nombre_snapshot TEXT,
+                cliente_principal_snapshot TEXT,
+                numero_cuenta_snapshot TEXT,
+                numero_documento_snapshot TEXT,
                 mesa TEXT,
-                FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE SET NULL
+                zona_nombre_snapshot TEXT,
+                responsables_snapshot TEXT NOT NULL DEFAULT '[]',
+                monto_original REAL NOT NULL DEFAULT 0,
+                total_abonado REAL NOT NULL DEFAULT 0,
+                saldo_pendiente REAL NOT NULL DEFAULT 0,
+                monto_total REAL NOT NULL,
+                estado TEXT NOT NULL DEFAULT 'pendiente' CHECK(estado IN ('pendiente', 'parcial', 'saldado', 'anulado')),
+                origen TEXT NOT NULL DEFAULT 'paymentservice',
+                usuario_origen TEXT,
+                creado_por_usuario_id INTEGER,
+                creado_por_nombre_snapshot TEXT,
+                autorizado_por_usuario_id INTEGER,
+                autorizado_por TEXT,
+                clave_idempotencia TEXT UNIQUE,
+                solicitud_fingerprint TEXT,
+                observacion TEXT,
+                fecha TEXT NOT NULL,
+                fecha_ultimo_abono TEXT,
+                fecha_saldo TEXT,
+                fecha_anulacion TEXT,
+                motivo_anulacion TEXT,
+                version INTEGER NOT NULL DEFAULT 1,
+                creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(prefactura_id),
+                FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE SET NULL,
+                FOREIGN KEY (prefactura_id) REFERENCES prefacturas (id) ON DELETE RESTRICT,
+                FOREIGN KEY (pago_apertura_id) REFERENCES pagos (id) ON DELETE RESTRICT,
+                FOREIGN KEY (creado_por_usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL,
+                FOREIGN KEY (autorizado_por_usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
             )`,
 
             `CREATE TABLE IF NOT EXISTS creditos (
@@ -519,6 +555,20 @@ class Database {
                 fecha TEXT NOT NULL,
                 autorizado_por TEXT,
                 FOREIGN KEY (cuenta_id) REFERENCES cuentas_credito (id) ON DELETE SET NULL
+            )`,
+
+            `CREATE TABLE IF NOT EXISTS historial_creditos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                credito_id INTEGER NOT NULL,
+                evento TEXT NOT NULL,
+                estado_anterior TEXT,
+                estado_nuevo TEXT,
+                usuario_id INTEGER,
+                usuario_nombre_snapshot TEXT,
+                detalle TEXT,
+                fecha TEXT NOT NULL,
+                FOREIGN KEY (credito_id) REFERENCES cuentas_credito (id) ON DELETE CASCADE,
+                FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
             )`,
 
             `CREATE TABLE IF NOT EXISTS configuracion (
@@ -587,6 +637,8 @@ class Database {
             'CREATE INDEX IF NOT EXISTS idx_prefactura_items_linea ON prefactura_items(pedido_producto_id)',
             'CREATE INDEX IF NOT EXISTS idx_historial_prefacturas_documento ON historial_prefacturas(prefactura_id)',
             'CREATE INDEX IF NOT EXISTS idx_pagos_pedido ON pagos(pedido_id)',
+            'CREATE INDEX IF NOT EXISTS idx_cuentas_credito_pedido ON cuentas_credito(pedido_id)',
+            'CREATE INDEX IF NOT EXISTS idx_historial_creditos_credito ON historial_creditos(credito_id)',
             'CREATE INDEX IF NOT EXISTS idx_mesas_estado ON mesas(estado)',
             'CREATE INDEX IF NOT EXISTS idx_zonas_slug ON zonas(slug)',
             'CREATE INDEX IF NOT EXISTS idx_tipos_puesto_slug ON tipos_puesto(slug)',
@@ -694,6 +746,7 @@ class Database {
         await this.ensureConsumptionLineColumns();
         await this.ensurePreinvoiceSchema();
         await this.ensurePaymentSchema();
+        await this.ensureCreditSchema();
         await this.migrateGlobalAccounts();
         await this.migrateConsumptionLines();
         await this.cleanupOrphanRows();
@@ -898,6 +951,8 @@ class Database {
 
     async ensurePaymentSchema() {
         await this.ensureColumn('pagos', 'prefactura_id', 'INTEGER');
+        await this.ensureColumn('pagos', 'credito_id', 'INTEGER');
+        await this.ensureColumn('pagos', 'naturaleza', "TEXT NOT NULL DEFAULT 'liquidacion_venta'");
         await this.ensureColumn('pagos', 'numero_pago', 'TEXT');
         await this.ensureColumn('pagos', 'numero_secuencia', 'INTEGER');
         await this.ensureColumn('pagos', 'estado', "TEXT NOT NULL DEFAULT 'confirmado'");
@@ -975,6 +1030,10 @@ class Database {
             SET estado = CASE
                     WHEN estado IS NULL OR estado NOT IN ('pendiente', 'confirmado', 'anulado') THEN 'confirmado'
                     ELSE estado
+                END,
+                naturaleza = CASE
+                    WHEN naturaleza IN ('liquidacion_venta', 'cobro_credito') THEN naturaleza
+                    ELSE 'liquidacion_venta'
                 END,
                 metodo_pago_v3 = COALESCE(NULLIF(metodo_pago_v3, ''), metodo_pago),
                 monto_recibido = COALESCE(monto_recibido, monto),
@@ -1069,6 +1128,8 @@ class Database {
 
         await this.run('CREATE INDEX IF NOT EXISTS idx_pagos_pedido ON pagos(pedido_id)');
         await this.run('CREATE INDEX IF NOT EXISTS idx_pagos_prefactura ON pagos(prefactura_id)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_pagos_credito ON pagos(credito_id)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_pagos_naturaleza ON pagos(naturaleza)');
         await this.run('CREATE INDEX IF NOT EXISTS idx_pagos_estado ON pagos(estado)');
         await this.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_pagos_numero_pago ON pagos(numero_pago)');
         await this.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_pagos_numero_secuencia ON pagos(numero_secuencia)');
@@ -1082,6 +1143,159 @@ class Database {
             await this.run(`
                 INSERT OR REPLACE INTO configuracion (clave, valor, version_app)
                 VALUES ('v3_payment_schema_ready', ?, ?)
+            `, [new Date().toISOString(), APP_VERSION]);
+        }
+    }
+
+    async ensureCreditSchema() {
+        const creditColumns = [
+            ['prefactura_id', 'INTEGER'],
+            ['pago_apertura_id', 'INTEGER'],
+            ['numero_credito', 'TEXT'],
+            ['numero_secuencia', 'INTEGER'],
+            ['pagador_nombre_snapshot', 'TEXT'],
+            ['cliente_principal_snapshot', 'TEXT'],
+            ['numero_cuenta_snapshot', 'TEXT'],
+            ['numero_documento_snapshot', 'TEXT'],
+            ['zona_nombre_snapshot', 'TEXT'],
+            ['responsables_snapshot', "TEXT NOT NULL DEFAULT '[]'"],
+            ['monto_original', 'REAL NOT NULL DEFAULT 0'],
+            ['total_abonado', 'REAL NOT NULL DEFAULT 0'],
+            ['saldo_pendiente', 'REAL NOT NULL DEFAULT 0'],
+            ['estado', "TEXT NOT NULL DEFAULT 'pendiente'"],
+            ['origen', "TEXT NOT NULL DEFAULT 'paymentservice'"],
+            ['creado_por_usuario_id', 'INTEGER'],
+            ['creado_por_nombre_snapshot', 'TEXT'],
+            ['autorizado_por_usuario_id', 'INTEGER'],
+            ['clave_idempotencia', 'TEXT'],
+            ['solicitud_fingerprint', 'TEXT'],
+            ['observacion', 'TEXT'],
+            ['fecha_ultimo_abono', 'TEXT'],
+            ['fecha_saldo', 'TEXT'],
+            ['fecha_anulacion', 'TEXT'],
+            ['motivo_anulacion', 'TEXT'],
+            ['version', 'INTEGER NOT NULL DEFAULT 1'],
+            ['creado_en', 'TEXT'],
+            ['actualizado_en', 'TEXT']
+        ];
+        for (const [column, definition] of creditColumns) {
+            await this.ensureColumn('cuentas_credito', column, definition);
+        }
+
+        await this.run(`CREATE TABLE IF NOT EXISTS historial_creditos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            credito_id INTEGER NOT NULL,
+            evento TEXT NOT NULL,
+            estado_anterior TEXT,
+            estado_nuevo TEXT,
+            usuario_id INTEGER,
+            usuario_nombre_snapshot TEXT,
+            detalle TEXT,
+            fecha TEXT NOT NULL,
+            FOREIGN KEY (credito_id) REFERENCES cuentas_credito (id) ON DELETE CASCADE,
+            FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
+        )`);
+
+        await this.run(`
+            INSERT OR IGNORE INTO secuencias_documentales (
+                tipo_documento, prefijo, longitud, ultimo_numero,
+                version, creado_en, actualizado_en
+            ) VALUES ('credito', 'CR', 8, 0, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `);
+
+        await this.run(`
+            UPDATE cuentas_credito
+            SET monto_original = CASE
+                    WHEN COALESCE(monto_original, 0) > 0 THEN monto_original
+                    ELSE COALESCE(monto_total, 0) + COALESCE((
+                        SELECT SUM(pc.monto_pagado)
+                        FROM pagos_creditos pc
+                        WHERE pc.credito_id = cuentas_credito.id
+                    ), 0)
+                END,
+                total_abonado = CASE
+                    WHEN COALESCE(total_abonado, 0) > 0 THEN total_abonado
+                    ELSE COALESCE((
+                        SELECT SUM(pc.monto_pagado)
+                        FROM pagos_creditos pc
+                        WHERE pc.credito_id = cuentas_credito.id
+                    ), 0)
+                END,
+                saldo_pendiente = CASE
+                    WHEN saldo_pendiente IS NULL OR saldo_pendiente < 0 THEN MAX(0, COALESCE(monto_total, 0))
+                    WHEN saldo_pendiente = 0 AND COALESCE(monto_total, 0) > 0 THEN monto_total
+                    ELSE saldo_pendiente
+                END,
+                estado = CASE
+                    WHEN estado IN ('pendiente', 'parcial', 'saldado', 'anulado') THEN estado
+                    WHEN COALESCE(monto_total, 0) <= 0 THEN 'saldado'
+                    WHEN COALESCE((SELECT SUM(pc.monto_pagado) FROM pagos_creditos pc WHERE pc.credito_id = cuentas_credito.id), 0) > 0 THEN 'parcial'
+                    ELSE 'pendiente'
+                END,
+                origen = CASE
+                    WHEN origen IS NULL OR TRIM(origen) = '' THEN 'legacy'
+                    ELSE origen
+                END,
+                pagador_nombre_snapshot = COALESCE(NULLIF(pagador_nombre_snapshot, ''), cliente_nombre),
+                cliente_principal_snapshot = COALESCE(
+                    NULLIF(cliente_principal_snapshot, ''),
+                    (SELECT COALESCE(p.cliente_principal_snapshot, p.cliente_nombre) FROM pedidos p WHERE p.id = cuentas_credito.pedido_id),
+                    cliente_nombre
+                ),
+                numero_cuenta_snapshot = COALESCE(
+                    NULLIF(numero_cuenta_snapshot, ''),
+                    (SELECT p.numero_cuenta FROM pedidos p WHERE p.id = cuentas_credito.pedido_id)
+                ),
+                numero_documento_snapshot = COALESCE(
+                    NULLIF(numero_documento_snapshot, ''),
+                    (SELECT pf.numero_documento FROM prefacturas pf WHERE pf.id = cuentas_credito.prefactura_id)
+                ),
+                creado_por_nombre_snapshot = COALESCE(NULLIF(creado_por_nombre_snapshot, ''), usuario_origen, 'Migración legacy'),
+                autorizado_por = COALESCE(NULLIF(autorizado_por, ''), 'Migración legacy'),
+                responsables_snapshot = COALESCE(NULLIF(responsables_snapshot, ''), '[]'),
+                version = CASE WHEN version IS NULL OR version < 1 THEN 1 ELSE version END,
+                creado_en = COALESCE(creado_en, fecha, CURRENT_TIMESTAMP),
+                actualizado_en = COALESCE(actualizado_en, fecha, CURRENT_TIMESTAMP)
+        `);
+
+        const sequenceRow = await this.get(`
+            SELECT ultimo_numero FROM secuencias_documentales WHERE tipo_documento = 'credito'
+        `);
+        const maxExisting = await this.get(`
+            SELECT COALESCE(MAX(numero_secuencia), 0) AS maximo FROM cuentas_credito
+        `);
+        let nextNumber = Math.max(Number(sequenceRow?.ultimo_numero || 0), Number(maxExisting?.maximo || 0));
+        const unnumbered = await this.all(`
+            SELECT id FROM cuentas_credito
+            WHERE numero_secuencia IS NULL OR numero_credito IS NULL OR TRIM(numero_credito) = ''
+            ORDER BY id
+        `);
+        for (const credit of unnumbered) {
+            nextNumber += 1;
+            await this.run(`
+                UPDATE cuentas_credito
+                SET numero_secuencia = ?, numero_credito = ?
+                WHERE id = ?
+            `, [nextNumber, `CR-${String(nextNumber).padStart(8, '0')}`, credit.id]);
+        }
+        await this.run(`
+            UPDATE secuencias_documentales
+            SET ultimo_numero = ?, actualizado_en = CURRENT_TIMESTAMP,
+                version = COALESCE(version, 1) + 1
+            WHERE tipo_documento = 'credito' AND ultimo_numero < ?
+        `, [nextNumber, nextNumber]);
+
+        await this.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_cuentas_credito_numero ON cuentas_credito(numero_credito)');
+        await this.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_cuentas_credito_secuencia ON cuentas_credito(numero_secuencia)');
+        await this.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_cuentas_credito_prefactura_unique ON cuentas_credito(prefactura_id) WHERE prefactura_id IS NOT NULL');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_cuentas_credito_pedido ON cuentas_credito(pedido_id)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_cuentas_credito_estado ON cuentas_credito(estado)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_historial_creditos_credito ON historial_creditos(credito_id)');
+
+        if (await this.tableExists('configuracion')) {
+            await this.run(`
+                INSERT OR REPLACE INTO configuracion (clave, valor, version_app)
+                VALUES ('v3_credit_schema_ready', ?, ?)
             `, [new Date().toISOString(), APP_VERSION]);
         }
     }
@@ -1409,11 +1623,16 @@ class Database {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             pedido_id INTEGER NOT NULL,
             prefactura_id INTEGER,
+            credito_id INTEGER,
             numero_pago TEXT UNIQUE,
             numero_secuencia INTEGER UNIQUE,
+            naturaleza TEXT NOT NULL DEFAULT 'liquidacion_venta' CHECK(naturaleza IN ('liquidacion_venta', 'cobro_credito')),
             estado TEXT NOT NULL DEFAULT 'confirmado' CHECK(estado IN ('pendiente', 'confirmado', 'anulado')),
             metodo_pago TEXT NOT NULL CHECK(metodo_pago IN ('efectivo', 'tarjeta', 'credito')),
+            metodo_pago_v3 TEXT,
             monto REAL NOT NULL CHECK(monto > 0),
+            monto_recibido REAL,
+            vuelto REAL NOT NULL DEFAULT 0,
             subtotal REAL,
             servicio REAL NOT NULL DEFAULT 0,
             porcentaje_servicio REAL,
@@ -1432,11 +1651,13 @@ class Database {
             actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE CASCADE,
             FOREIGN KEY (prefactura_id) REFERENCES prefacturas (id) ON DELETE RESTRICT,
+            FOREIGN KEY (credito_id) REFERENCES cuentas_credito (id) ON DELETE RESTRICT,
             FOREIGN KEY (cajero_usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL,
             FOREIGN KEY (anulado_por_usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
         )`, [
-            'id', 'pedido_id', 'prefactura_id', 'numero_pago', 'numero_secuencia',
-            'estado', 'metodo_pago', 'monto', 'subtotal', 'servicio',
+            'id', 'pedido_id', 'prefactura_id', 'credito_id', 'numero_pago', 'numero_secuencia',
+            'naturaleza', 'estado', 'metodo_pago', 'metodo_pago_v3', 'monto',
+            'monto_recibido', 'vuelto', 'subtotal', 'servicio',
             'porcentaje_servicio', 'aplica_servicio', 'referencia',
             'cajero_usuario_id', 'cajero_nombre_snapshot', 'pagador_nombre_snapshot',
             'fecha', 'fecha_anulacion', 'anulado_por_usuario_id',
@@ -1446,15 +1667,60 @@ class Database {
 
         await this.rebuildTable('cuentas_credito', `CREATE TABLE cuentas_credito_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cliente_nombre TEXT NOT NULL,
-            monto_total REAL NOT NULL,
-            fecha TEXT NOT NULL,
             pedido_id INTEGER,
-            usuario_origen TEXT,
-            autorizado_por TEXT,
+            prefactura_id INTEGER,
+            pago_apertura_id INTEGER,
+            numero_credito TEXT UNIQUE,
+            numero_secuencia INTEGER UNIQUE,
+            cliente_nombre TEXT NOT NULL,
+            pagador_nombre_snapshot TEXT,
+            cliente_principal_snapshot TEXT,
+            numero_cuenta_snapshot TEXT,
+            numero_documento_snapshot TEXT,
             mesa TEXT,
-            FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE SET NULL
-        )`, ['id', 'cliente_nombre', 'monto_total', 'fecha', 'pedido_id', 'usuario_origen', 'autorizado_por', 'mesa']);
+            zona_nombre_snapshot TEXT,
+            responsables_snapshot TEXT NOT NULL DEFAULT '[]',
+            monto_original REAL NOT NULL DEFAULT 0,
+            total_abonado REAL NOT NULL DEFAULT 0,
+            saldo_pendiente REAL NOT NULL DEFAULT 0,
+            monto_total REAL NOT NULL,
+            estado TEXT NOT NULL DEFAULT 'pendiente',
+            origen TEXT NOT NULL DEFAULT 'paymentservice',
+            usuario_origen TEXT,
+            creado_por_usuario_id INTEGER,
+            creado_por_nombre_snapshot TEXT,
+            autorizado_por_usuario_id INTEGER,
+            autorizado_por TEXT,
+            clave_idempotencia TEXT UNIQUE,
+            solicitud_fingerprint TEXT,
+            observacion TEXT,
+            fecha TEXT NOT NULL,
+            fecha_ultimo_abono TEXT,
+            fecha_saldo TEXT,
+            fecha_anulacion TEXT,
+            motivo_anulacion TEXT,
+            version INTEGER NOT NULL DEFAULT 1,
+            creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(prefactura_id),
+            FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE SET NULL,
+            FOREIGN KEY (prefactura_id) REFERENCES prefacturas (id) ON DELETE RESTRICT,
+            FOREIGN KEY (pago_apertura_id) REFERENCES pagos (id) ON DELETE RESTRICT,
+            FOREIGN KEY (creado_por_usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL,
+            FOREIGN KEY (autorizado_por_usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
+        )`, [
+            'id', 'pedido_id', 'prefactura_id', 'pago_apertura_id',
+            'numero_credito', 'numero_secuencia', 'cliente_nombre',
+            'pagador_nombre_snapshot', 'cliente_principal_snapshot',
+            'numero_cuenta_snapshot', 'numero_documento_snapshot', 'mesa',
+            'zona_nombre_snapshot', 'responsables_snapshot', 'monto_original',
+            'total_abonado', 'saldo_pendiente', 'monto_total', 'estado', 'origen',
+            'usuario_origen', 'creado_por_usuario_id', 'creado_por_nombre_snapshot',
+            'autorizado_por_usuario_id', 'autorizado_por', 'clave_idempotencia',
+            'solicitud_fingerprint', 'observacion', 'fecha', 'fecha_ultimo_abono',
+            'fecha_saldo', 'fecha_anulacion', 'motivo_anulacion', 'version',
+            'creado_en', 'actualizado_en'
+        ]);
 
         await this.rebuildTable('creditos', `CREATE TABLE creditos_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

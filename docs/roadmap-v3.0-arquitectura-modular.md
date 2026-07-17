@@ -1291,7 +1291,9 @@ git commit -m "v3.2.3: agrega efectivo tarjeta vuelto y pagos mixtos"
 
 ---
 
-## v3.2.4 · Integración de créditos con Payments
+## v3.2.4 · Integración de créditos con Payments ✅
+
+**Estado: implementada y validada.**
 
 ### Objetivo
 
@@ -1299,13 +1301,15 @@ Consolidar el crédito dentro del modelo financiero sin eliminar la pantalla vis
 
 ### Cambios previstos
 
-- un documento puede trasladarse a crédito con autorización;
+- un documento puede trasladarse a crédito con autorización administrativa y número `CR-########`;
 - `creditService` usa la cuenta global y la prefactura;
-- abonos pasan por Payments;
-- consolidación de `accounts.js` y `credits.js` backend;
+- abonos en efectivo, tarjeta y mixtos pasan por Payments como `cobro_credito`;
+- consolidación de `accounts.js` y `credits.js` backend mediante `creditService`;
 - adaptación gradual del frontend;
 - historial y documentos de abono;
-- rutas duplicadas deprecadas después de migrar consumidores.
+- rutas duplicadas conservadas como adaptadores; creación manual y eliminación física bloqueadas.
+- `pagos.naturaleza` separa liquidación de venta y cobro de cartera;
+- la mesa permanece ocupada hasta la finalización explícita.
 
 ### Criterios de aprobación
 

@@ -2,6 +2,7 @@ const database = require('../db/database');
 const preinvoiceService = require('./preinvoiceService');
 const paymentService = require('./paymentService');
 const financialReadService = require('./financialReadService');
+const creditService = require('./creditService');
 const { ValidationError, NotFoundError } = require('../errors/domainError');
 const { addMoney, roundMoney, toMinorUnits } = require('../utils/money');
 
@@ -68,6 +69,7 @@ class CashReadService {
         this.preinvoiceService = options.preinvoiceService || preinvoiceService;
         this.paymentService = options.paymentService || paymentService;
         this.financialReadService = options.financialReadService || financialReadService;
+        this.creditService = options.creditService || creditService;
     }
 
     buildQueueFilter(filters = {}) {
@@ -328,10 +330,18 @@ class CashReadService {
             throw new ValidationError('ID de prefactura inválido', { preinvoiceId });
         }
         const document = await this.preinvoiceService.getPreinvoice(id);
-        const [payments, account] = await Promise.all([
+        const [payments, account, creditRow] = await Promise.all([
             this.paymentService.listByPreinvoice(id),
-            this.financialReadService.getAccountFinancialRead(document.pedido_id)
+            this.financialReadService.getAccountFinancialRead(document.pedido_id),
+            this.db.get(`
+                SELECT id
+                FROM cuentas_credito
+                WHERE prefactura_id = ? AND estado <> 'anulado'
+                ORDER BY id DESC
+                LIMIT 1
+            `, [id])
         ]);
+        const credit = creditRow ? await this.creditService.getCredit(creditRow.id) : null;
         const confirmed = payments.filter(payment => payment.estado === 'confirmado');
         const voided = payments.filter(payment => payment.estado === 'anulado');
         const confirmedTotal = confirmed.reduce((sum, payment) => addMoney(sum, payment.monto), 0);
@@ -367,10 +377,17 @@ class CashReadService {
                 cuenta_dividida: divided
             },
             pagos: payments,
+            credito: credit,
             acciones: {
                 puede_cobrar: ['emitida', 'parcial'].includes(document.estado)
                     && balance > 0
+                    && !credit
                     && ['abierta', 'finalizando'].includes(account.estado_operativo),
+                puede_trasladar_credito: ['emitida', 'parcial'].includes(document.estado)
+                    && balance > 0
+                    && !credit
+                    && ['abierta', 'finalizando'].includes(account.estado_operativo),
+                puede_abonar_credito: Boolean(credit?.acciones?.puede_abonar),
                 puede_reimprimir: document.estado !== 'anulada',
                 puede_reversar: confirmed.length > 0,
                 requiere_finalizacion_explicita: account.estado_operativo === 'abierta'

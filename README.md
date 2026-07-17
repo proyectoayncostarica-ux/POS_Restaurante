@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.2.3 · Efectivo, vuelto, tarjeta y pagos mixtos
+- **Línea de trabajo actual:** v3.2.4 · Créditos integrados con Payments
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -1331,3 +1331,20 @@ Archivos principales:
 - `docs/avance-v3.2.3-medios-pago.md`
 
 La siguiente fase es `v3.2.4 · Créditos integrados con Payments`.
+
+
+## 28. Créditos integrados con Payments · v3.2.4
+
+Los créditos nacen exclusivamente de una prefactura emitida y autorizada desde Caja. Cada deuda recibe `CR-########`, queda enlazada a la misma cuenta global y conserva pagador, cliente principal, mesa/banco, zona, responsables y administrador autorizador.
+
+Formalizar el crédito liquida operativamente la prefactura mediante un movimiento `PG-########` de naturaleza `liquidacion_venta` y método `credito`. No genera entrada de efectivo, no duplica la venta y no libera la mesa. Los abonos posteriores pasan por Payments como `cobro_credito`, admiten efectivo, tarjeta o mixto y sí aparecen como movimientos reales de Caja.
+
+Las rutas duplicadas de `accounts.js` y `credits.js` delegan en `creditService`. Se bloquean la creación manual de deuda, el flujo legacy de Orders que liberaba la mesa y la eliminación física de créditos.
+
+La pantalla Créditos se conserva como módulo visible de cartera y permite consultar la deuda y registrar abonos. La cuenta global sigue siendo la única fuente financiera.
+
+Documento técnico:
+
+- `docs/avance-v3.2.4-creditos-payments.md`
+
+La siguiente fase es `v3.2.5 · Finalización del servicio y liberación integral`.

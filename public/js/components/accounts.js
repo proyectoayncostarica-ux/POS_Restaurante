@@ -1,474 +1,253 @@
-// Accounts Component
+// Créditos · v3.2.4
+// Vista canónica de deudas formalizadas desde prefacturas. Los abonos pasan por Payments.
 const Accounts = {
     accounts: [],
     summary: null,
+    selected: null,
+    loading: false,
 
-    // Cargar datos de cuentas
+    has(capability) {
+        return typeof Access !== 'undefined' && Access.has(capability);
+    },
+
     async load() {
+        const section = document.getElementById('accounts-section');
+        if (!section) return;
+        if (!this.has('cash.access')) {
+            section.innerHTML = '<div class="cash-foundation-notice is-warning"><i class="fas fa-lock"></i><div><strong>Acceso restringido</strong><p>Se requiere la capacidad cash.access para consultar créditos.</p></div></div>';
+            return;
+        }
+        this.loading = true;
+        this.render();
         try {
             const [accountsResponse, summaryResponse] = await Promise.all([
-                Utils.request('/accounts'),
+                Utils.request('/accounts?estado=activos'),
                 Utils.request('/accounts/summary/stats')
             ]);
-            
-            this.accounts = accountsResponse.data;
-            this.summary = summaryResponse.data;
-            this.render();
+            this.accounts = Array.isArray(accountsResponse.data) ? accountsResponse.data : [];
+            this.summary = summaryResponse.data || null;
         } catch (error) {
-            console.error('Error cargando cuentas:', error);
-            Utils.showNotification('Error cargando datos de cuentas', 'error');
+            Utils.showNotification(error.message || 'No se pudieron cargar los créditos.', 'error');
+        } finally {
+            this.loading = false;
+            this.render();
         }
     },
 
-    // Renderizar sección de cuentas
     render() {
         const section = document.getElementById('accounts-section');
-        
+        if (!section) return;
         section.innerHTML = `
-            <div class="section-header">
-                <h2>Gestión de Créditos</h2>
-                <p>Administra los créditos pendientes de pago</p>
-            </div>
-
-            <div class="mb-3">
-                <!-- Línea 1: botones -->
-                <div class="d-flex gap-2 flex-wrap mb-2">
-                    <button class="btn btn-success" onclick="Accounts.showCreateAccountModal()">
-                        <i class="fas fa-plus"></i> Nuevo Crédito
-                    </button>
-                    <button class="btn btn-secondary" onclick="Accounts.load()">
-                        <i class="fas fa-sync"></i> Actualizar
-                    </button>
+            <div class="section-header accounts-header">
+                <div>
+                    <span class="cash-eyebrow">Cartera vinculada a cuentas globales</span>
+                    <h2><i class="fas fa-file-invoice-dollar"></i> Créditos</h2>
+                    <p>Los créditos se crean únicamente desde prefacturas autorizadas en Caja. Esta vista registra abonos sin duplicar la venta.</p>
                 </div>
-
-                <!-- Línea 2: resumen -->
-                <div class="accounts-summary">
-                    ${this.renderSummary()}
-                </div>
+                <button class="btn btn-light" onclick="Accounts.load()" ${this.loading ? 'disabled' : ''}>
+                    <i class="fas fa-rotate ${this.loading ? 'fa-spin' : ''}"></i> Actualizar
+                </button>
             </div>
-
-
-            <div class="accounts-content">
-                ${this.renderAccountsTable()}
-            </div>
-
+            ${this.renderSummary()}
+            <div class="accounts-content">${this.renderAccountsTable()}</div>
             ${this.renderClientSummary()}
+            <div class="cash-foundation-notice">
+                <i class="fas fa-scale-balanced"></i>
+                <div><strong>Una sola fuente financiera</strong><p>CR-######## representa una deuda derivada de una prefactura. La venta continúa perteneciendo únicamente a CTA-########.</p></div>
+            </div>
         `;
     },
 
-    // Renderizar resumen
     renderSummary() {
-        if (!this.summary) return '';
-        
+        const summary = this.summary || { total_cuentas: 0, monto_total_pendiente: 0 };
         return `
-            <div class="d-flex gap-3">
-                <span class="badge badge-info">Total Créditos: ${this.summary.total_cuentas}</span>
-                <span class="badge badge-warning">Monto Pendiente: ${Utils.formatCurrency(this.summary.monto_total_pendiente)}</span>
+            <div class="cash-summary-grid accounts-credit-summary">
+                <article><span>Créditos activos</span><strong>${Number(summary.total_cuentas || 0)}</strong></article>
+                <article><span>Saldo por cobrar</span><strong>${Utils.formatCurrency(Number(summary.monto_total_pendiente || 0))}</strong></article>
+                <article><span>Origen</span><strong>Prefacturas</strong></article>
             </div>
         `;
     },
 
-    // Renderizar tabla de cuentas
-renderAccountsTable() {
-    if (this.accounts.length === 0) {
+    renderAccountsTable() {
+        if (this.loading && !this.accounts.length) {
+            return '<div class="cash-panel-loading"><i class="fas fa-spinner fa-spin"></i><span>Cargando créditos…</span></div>';
+        }
+        if (!this.accounts.length) {
+            return '<div class="cash-detail-empty"><i class="fas fa-circle-check"></i><strong>No hay créditos pendientes</strong><span>Los créditos autorizados desde Caja aparecerán aquí.</span></div>';
+        }
         return `
-            <div class="table-container">
-                <p class="text-center">No hay créditos pendientes</p>
-            </div>
-        `;
-    }
-
-    return `
-        <div class="table-container">
-            <table class="table">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Cliente</th>
-                        <th>Monto Pendiente</th>
-                        <th>Fecha</th>
-                        <th>Acciones</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${this.accounts.map(account => `
+            <div class="table-responsive">
+                <table class="table credit-table">
+                    <thead><tr><th>Crédito</th><th>Cuenta / documento</th><th>Deudor</th><th>Original</th><th>Abonado</th><th>Saldo</th><th>Estado</th><th>Acciones</th></tr></thead>
+                    <tbody>${this.accounts.map(account => `
                         <tr>
-                            <td><strong>#${account.id}</strong></td>
-                            <td>${account.cliente_nombre}</td>
-                            <td>${Utils.formatCurrency(account.monto_total)}</td>
-                            <td>${Utils.formatDate(account.fecha)}</td>
-                            <td>
-                                <div class="d-flex gap-1">
-                                    <button class="btn btn-primary btn-sm" onclick="Accounts.showPaymentModal(${account.id})">
-                                        <i class="fas fa-dollar-sign"></i> Abonar
-                                    </button>
-                                    <button class="btn btn-success btn-sm" onclick="Accounts.showFullPaymentModal(${account.id})">
-                                        <i class="fas fa-check"></i> Pagar Todo
-                                    </button>
-
-                                    ${currentUser.tipo === 'administrador' ? `
-                                        <button class="btn btn-danger btn-sm" onclick="Accounts.deleteAccount(${account.id})">
-                                            <i class="fas fa-trash"></i>
-                                        </button>
-                                    ` : ''}
-                                </div>
-                            </td>
+                            <td><strong>${this.escape(account.numero_credito || `CR-${account.id}`)}</strong><small>${Utils.formatDate(account.fecha)}</small></td>
+                            <td><strong>${this.escape(account.numero_cuenta_snapshot || '')}</strong><small>${this.escape(account.numero_documento_snapshot || '')}</small></td>
+                            <td><strong>${this.escape(account.cliente_nombre || '')}</strong><small>${this.escape(account.cliente_principal_snapshot || '')}</small></td>
+                            <td>${Utils.formatCurrency(Number(account.monto_original || 0))}</td>
+                            <td>${Utils.formatCurrency(Number(account.total_abonado || 0))}</td>
+                            <td><strong>${Utils.formatCurrency(Number(account.saldo_pendiente || 0))}</strong></td>
+                            <td><span class="cash-document-status ${account.estado === 'parcial' ? 'is-partial' : 'is-issued'}">${this.escape(account.estado || '')}</span></td>
+                            <td><div class="d-flex gap-1">
+                                <button class="btn btn-light btn-sm" onclick="Accounts.showDetail(${Number(account.id)})"><i class="fas fa-eye"></i> Ver</button>
+                                ${this.has('cash.collect') ? `<button class="btn btn-success btn-sm" onclick="Accounts.showPaymentModal(${Number(account.id)})"><i class="fas fa-money-bill-transfer"></i> Abonar</button>` : ''}
+                            </div></td>
                         </tr>
-                    `).join('')}
-                </tbody>
-                <tfoot>
-                    <tr>
-                        <th colspan="2">Total Pendiente</th>
-                        <th>${Utils.formatCurrency(this.accounts.reduce((sum, acc) => sum + acc.monto_total, 0))}</th>
-                        <th colspan="2"></th>
-                    </tr>
-                </tfoot>
-            </table>
-        </div>
-    `;
-},
+                    `).join('')}</tbody>
+                </table>
+            </div>
+        `;
+    },
 
-
-    // Renderizar resumen por cliente
     renderClientSummary() {
-        if (!this.summary || !this.summary.cuentas_por_cliente || this.summary.cuentas_por_cliente.length === 0) {
-            return '';
-        }
-
+        const rows = this.summary?.cuentas_por_cliente;
+        if (!Array.isArray(rows) || !rows.length) return '';
         return `
-            <div class="client-summary mt-4">
-                <h3>Resumen por Cliente</h3>
-                <div class="table-container">
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>Cliente</th>
-                                <th>Número de Cuentas</th>
-                                <th>Monto Total</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${this.summary.cuentas_por_cliente.map(client => `
-                                <tr>
-                                    <td><strong>${client.cliente_nombre}</strong></td>
-                                    <td>${client.num_cuentas}</td>
-                                    <td>${Utils.formatCurrency(client.monto_total)}</td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+            <section class="client-summary mt-4">
+                <h3>Saldo por cliente pagador</h3>
+                <div class="table-responsive"><table class="table">
+                    <thead><tr><th>Cliente</th><th>Créditos</th><th>Saldo</th></tr></thead>
+                    <tbody>${rows.map(row => `<tr><td>${this.escape(row.cliente_nombre)}</td><td>${Number(row.num_cuentas || 0)}</td><td>${Utils.formatCurrency(Number(row.monto_total || 0))}</td></tr>`).join('')}</tbody>
+                </table></div>
+            </section>
         `;
     },
 
-    // Mostrar modal para crear cuenta
-    showCreateAccountModal() {
-        Utils.showModal('Nuevo Crédito', `
-            <form id="create-account-form">
-                <div class="form-group">
-                    <label for="cliente-nombre">Nombre del Cliente *</label>
-                    <input type="text" id="cliente-nombre" name="cliente_nombre" required>
-                </div>
-                <div class="form-group">
-                    <label for="monto-total">Monto Total *</label>
-                    <input type="number" id="monto-total" name="monto_total" step="0.01" min="0.01" required>
-                </div>
-                <div class="form-group">
-                    <small class="text-muted">
-                        Esta cuenta se agregará como deuda pendiente del cliente.
-                    </small>
-                </div>
-            </form>
-        `, [
-            {
-                text: 'Cancelar',
-                class: 'btn-light'
-            },
-            {
-                text: 'Crear Crédito',
-                class: 'btn-success',
-                onclick: 'Accounts.createAccount()'
-            }
-        ]);
-    },
-
-    // Crear cuenta
-    async createAccount() {
-        const form = document.getElementById('create-account-form');
-        if (!Utils.validateForm(form)) {
-            Utils.showNotification('Por favor complete todos los campos requeridos', 'warning');
-            return;
-        }
-
-        const formData = new FormData(form);
-        const data = {
-            cliente_nombre: formData.get('cliente_nombre'),
-            monto_total: parseFloat(formData.get('monto_total'))
-        };
-
+    async showDetail(id) {
         try {
-            await Utils.request('/accounts', {
-                method: 'POST',
-                body: JSON.stringify(data)
-            });
-
-            Utils.hideModal();
-            Utils.showNotification('Crédito creado exitosamente', 'success');
-            this.load();
+            const response = await Utils.request(`/accounts/credit/${Number(id)}`);
+            const credit = response.data;
+            this.selected = credit;
+            const payments = Array.isArray(credit.abonos) ? credit.abonos : [];
+            Utils.showModal(`Crédito ${this.escape(credit.numero_credito)}`, `
+                <div class="credit-detail-grid">
+                    <div><small>Cuenta global</small><strong>${this.escape(credit.numero_cuenta_snapshot || '')}</strong></div>
+                    <div><small>Prefactura</small><strong>${this.escape(credit.numero_documento_snapshot || '')}</strong></div>
+                    <div><small>Deudor</small><strong>${this.escape(credit.cliente_nombre || '')}</strong></div>
+                    <div><small>Autorizado por</small><strong>${this.escape(credit.autorizado_por || '')}</strong></div>
+                    <div><small>Monto original</small><strong>${Utils.formatCurrency(Number(credit.monto_original || 0))}</strong></div>
+                    <div><small>Saldo</small><strong>${Utils.formatCurrency(Number(credit.saldo_pendiente || 0))}</strong></div>
+                </div>
+                <h4>Abonos</h4>
+                ${payments.length ? `<div class="cash-payment-history">${payments.map(payment => `
+                    <article class="cash-payment-history-row ${payment.estado === 'anulado' ? 'is-voided' : ''}">
+                        <div><strong>${this.escape(payment.numero_pago || '')}</strong><small>${Utils.formatDateTime(payment.fecha)}</small></div>
+                        <span>${this.escape(payment.metodo_pago || '')}</span>
+                        <strong>${Utils.formatCurrency(Number(payment.monto || 0))}</strong>
+                    </article>`).join('')}</div>` : '<p class="text-muted">Todavía no hay abonos.</p>'}
+            `, [{ text: 'Cerrar', class: 'btn-light', onclick: () => Utils.hideModal() }], 'modal-credit-detail');
         } catch (error) {
-            Utils.showNotification(error.message, 'error');
+            Utils.showNotification(error.message || 'No se pudo abrir el crédito.', 'error');
         }
     },
 
-    // Mostrar modal de pago/abono
-    showPaymentModal(accountId) {
-        const account = this.accounts.find(acc => acc.id === accountId);
+    showPaymentModal(id) {
+        if (!this.has('cash.collect')) return;
+        const account = this.accounts.find(item => Number(item.id) === Number(id));
         if (!account) return;
-
-      Utils.showModal(`Abonar a Crédito - ${account.cliente_nombre}`, `
-            <div class="account-info mb-3">
-                <p><strong>Cliente:</strong> ${account.cliente_nombre}</p>
-                <p><strong>Monto Pendiente:</strong> ${Utils.formatCurrency(account.monto_total)}</p>
-                <p><strong>Fecha:</strong> ${Utils.formatDate(account.fecha)}</p>
+        const balance = Number(account.saldo_pendiente || 0);
+        Utils.showModal(`Abonar ${this.escape(account.numero_credito)}`, `
+            <div class="cash-payment-modal credit-payment-modal" data-balance="${balance}">
+                <div class="cash-payment-context">
+                    <div><small>Deudor</small><strong>${this.escape(account.cliente_nombre || '')}</strong></div>
+                    <div><small>Cuenta global</small><strong>${this.escape(account.numero_cuenta_snapshot || '')}</strong></div>
+                    <div><small>Saldo</small><strong>${Utils.formatCurrency(balance)}</strong></div>
+                </div>
+                <form id="credit-payment-form" onsubmit="Accounts.processPayment(event)">
+                    <input type="hidden" id="credit-payment-id" value="${Number(account.id)}">
+                    <input type="hidden" id="credit-payment-key" value="${this.key('credit-payment')}">
+                    <div class="form-group"><label>Modalidad *</label><select id="credit-payment-method" onchange="Accounts.paymentMethodChanged(this.value)"><option value="efectivo">Efectivo</option><option value="tarjeta">Tarjeta</option><option value="mixto">Mixto</option></select></div>
+                    <div id="credit-simple-fields">
+                        <div class="form-group"><label>Monto aplicado *</label><input id="credit-payment-amount" type="number" min="0.01" max="${balance}" step="0.01" value="${balance}" required></div>
+                        <div class="form-group" id="credit-cash-group"><label>Efectivo recibido *</label><input id="credit-cash-received" type="number" min="0.01" step="0.01" value="${balance}"></div>
+                        <div class="form-group" id="credit-reference-group" hidden><label>Referencia de tarjeta *</label><input id="credit-reference" maxlength="180"></div>
+                    </div>
+                    <div id="credit-mixed-fields" hidden>
+                        <div class="cash-mixed-grid">
+                            <div class="form-group"><label>Efectivo aplicado *</label><input id="credit-mixed-cash" type="number" min="0.01" step="0.01"></div>
+                            <div class="form-group"><label>Efectivo recibido *</label><input id="credit-mixed-received" type="number" min="0.01" step="0.01"></div>
+                            <div class="form-group"><label>Tarjeta aplicada *</label><input id="credit-mixed-card" type="number" min="0.01" step="0.01"></div>
+                            <div class="form-group"><label>Referencia *</label><input id="credit-mixed-reference" maxlength="180"></div>
+                        </div>
+                    </div>
+                    <p class="cash-form-help">El abono genera PG-######## y un movimiento de Caja; no crea otra venta.</p>
+                </form>
             </div>
-            
-            <form id="payment-form">
-                <div class="form-group">
-                    <label for="monto-abono">Monto a Abonar *</label>
-                    <input type="number" id="monto-abono" name="monto_abono" step="0.01" min="0.01" max="${account.monto_total}" required>
-                    <small class="text-muted">Máximo: ${Utils.formatCurrency(account.monto_total)}</small>
-                </div>
-                <div class="form-group">
-                    <label for="metodo-pago">Método de Pago *</label>
-                    <select id="metodo-pago" name="metodo_pago" required>
-                        <option value="">Seleccione método</option>
-                        <option value="efectivo">Efectivo</option>
-                        <option value="tarjeta">Tarjeta</option>
-                    </select>
-                </div>
-                
-                <div class="payment-options mt-3">
-                    <button type="button" class="btn btn-warning" onclick="Accounts.setFullAmount(${account.monto_total})">
-                        <i class="fas fa-dollar-sign"></i> Pagar Todo (${Utils.formatCurrency(account.monto_total)})
-                    </button>
-                </div>
-            </form>
         `, [
-            {
-                text: 'Cancelar',
-                class: 'btn-light'
-            },
-            {
-                text: 'Procesar Abono',
-                class: 'btn-success',
-                onclick: `Accounts.processPayment(${accountId})`
-            }
-        ]);
+            { text: 'Cancelar', class: 'btn-light', onclick: () => Utils.hideModal() },
+            { text: '<i class="fas fa-check"></i> Registrar abono', class: 'btn-success credit-payment-submit', align: 'right', onclick: () => Accounts.processPayment() }
+        ], 'modal-credit-payment');
     },
 
-    // Establecer monto completo
-    setFullAmount(amount) {
-        document.getElementById('monto-abono').value = amount;
+    paymentMethodChanged(method) {
+        const mixed = method === 'mixto';
+        const card = method === 'tarjeta';
+        document.getElementById('credit-simple-fields').hidden = mixed;
+        document.getElementById('credit-mixed-fields').hidden = !mixed;
+        document.getElementById('credit-cash-group').hidden = card;
+        document.getElementById('credit-reference-group').hidden = !card;
     },
 
-    // Procesar pago/abono
-async processPayment(accountId) {
-    const form = document.getElementById('payment-form');
-    if (!Utils.validateForm(form)) {
-        Utils.showNotification('Por favor complete todos los campos requeridos', 'warning');
-        return;
-    }
+    number(id) {
+        const value = Number(document.getElementById(id)?.value || 0);
+        return Number.isFinite(value) ? value : 0;
+    },
 
-    const formData = new FormData(form);
-    const data = {
-        monto_abono: parseFloat(formData.get('monto_abono')),
-        metodo_pago: formData.get('metodo_pago')
-    };
-
-    const account = this.accounts.find(acc => acc.id === accountId);
-
-    if (data.monto_abono > account.monto_total) {
-        Utils.showNotification('El monto del abono no puede ser mayor al monto pendiente', 'warning');
-        return;
-    }
-
-    try {
-        const response = await Utils.request(`/accounts/${accountId}/payment`, {
-            method: 'POST',
-            body: JSON.stringify(data)
-        });
-
-        if (response.data.cuenta_saldada) {
-            // Redirigir al flujo completo
-            Utils.hideModal();
-            setTimeout(() => {
-                this.processFullPayment(accountId);
-            }, 500);
-            return;
+    buildPaymentPayload() {
+        const method = document.getElementById('credit-payment-method')?.value;
+        if (method === 'mixto') {
+            const cash = this.number('credit-mixed-cash');
+            const received = this.number('credit-mixed-received');
+            const card = this.number('credit-mixed-card');
+            const reference = String(document.getElementById('credit-mixed-reference')?.value || '').trim();
+            if (cash <= 0 || card <= 0 || received < cash || !reference) throw new Error('Completa correctamente ambos medios del pago mixto.');
+            return { metodo_pago: 'mixto', medios_pago: [
+                { tipo: 'efectivo', monto_aplicado: cash, monto_recibido: received },
+                { tipo: 'tarjeta', monto_aplicado: card, referencia: reference }
+            ] };
         }
-
-        Utils.hideModal();
-        Utils.showNotification(`Abono procesado. Restante: ${Utils.formatCurrency(response.data.monto_restante)}`, 'success');
-        this.load();
-
-        const printReceipt = await Utils.confirm(
-            '¿Desea imprimir el comprobante de pago?',
-            'Imprimir Comprobante'
-        );
-
-        if (printReceipt) {
-            this.printPaymentReceipt(response.data, account);
+        const amount = this.number('credit-payment-amount');
+        if (amount <= 0) throw new Error('El monto debe ser mayor que cero.');
+        if (method === 'tarjeta') {
+            const reference = String(document.getElementById('credit-reference')?.value || '').trim();
+            if (!reference) throw new Error('La referencia de tarjeta es obligatoria.');
+            return { monto: amount, metodo_pago: 'tarjeta', referencia: reference };
         }
-    } catch (error) {
-        Utils.showNotification(error.message, 'error');
-    }
-},
+        const received = this.number('credit-cash-received');
+        if (received < amount) throw new Error('El efectivo recibido no puede ser menor que el monto aplicado.');
+        return { monto: amount, metodo_pago: 'efectivo', monto_recibido: received };
+    },
 
-
-    // Pagar cuenta completa
-
-getAccountById(id) {
-    return this.accounts.find(acc => acc.id === id);
-}
-,
-
-showFullPaymentModal(id) {
-    const cuenta = this.getAccountById(id);
-    if (!cuenta) {
-        Utils.showNotification('No se pudo encontrar la cuenta seleccionada', 'error');
-        return;
-    }
-
-    this.pendingAccountId = id;
-
-    const contenido = `
-        <p style="margin-bottom: 1rem; font-weight: bold;">
-            Monto total a pagar: ${Utils.formatCurrency(cuenta.monto_total)}
-        </p>
-
-        <form id="full-payment-form">
-            <div class="form-group">
-                <label for="metodo_pago">Método de Pago *</label>
-                <select name="metodo_pago" id="metodo_pago" required class="form-control">
-                    <option value="">Seleccione...</option>
-                    <option value="efectivo">Efectivo</option>
-                    <option value="tarjeta">Tarjeta</option>
-                </select>
-            </div>
-        </form>
-    `;
-
-    Utils.showModal(`Pagar Crédito Completo - ${cuenta.cliente_nombre}`, contenido, [
-        {
-            text: 'Cancelar',
-            class: 'btn-secondary'
-        },
-        {
-            text: 'Confirmar Pago',
-            class: 'btn-primary',
-            onclick: `Accounts.processFullPayment(${id})`
-        }
-    ]);
-},
-
-    // Procesar pago completo
-    async processFullPayment(accountId) {
-        const form = document.getElementById('full-payment-form');
-        if (!Utils.validateForm(form)) {
-            Utils.showNotification('Por favor seleccione el método de pago', 'warning');
-            return;
-        }
-
-        const formData = new FormData(form);
-        const data = {
-            metodo_pago: formData.get('metodo_pago')
-        };
-
+    async processPayment(event) {
+        event?.preventDefault();
+        const id = Number(document.getElementById('credit-payment-id')?.value || 0);
+        const key = document.getElementById('credit-payment-key')?.value;
+        let payload;
+        try { payload = this.buildPaymentPayload(); }
+        catch (error) { Utils.showNotification(error.message, 'warning'); return; }
+        const button = document.querySelector('.modal-credit-payment .credit-payment-submit');
+        if (button) { button.disabled = true; button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Procesando…'; }
         try {
-            const response = await Utils.request(`/accounts/${accountId}/pay-full`, {
-                method: 'POST',
-                body: JSON.stringify(data)
+            const response = await Utils.request(`/accounts/${id}/payment`, {
+                method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify(payload)
             });
-
             Utils.hideModal();
-            Utils.showNotification(`Cuenta saldada completamente. Total pagado: ${Utils.formatCurrency(response.data.monto_pagado)}`, 'success');
-            this.load();
-            
-            // Opción de imprimir comprobante
-            const printReceipt = await Utils.confirm(
-                '¿Desea imprimir el comprobante de pago?',
-                'Imprimir Comprobante'
-            );
-            
-            if (printReceipt) {
-                this.printFullPaymentReceipt(response.data);
-            }
+            const credit = response.data?.credito;
+            Utils.showNotification(credit?.estado === 'saldado' ? 'Crédito saldado. La mesa permanece activa.' : `Abono registrado. Saldo: ${Utils.formatCurrency(Number(credit?.saldo_pendiente || 0))}`, 'success');
+            await this.load();
         } catch (error) {
-            Utils.showNotification(error.message, 'error');
+            Utils.showNotification(error.message || 'No se pudo registrar el abono.', 'error');
+            if (button) { button.disabled = false; button.innerHTML = '<i class="fas fa-check"></i> Registrar abono'; }
         }
     },
 
-    // Eliminar cuenta (solo administradores)
-    async deleteAccount(accountId) {
-        if (currentUser.tipo !== 'administrador') {
-            Utils.showNotification('Solo los administradores pueden eliminar cuentas', 'warning');
-            return;
-        }
-
-        const account = this.accounts.find(acc => acc.id === accountId);
-        if (!account) return;
-
-        const confirmed = await Utils.confirm(
-            `¿Está seguro de eliminar el crédito de ${account.cliente_nombre} por ${Utils.formatCurrency(account.monto_total)}?\n\nEsta acción no se puede deshacer.`,
-            'Confirmar Eliminación'
-        );
-
-        if (!confirmed) return;
-
-        try {
-            await Utils.request(`/accounts/${accountId}`, {
-                method: 'DELETE'
-            });
-
-            Utils.showNotification('Crédito eliminado exitosamente', 'success');
-            this.load();
-        } catch (error) {
-            Utils.showNotification(error.message, 'error');
-        }
+    key(scope) {
+        const uuid = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        return `${scope}:${uuid}`;
     },
 
-    // Imprimir comprobante de abono
-    printPaymentReceipt(paymentData, account) {
-        // Aquí se implementaría la lógica de impresión del comprobante
-        const receiptContent = `
-            COMPROBANTE DE ABONO
-            ====================
-            Cliente: ${account.cliente_nombre}
-            Monto Abonado: ${Utils.formatCurrency(paymentData.monto_abonado)}
-            Método de Pago: ${paymentData.metodo_pago}
-            Monto Restante: ${Utils.formatCurrency(paymentData.monto_restante)}
-            Fecha: ${new Date().toLocaleString()}
-        `;
-        
-        console.log('Comprobante de abono:', receiptContent);
-        Utils.showNotification('Comprobante generado', 'info');
-    },
-
-    // Imprimir comprobante de pago completo
-    printFullPaymentReceipt(paymentData) {
-        // Aquí se implementaría la lógica de impresión del comprobante
-        const receiptContent = `
-            COMPROBANTE DE PAGO COMPLETO
-            ============================
-            Cliente: ${paymentData.cliente_nombre}
-            Monto Pagado: ${Utils.formatCurrency(paymentData.monto_pagado)}
-            Método de Pago: ${paymentData.metodo_pago}
-            Estado: CUENTA SALDADA
-            Fecha: ${new Date().toLocaleString()}
-        `;
-        
-        console.log('Comprobante de pago completo:', receiptContent);
-        Utils.showNotification('Comprobante generado', 'info');
+    escape(value) {
+        return String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#039;', '"': '&quot;' }[character]));
     }
 };

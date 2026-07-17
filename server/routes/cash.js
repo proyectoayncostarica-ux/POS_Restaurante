@@ -5,6 +5,7 @@ const accountService = require('../services/accountService');
 const financialReadService = require('../services/financialReadService');
 const cashReadService = require('../services/cashReadService');
 const paymentService = require('../services/paymentService');
+const creditService = require('../services/creditService');
 const { getCostaRicaDayRange } = require('../services/financialReadService');
 const { addMoney } = require('../utils/money');
 
@@ -44,12 +45,13 @@ router.get('/summary', requireCapability(CAPABILITIES.CASH_ACCESS), async (req, 
             0
         );
         const today = getCostaRicaDayRange();
-        const [financialToday, queue] = await Promise.all([
+        const [financialToday, queue, creditSummary] = await Promise.all([
             financialReadService.getPeriodSummary({
                 startIso: today.startIso,
                 endIso: today.endIso
             }),
-            cashReadService.listCollectionQueue({ state: 'pendiente', limit: 200 })
+            cashReadService.listCollectionQueue({ state: 'pendiente', limit: 200 }),
+            creditService.getSummary()
         ]);
 
         res.json({
@@ -61,6 +63,8 @@ router.get('/summary', requireCapability(CAPABILITIES.CASH_ACCESS), async (req, 
                 cuentas_abiertas: accounts.length,
                 consumo_pendiente: pendingBalance,
                 saldo_documental_visible: queue.resumen.saldo_visible,
+                creditos_activos: creditSummary.total_cuentas,
+                saldo_creditos: creditSummary.monto_total_pendiente,
                 cuentas_conciliadas_hoy: financialToday.cuentas_conciliadas,
                 ventas_globales_hoy: financialToday.total_ventas_globales,
                 cantidad_movimientos_caja_hoy: financialToday.cantidad_movimientos_caja,
@@ -134,6 +138,88 @@ router.post('/preinvoices/:preinvoiceId/reprint-request', requireCapability(CAPA
     } catch (error) {
         console.error('Error solicitando reimpresión desde Caja:', error);
         sendError(res, error, 'Error interno solicitando la reimpresión');
+    }
+});
+
+router.post('/preinvoices/:preinvoiceId/credit', requireCapability(CAPABILITIES.CASH_COLLECT), async (req, res) => {
+    try {
+        const data = await creditService.formalizePreinvoiceCredit({
+            preinvoiceId: req.params.preinvoiceId,
+            operatorUserId: req.session.userId,
+            adminPassword: req.body?.admin_password ?? req.body?.adminPassword,
+            observation: req.body?.observacion ?? req.body?.observation,
+            idempotencyKey: readIdempotencyKey(req)
+        });
+        res.locals.realtime = {
+            scope: 'creditos',
+            orderIds: data?.pedido_id ? [Number(data.pedido_id)] : [],
+            requiredAnyCapabilities: [CAPABILITIES.CASH_ACCESS]
+        };
+        res.status(data.idempotency_replay ? 200 : 201).json({
+            success: true,
+            data,
+            meta: {
+                documento_credito: data.numero_credito,
+                prefactura_liquidada_por_credito: true,
+                venta_financiera_duplicada: false,
+                mesa_liberada: false
+            }
+        });
+    } catch (error) {
+        console.error('Error formalizando crédito desde Caja:', error);
+        sendError(res, error, 'Error interno formalizando el crédito');
+    }
+});
+
+router.get('/credits', requireCapability(CAPABILITIES.CASH_ACCESS), async (req, res) => {
+    try {
+        const data = await creditService.listCredits({
+            state: req.query.estado || req.query.state,
+            search: req.query.buscar || req.query.search
+        });
+        res.json({ success: true, data });
+    } catch (error) {
+        console.error('Error listando créditos desde Caja:', error);
+        sendError(res, error, 'Error interno obteniendo créditos');
+    }
+});
+
+router.get('/credits/:creditId', requireCapability(CAPABILITIES.CASH_ACCESS), async (req, res) => {
+    try {
+        const data = await creditService.getCredit(req.params.creditId);
+        res.json({ success: true, data });
+    } catch (error) {
+        console.error('Error obteniendo crédito desde Caja:', error);
+        sendError(res, error, 'Error interno obteniendo el crédito');
+    }
+});
+
+router.post('/credits/:creditId/payments', requireCapability(CAPABILITIES.CASH_COLLECT), async (req, res) => {
+    try {
+        const result = await creditService.recordPayment({
+            creditId: req.params.creditId,
+            cashierUserId: req.session.userId,
+            amount: req.body?.monto ?? req.body?.monto_abono ?? req.body?.amount,
+            paymentMethod: req.body?.metodo_pago ?? req.body?.paymentMethod,
+            cashReceived: req.body?.monto_recibido ?? req.body?.cashReceived,
+            reference: req.body?.referencia ?? req.body?.reference,
+            paymentTenders: req.body?.medios_pago ?? req.body?.paymentTenders,
+            idempotencyKey: readIdempotencyKey(req)
+        });
+        setPaymentRealtime(res, result);
+        res.status(result.idempotency_replay ? 200 : 201).json({
+            success: true,
+            data: result,
+            meta: {
+                idempotency_replay: result.idempotency_replay === true,
+                naturaleza: 'cobro_credito',
+                venta_global_incrementada: false,
+                mesa_liberada: false
+            }
+        });
+    } catch (error) {
+        console.error('Error registrando abono a crédito:', error);
+        sendError(res, error, 'Error interno registrando el abono');
     }
 });
 

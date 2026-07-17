@@ -66,6 +66,11 @@ function classifySettlement(methods = [], accountState = '') {
 }
 
 function buildFinancialObservation(row = {}) {
+    const creditBalance = Number(row.saldo_credito || 0);
+    const creditCount = Number(row.creditos_activos || 0);
+    if (creditBalance > 0 || row.estado_financiero === 'credito') {
+        return `Cuenta liquidada operativamente con ${creditCount || 1} crédito${(creditCount || 1) === 1 ? '' : 's'}; saldo por cobrar ${roundMoney(creditBalance)}`;
+    }
     const documents = Number(row.cantidad_documentos || 0);
     const payments = Number(row.cantidad_pagos || 0);
     const split = Number(row.documentos_divididos || 0) > 0 || documents > 1;
@@ -200,6 +205,7 @@ class FinancialReadService {
                     GROUP_CONCAT(DISTINCT LOWER(COALESCE(pg.metodo_pago_v3, pg.metodo_pago))) AS metodos_pago
                 FROM pagos pg
                 WHERE COALESCE(pg.estado, 'confirmado') = 'confirmado'
+                  AND COALESCE(pg.naturaleza, 'liquidacion_venta') = 'liquidacion_venta'
                 GROUP BY pg.pedido_id
             ),
             documentos AS (
@@ -213,6 +219,18 @@ class FinancialReadService {
                     COALESCE(SUM(CASE WHEN pf.estado IN ('emitida', 'parcial') THEN pf.saldo_pendiente ELSE 0 END), 0) AS saldo_documentos
                 FROM prefacturas pf
                 GROUP BY pf.pedido_id
+            ),
+            creditos_agg AS (
+                SELECT
+                    cc.pedido_id,
+                    COUNT(CASE WHEN cc.estado IN ('pendiente', 'parcial') THEN 1 END) AS creditos_activos,
+                    COUNT(CASE WHEN cc.estado = 'saldado' THEN 1 END) AS creditos_saldados,
+                    COALESCE(SUM(CASE WHEN cc.estado IN ('pendiente', 'parcial') THEN cc.saldo_pendiente ELSE 0 END), 0) AS saldo_credito,
+                    COALESCE(SUM(CASE WHEN cc.estado <> 'anulado' THEN cc.monto_original ELSE 0 END), 0) AS total_creditado,
+                    GROUP_CONCAT(CASE WHEN cc.estado <> 'anulado' THEN cc.numero_credito END, ', ') AS numeros_credito
+                FROM cuentas_credito cc
+                WHERE cc.pedido_id IS NOT NULL
+                GROUP BY cc.pedido_id
             ),
             responsables AS (
                 SELECT
@@ -261,6 +279,11 @@ class FinancialReadService {
                 pagos_agg.fecha_primer_pago,
                 pagos_agg.fecha_ultimo_pago,
                 pagos_agg.metodos_pago,
+                COALESCE(creditos_agg.creditos_activos, 0) AS creditos_activos,
+                COALESCE(creditos_agg.creditos_saldados, 0) AS creditos_saldados,
+                COALESCE(creditos_agg.saldo_credito, 0) AS saldo_credito,
+                COALESCE(creditos_agg.total_creditado, 0) AS total_creditado,
+                creditos_agg.numeros_credito,
                 ${financialDateExpression} AS fecha_financiera
             FROM pedidos p
             JOIN mesas m ON m.id = p.mesa_id
@@ -269,6 +292,7 @@ class FinancialReadService {
             LEFT JOIN consumo ON consumo.pedido_id = p.id
             LEFT JOIN pagos_agg ON pagos_agg.pedido_id = p.id
             LEFT JOIN documentos ON documentos.pedido_id = p.id
+            LEFT JOIN creditos_agg ON creditos_agg.pedido_id = p.id
             LEFT JOIN responsables ON responsables.pedido_id = p.id
             ${query.where}
             ORDER BY ${financialDateExpression} DESC, p.id DESC
@@ -283,9 +307,12 @@ class FinancialReadService {
         const totalPaid = roundMoney(Number(row.total_pagado_calculado || 0));
         const balanceMinor = Math.max(0, toMinorUnits(totalGlobal) - toMinorUnits(totalPaid));
         const methods = parseMethods(row.metodos_pago);
-        const financialState = totalGlobal > 0 && toMinorUnits(totalPaid) >= toMinorUnits(totalGlobal)
-            ? 'conciliada'
-            : (totalPaid > 0 ? 'parcial' : (row.estado_financiero || 'sin_documentos'));
+        const creditBalance = roundMoney(Number(row.saldo_credito || 0));
+        const financialState = creditBalance > 0
+            ? 'credito'
+            : (totalGlobal > 0 && toMinorUnits(totalPaid) >= toMinorUnits(totalGlobal)
+                ? 'conciliada'
+                : (totalPaid > 0 ? 'parcial' : (row.estado_financiero || 'sin_documentos')));
         const quantityDocuments = Number(row.cantidad_documentos || 0);
         const quantityPayments = Number(row.cantidad_pagos || 0);
         const normalized = {
@@ -319,10 +346,15 @@ class FinancialReadService {
             documentos_anulados: Number(row.documentos_anulados || 0),
             documentos_divididos: Number(row.documentos_divididos || 0),
             cantidad_pagos: quantityPayments,
+            creditos_activos: Number(row.creditos_activos || 0),
+            creditos_saldados: Number(row.creditos_saldados || 0),
+            saldo_credito: creditBalance,
+            total_creditado: roundMoney(Number(row.total_creditado || 0)),
+            numeros_credito: row.numeros_credito || '',
             metodos_pago: methods,
             tipo_liquidacion: classifySettlement(methods, row.estado_financiero),
             es_cuenta_dividida: Number(row.documentos_divididos || 0) > 0 || quantityDocuments > 1,
-            estado: financialState === 'conciliada' ? 'pagado' : row.estado_legacy,
+            estado: ['conciliada', 'credito'].includes(financialState) ? 'pagado' : row.estado_legacy,
             estado_operativo: row.estado_operativo || 'abierta',
             estado_financiero: financialState,
             fecha: row.fecha_financiera || row.fecha_conciliacion || row.fecha_ultimo_pago || row.fecha,
@@ -333,8 +365,9 @@ class FinancialReadService {
             fecha_primer_pago: row.fecha_primer_pago || null,
             fecha_ultimo_pago: row.fecha_ultimo_pago || null,
             fecha_cierre: row.fecha_cierre || null,
-            venta_conciliada: financialState === 'conciliada',
-            venta_definitiva: financialState === 'conciliada' && row.estado_operativo === 'cerrada'
+            venta_conciliada: ['conciliada', 'credito'].includes(financialState),
+            venta_a_credito: financialState === 'credito' || methods.includes('credito'),
+            venta_definitiva: ['conciliada', 'credito'].includes(financialState) && row.estado_operativo === 'cerrada'
         };
         normalized.observacion_financiera = buildFinancialObservation(normalized);
         normalized.diferencia_documentada = roundMoney(normalized.total_global - normalized.total_documentado);
@@ -358,6 +391,7 @@ class FinancialReadService {
             params.push(...zone.params);
         }
         clauses.push("COALESCE(pg.estado, 'confirmado') = 'confirmado'");
+        clauses.push("(COALESCE(pg.naturaleza, 'liquidacion_venta') = 'cobro_credito' OR LOWER(COALESCE(pg.metodo_pago_v3, pg.metodo_pago)) <> 'credito')");
         if (filters.accountId) {
             clauses.push('pg.pedido_id = ?');
             params.push(Number(filters.accountId));
@@ -376,6 +410,8 @@ class FinancialReadService {
                 pg.id,
                 pg.pedido_id,
                 pg.prefactura_id,
+                pg.credito_id,
+                COALESCE(pg.naturaleza, 'liquidacion_venta') AS naturaleza,
                 pg.numero_pago,
                 pg.estado AS estado_pago,
                 COALESCE(pg.metodo_pago_v3, pg.metodo_pago) AS metodo_pago,
@@ -391,6 +427,8 @@ class FinancialReadService {
                 pg.fecha,
                 pf.numero_documento,
                 pf.pagador_nombre AS prefactura_pagador,
+                cc.numero_credito,
+                cc.cliente_nombre AS credito_cliente,
                 p.numero_cuenta,
                 p.estado_operativo,
                 p.estado_financiero,
@@ -409,6 +447,7 @@ class FinancialReadService {
             FROM pagos pg
             JOIN pedidos p ON p.id = pg.pedido_id
             LEFT JOIN prefacturas pf ON pf.id = pg.prefactura_id
+            LEFT JOIN cuentas_credito cc ON cc.id = pg.credito_id
             JOIN mesas m ON m.id = p.mesa_id
             LEFT JOIN zonas z ON z.id = COALESCE(p.zona_id_snapshot, m.zona_id)
             ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''}
@@ -438,14 +477,19 @@ class FinancialReadService {
             estado_operativo: row.estado_operativo,
             estado_financiero: row.estado_financiero,
             prefactura_id: row.prefactura_id ? Number(row.prefactura_id) : null,
+            credito_id: row.credito_id ? Number(row.credito_id) : null,
+            numero_credito: row.numero_credito || null,
+            naturaleza: row.naturaleza || 'liquidacion_venta',
             numero_pago: row.numero_pago || `PG-${String(row.id).padStart(8, '0')}`,
             estado_pago: row.estado_pago || 'confirmado',
             numero_documento: row.numero_documento || null,
-            pagador_nombre: row.pagador_nombre_snapshot || row.prefactura_pagador || null,
+            pagador_nombre: row.pagador_nombre_snapshot || row.prefactura_pagador || row.credito_cliente || null,
             cajero_usuario_id: row.cajero_usuario_id ? Number(row.cajero_usuario_id) : null,
             cajero_nombre: row.cajero_nombre_snapshot || null,
             referencia: row.referencia || null,
-            vinculo_documental: row.prefactura_id ? 'paymentservice' : 'legacy_cuenta_global'
+            vinculo_documental: row.credito_id
+                ? (row.naturaleza === 'cobro_credito' ? 'paymentservice_credito' : 'paymentservice_credito_apertura')
+                : (row.prefactura_id ? 'paymentservice' : 'legacy_cuenta_global')
         }));
     }
 
@@ -486,10 +530,19 @@ class FinancialReadService {
         const [base] = await this.listAccountReads({ accountId: id, limit: 1 });
         if (!base) throw new NotFoundError('Cuenta global no encontrada', { accountId: id });
 
-        const [account, documents, movements] = await Promise.all([
+        const [account, documents, movements, credits] = await Promise.all([
             this.accountService.getAccount(id),
             this.listOperationalDocuments(id),
-            this.listCashMovements({ accountId: id, limit: null })
+            this.listCashMovements({ accountId: id, limit: null }),
+            this.db.all(`
+                SELECT
+                    id, numero_credito, prefactura_id, estado,
+                    cliente_nombre, monto_original, total_abonado,
+                    saldo_pendiente, fecha, fecha_ultimo_abono, fecha_saldo
+                FROM cuentas_credito
+                WHERE pedido_id = ? AND estado <> 'anulado'
+                ORDER BY fecha, id
+            `, [id])
         ]);
         const movementTotal = movements.reduce((total, movement) => addMoney(total, movement.monto), 0);
         const documentTotal = documents
@@ -514,6 +567,12 @@ class FinancialReadService {
             productos: items,
             documentos_operativos: documents,
             movimientos_caja: movements,
+            creditos: credits.map(credit => ({
+                ...credit,
+                monto_original: roundMoney(Number(credit.monto_original || 0)),
+                total_abonado: roundMoney(Number(credit.total_abonado || 0)),
+                saldo_pendiente: roundMoney(Number(credit.saldo_pendiente || 0))
+            })),
             responsables_detalle: account.responsables || [],
             conciliacion: {
                 fuente_financiera: 'cuenta_global',

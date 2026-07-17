@@ -773,3 +773,16 @@ Reglas:
 Documento de avance: `docs/avance-v3.2.3-medios-pago.md`.
 
 Siguiente fase: `v3.2.4 · Créditos integrados con Payments`.
+
+
+## v3.2.4 · Créditos integrados con Payments
+
+Una prefactura con saldo puede trasladarse a crédito desde Caja mediante autorización administrativa. La operación crea `CR-########`, mantiene la cuenta global como única venta, liquida el documento por método crédito y conserva la mesa abierta.
+
+Los abonos se registran mediante Payments con naturaleza `cobro_credito`. Efectivo, tarjeta y mixtos actualizan el saldo de la deuda y generan movimientos de Caja, pero no vuelven a incrementar el total financiero de la cuenta global.
+
+La pantalla Créditos continúa visible, aunque ya no permite crear deudas manuales ni eliminarlas físicamente. `accounts.js` y `credits.js` son adaptadores del mismo `creditService`.
+
+Documento de avance: `docs/avance-v3.2.4-creditos-payments.md`.
+
+Siguiente fase: `v3.2.5 · Finalización del servicio y liberación integral`.

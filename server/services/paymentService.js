@@ -32,8 +32,14 @@ const PAYMENT_METHODS = Object.freeze({
     CREDIT: 'credito'
 });
 
+const PAYMENT_NATURES = Object.freeze({
+    SALE_SETTLEMENT: 'liquidacion_venta',
+    CREDIT_COLLECTION: 'cobro_credito'
+});
+
 const IDEMPOTENCY_SCOPES = Object.freeze({
     CREATE: 'payment.create',
+    CREDIT_CREATE: 'credit.payment.create',
     VOID: 'payment.void'
 });
 
@@ -41,7 +47,7 @@ function normalizePaymentMethod(value) {
     const method = String(value || '').trim().toLowerCase();
     if (![PAYMENT_METHODS.CASH, PAYMENT_METHODS.CARD].includes(method)) {
         if (method === PAYMENT_METHODS.CREDIT) {
-            throw new ConflictError('El crédito se integrará a Payments en v3.2.4', {
+            throw new ConflictError('El crédito se formaliza mediante el flujo autorizado de crédito', {
                 code: 'CREDIT_PAYMENT_NOT_AVAILABLE'
             });
         }
@@ -228,6 +234,25 @@ class PaymentService {
         });
     }
 
+    buildCreditCreateFingerprint(input) {
+        return createRequestFingerprint({
+            credito_id: Number(input.creditId),
+            cajero_usuario_id: Number(input.cashierUserId),
+            metodo_pago: input.payment.metodo_pago,
+            monto: roundMoney(input.payment.monto),
+            monto_recibido: roundMoney(input.payment.monto_recibido),
+            vuelto: roundMoney(input.payment.vuelto),
+            medios_pago: input.payment.medios_pago.map(tender => ({
+                ordinal: tender.ordinal,
+                tipo: tender.tipo,
+                monto_aplicado: roundMoney(tender.monto_aplicado),
+                monto_recibido: roundMoney(tender.monto_recibido),
+                vuelto: roundMoney(tender.vuelto),
+                referencia: tender.referencia || null
+            }))
+        });
+    }
+
     buildVoidFingerprint(input) {
         return createRequestFingerprint({
             pago_id: Number(input.paymentId),
@@ -313,6 +338,7 @@ class PaymentService {
                 COUNT(CASE WHEN pg.estado = 'confirmado' THEN 1 END) AS cantidad_pagos
             FROM pagos pg
             WHERE pg.prefactura_id = ?
+              AND COALESCE(pg.naturaleza, 'liquidacion_venta') = 'liquidacion_venta'
         `, [preinvoiceId]);
     }
 
@@ -374,23 +400,38 @@ class PaymentService {
             FROM pedidos
             WHERE id = ?
         `, [payment.pedido_id]);
-        const preinvoice = await client.get(`
-            SELECT
-                id, numero_documento, pagador_nombre, estado,
-                total, total_pagado, saldo_pendiente, fecha_pago
-            FROM prefacturas
-            WHERE id = ?
-        `, [payment.prefactura_id]);
+        const preinvoice = payment.prefactura_id
+            ? await client.get(`
+                SELECT
+                    id, numero_documento, pagador_nombre, estado,
+                    total, total_pagado, saldo_pendiente, fecha_pago
+                FROM prefacturas
+                WHERE id = ?
+            `, [payment.prefactura_id])
+            : null;
+        const credit = payment.credito_id
+            ? await client.get(`
+                SELECT
+                    id, numero_credito, estado, monto_original,
+                    total_abonado, saldo_pendiente, cliente_nombre,
+                    numero_cuenta_snapshot, numero_documento_snapshot,
+                    fecha, fecha_ultimo_abono, fecha_saldo
+                FROM cuentas_credito
+                WHERE id = ?
+            `, [payment.credito_id])
+            : null;
 
         return {
             pago: payment,
             prefactura: preinvoice,
+            credito: credit,
             cuenta_global: account,
             servicio_activo: account?.estado_operativo === 'abierta',
             mesa_liberada: false,
             idempotency_replay: options.idempotencyReplay === true
         };
     }
+
 
     async recordPreinvoicePayment(input = {}) {
         const preinvoiceId = Number(input.preinvoiceId ?? input.prefactura_id);
@@ -486,13 +527,13 @@ class PaymentService {
             );
             const inserted = await tx.run(`
                 INSERT INTO pagos (
-                    pedido_id, prefactura_id, numero_pago, numero_secuencia,
-                    estado, metodo_pago, metodo_pago_v3, monto, monto_recibido, vuelto,
+                    pedido_id, prefactura_id, credito_id, numero_pago, numero_secuencia,
+                    naturaleza, estado, metodo_pago, metodo_pago_v3, monto, monto_recibido, vuelto,
                     subtotal, servicio, porcentaje_servicio, aplica_servicio, referencia,
                     cajero_usuario_id, cajero_nombre_snapshot,
                     pagador_nombre_snapshot, fecha, version,
                     creado_en, actualizado_en
-                ) VALUES (?, ?, ?, ?, 'confirmado', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                ) VALUES (?, ?, NULL, ?, ?, 'liquidacion_venta', 'confirmado', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
             `, [
                 document.pedido_id,
                 preinvoiceId,
@@ -596,6 +637,347 @@ class PaymentService {
         });
     }
 
+    async recordCreditSettlementInTransaction(input = {}, tx) {
+        if (!tx?.get || !tx?.run) {
+            throw new ValidationError('Se requiere una transacción para formalizar el crédito');
+        }
+        const preinvoiceId = Number(input.preinvoiceId ?? input.prefactura_id);
+        const creditId = Number(input.creditId ?? input.credito_id);
+        const cashierUserId = Number(input.cashierUserId ?? input.cajero_usuario_id ?? input.userId);
+        const now = input.now || new Date().toISOString();
+        if (!preinvoiceId || !creditId || !cashierUserId) {
+            throw new ValidationError('Prefactura, crédito y usuario son requeridos');
+        }
+
+        const document = await tx.get(`
+            SELECT pf.*, p.estado_operativo, p.numero_cuenta
+            FROM prefacturas pf
+            JOIN pedidos p ON p.id = pf.pedido_id
+            WHERE pf.id = ?
+        `, [preinvoiceId]);
+        if (!document) throw new NotFoundError('Prefactura no encontrada', { preinvoiceId });
+        if (document.estado === 'anulada') {
+            throw new ConflictError('Una prefactura anulada no puede trasladarse a crédito', {
+                code: 'PREINVOICE_VOIDED'
+            });
+        }
+        if (!['abierta', 'finalizando'].includes(document.estado_operativo)) {
+            throw new ConflictError('La cuenta global ya no admite crédito', {
+                code: 'ACCOUNT_NOT_PAYABLE'
+            });
+        }
+
+        const cashier = await tx.get('SELECT id, nombre, activo FROM usuarios WHERE id = ?', [cashierUserId]);
+        if (!cashier || Number(cashier.activo ?? 1) !== 1) {
+            throw new NotFoundError('Usuario activo no encontrado', { cashierUserId });
+        }
+        const aggregate = await this.getConfirmedAggregate(preinvoiceId, tx);
+        const balanceMinor = Math.max(
+            0,
+            toMinorUnits(document.total || 0) - toMinorUnits(aggregate.total_pagado || 0)
+        );
+        if (balanceMinor <= 0) {
+            throw new ConflictError('La prefactura ya está liquidada', {
+                code: 'PREINVOICE_ALREADY_PAID'
+            });
+        }
+        const amount = fromMinorUnits(balanceMinor);
+        const components = this.allocateComponents(document, aggregate, amount);
+        const sequence = await this.sequenceService.nextInTransaction(
+            DOCUMENT_SEQUENCE_TYPES.PAYMENT,
+            tx,
+            { now }
+        );
+        const inserted = await tx.run(`
+            INSERT INTO pagos (
+                pedido_id, prefactura_id, credito_id, numero_pago, numero_secuencia,
+                naturaleza, estado, metodo_pago, metodo_pago_v3,
+                monto, monto_recibido, vuelto, subtotal, servicio,
+                porcentaje_servicio, aplica_servicio, referencia,
+                cajero_usuario_id, cajero_nombre_snapshot,
+                pagador_nombre_snapshot, fecha, version, creado_en, actualizado_en
+            ) VALUES (?, ?, ?, ?, ?, 'liquidacion_venta', 'confirmado',
+                      'credito', 'credito', ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+        `, [
+            document.pedido_id,
+            preinvoiceId,
+            creditId,
+            sequence.documentNumber,
+            sequence.sequence,
+            amount,
+            amount,
+            components.subtotal,
+            components.servicio,
+            document.servicio > 0 && document.subtotal > 0
+                ? roundMoney((Number(document.servicio) / Number(document.subtotal)) * 100)
+                : 0,
+            Number(document.servicio || 0) > 0 ? 1 : 0,
+            input.reference || input.referencia || null,
+            cashier.id,
+            cashier.nombre,
+            document.pagador_nombre,
+            now,
+            now,
+            now
+        ]);
+        await tx.run(`
+            INSERT INTO pago_componentes (pago_id, tipo, monto, creado_en)
+            VALUES (?, 'subtotal', ?, ?), (?, 'servicio', ?, ?)
+        `, [inserted.id, components.subtotal, now, inserted.id, components.servicio, now]);
+        await tx.run(`
+            INSERT INTO pago_medios (
+                pago_id, ordinal, tipo, monto_aplicado,
+                monto_recibido, vuelto, referencia, creado_en
+            ) VALUES (?, 1, 'credito', ?, ?, 0, ?, ?)
+        `, [inserted.id, amount, amount, input.reference || input.referencia || null, now]);
+
+        const previousState = document.estado;
+        const synchronizedDocument = await this.synchronizePreinvoice(preinvoiceId, tx, now);
+        await tx.run(`
+            INSERT INTO historial_prefacturas (
+                prefactura_id, evento, estado_anterior, estado_nuevo,
+                usuario_id, usuario_nombre_snapshot, detalle, fecha
+            ) VALUES (?, 'credito_formalizado', ?, ?, ?, ?, ?, ?)
+        `, [
+            preinvoiceId,
+            previousState,
+            synchronizedDocument.estado,
+            cashier.id,
+            cashier.nombre,
+            JSON.stringify({
+                credito_id: creditId,
+                pago_apertura_id: inserted.id,
+                numero_pago: sequence.documentNumber,
+                monto: amount,
+                saldo_documento: synchronizedDocument.saldo_pendiente
+            }),
+            now
+        ]);
+        return {
+            paymentId: inserted.id,
+            numeroPago: sequence.documentNumber,
+            monto: amount,
+            prefactura: synchronizedDocument
+        };
+    }
+
+    async synchronizeCredit(creditId, client, now = new Date().toISOString()) {
+        const credit = await client.get('SELECT * FROM cuentas_credito WHERE id = ?', [creditId]);
+        if (!credit) throw new NotFoundError('Crédito no encontrado', { creditId });
+        const aggregate = await client.get(`
+            SELECT
+                COALESCE(SUM(CASE WHEN estado = 'confirmado' AND COALESCE(naturaleza, '') = 'cobro_credito' THEN monto ELSE 0 END), 0) AS total_abonado,
+                MAX(CASE WHEN estado = 'confirmado' AND COALESCE(naturaleza, '') = 'cobro_credito' THEN fecha END) AS fecha_ultimo_abono
+            FROM pagos
+            WHERE credito_id = ?
+        `, [creditId]);
+        const originalMinor = toMinorUnits(credit.monto_original || credit.monto_total || 0);
+        const paidMinor = toMinorUnits(aggregate?.total_abonado || 0);
+        if (paidMinor > originalMinor) {
+            throw new InvariantError('Los abonos superan el monto original del crédito', {
+                code: 'CREDIT_OVERPAID',
+                credito_id: creditId
+            });
+        }
+        const balanceMinor = Math.max(0, originalMinor - paidMinor);
+        const state = credit.estado === 'anulado'
+            ? 'anulado'
+            : (balanceMinor <= 0 ? 'saldado' : (paidMinor > 0 ? 'parcial' : 'pendiente'));
+        const paidDate = state === 'saldado' ? (credit.fecha_saldo || now) : null;
+        await client.run(`
+            UPDATE cuentas_credito
+            SET total_abonado = ?,
+                saldo_pendiente = ?,
+                monto_total = ?,
+                estado = ?,
+                fecha_ultimo_abono = ?,
+                fecha_saldo = ?,
+                actualizado_en = ?,
+                version = COALESCE(version, 1) + 1
+            WHERE id = ?
+        `, [
+            fromMinorUnits(paidMinor),
+            fromMinorUnits(balanceMinor),
+            fromMinorUnits(balanceMinor),
+            state,
+            aggregate?.fecha_ultimo_abono || null,
+            paidDate,
+            now,
+            creditId
+        ]);
+        return {
+            id: creditId,
+            estado: state,
+            monto_original: fromMinorUnits(originalMinor),
+            total_abonado: fromMinorUnits(paidMinor),
+            saldo_pendiente: fromMinorUnits(balanceMinor),
+            fecha_ultimo_abono: aggregate?.fecha_ultimo_abono || null,
+            fecha_saldo: paidDate
+        };
+    }
+
+    async recordCreditPayment(input = {}) {
+        const creditId = Number(input.creditId ?? input.credito_id);
+        const cashierUserId = Number(input.cashierUserId ?? input.cajero_usuario_id ?? input.userId);
+        const payment = normalizePaymentTenders(input);
+        const amount = payment.monto;
+        const idempotencyKey = normalizeIdempotencyKey(
+            input.idempotencyKey ?? input.clave_idempotencia
+        );
+        const now = input.now || new Date().toISOString();
+        if (!Number.isSafeInteger(creditId) || creditId <= 0) {
+            throw new ValidationError('El crédito es requerido');
+        }
+        if (!Number.isSafeInteger(cashierUserId) || cashierUserId <= 0) {
+            throw new ValidationError('El cajero es requerido');
+        }
+        const fingerprint = this.buildCreditCreateFingerprint({ creditId, cashierUserId, payment });
+
+        return this.transactions.immediate(async tx => {
+            const existingKey = await this.findIdempotency(
+                IDEMPOTENCY_SCOPES.CREDIT_CREATE,
+                idempotencyKey,
+                fingerprint,
+                tx
+            );
+            if (existingKey) {
+                return this.buildResult(existingKey.recurso_id, tx, { idempotencyReplay: true });
+            }
+            const credit = await tx.get(`
+                SELECT cc.*, p.estado_operativo, p.numero_cuenta
+                FROM cuentas_credito cc
+                JOIN pedidos p ON p.id = cc.pedido_id
+                WHERE cc.id = ?
+            `, [creditId]);
+            if (!credit) throw new NotFoundError('Crédito vinculado a cuenta global no encontrado', { creditId });
+            if (!['pendiente', 'parcial'].includes(credit.estado)) {
+                throw new ConflictError('El crédito ya no admite abonos', {
+                    code: 'CREDIT_NOT_PAYABLE',
+                    estado: credit.estado
+                });
+            }
+            const balanceMinor = toMinorUnits(credit.saldo_pendiente ?? credit.monto_total ?? 0);
+            const amountMinor = toMinorUnits(amount);
+            if (balanceMinor <= 0) {
+                throw new ConflictError('El crédito ya está saldado', { code: 'CREDIT_ALREADY_PAID' });
+            }
+            if (amountMinor > balanceMinor) {
+                throw new ConflictError('El abono supera el saldo pendiente del crédito', {
+                    code: 'PAYMENT_EXCEEDS_CREDIT_BALANCE',
+                    saldo_pendiente: fromMinorUnits(balanceMinor),
+                    monto: amount
+                });
+            }
+            const cashier = await tx.get('SELECT id, nombre, activo FROM usuarios WHERE id = ?', [cashierUserId]);
+            if (!cashier || Number(cashier.activo ?? 1) !== 1) {
+                throw new NotFoundError('Cajero activo no encontrado', { cashierUserId });
+            }
+            const sequence = await this.sequenceService.nextInTransaction(
+                DOCUMENT_SEQUENCE_TYPES.PAYMENT,
+                tx,
+                { now }
+            );
+            const inserted = await tx.run(`
+                INSERT INTO pagos (
+                    pedido_id, prefactura_id, credito_id, numero_pago, numero_secuencia,
+                    naturaleza, estado, metodo_pago, metodo_pago_v3,
+                    monto, monto_recibido, vuelto, subtotal, servicio,
+                    porcentaje_servicio, aplica_servicio, referencia,
+                    cajero_usuario_id, cajero_nombre_snapshot,
+                    pagador_nombre_snapshot, fecha, version, creado_en, actualizado_en
+                ) VALUES (?, NULL, ?, ?, ?, 'cobro_credito', 'confirmado',
+                          ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?, 1, ?, ?)
+            `, [
+                credit.pedido_id,
+                creditId,
+                sequence.documentNumber,
+                sequence.sequence,
+                payment.metodo_pago_legacy,
+                payment.metodo_pago,
+                amount,
+                payment.monto_recibido,
+                payment.vuelto,
+                amount,
+                payment.referencia,
+                cashier.id,
+                cashier.nombre,
+                credit.pagador_nombre_snapshot || credit.cliente_nombre,
+                now,
+                now,
+                now
+            ]);
+            await tx.run(`
+                INSERT INTO pago_componentes (pago_id, tipo, monto, creado_en)
+                VALUES (?, 'subtotal', ?, ?), (?, 'servicio', 0, ?)
+            `, [inserted.id, amount, now, inserted.id, now]);
+            for (const tender of payment.medios_pago) {
+                await tx.run(`
+                    INSERT INTO pago_medios (
+                        pago_id, ordinal, tipo, monto_aplicado,
+                        monto_recibido, vuelto, referencia, creado_en
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                `, [
+                    inserted.id,
+                    tender.ordinal,
+                    tender.tipo,
+                    tender.monto_aplicado,
+                    tender.monto_recibido,
+                    tender.vuelto,
+                    tender.referencia,
+                    now
+                ]);
+            }
+            const previousState = credit.estado;
+            const synchronizedCredit = await this.synchronizeCredit(creditId, tx, now);
+            await tx.run(`
+                INSERT INTO historial_creditos (
+                    credito_id, evento, estado_anterior, estado_nuevo,
+                    usuario_id, usuario_nombre_snapshot, detalle, fecha
+                ) VALUES (?, 'abono_registrado', ?, ?, ?, ?, ?, ?)
+            `, [
+                creditId,
+                previousState,
+                synchronizedCredit.estado,
+                cashier.id,
+                cashier.nombre,
+                JSON.stringify({
+                    pago_id: inserted.id,
+                    numero_pago: sequence.documentNumber,
+                    monto: amount,
+                    metodo_pago: payment.metodo_pago,
+                    monto_recibido: payment.monto_recibido,
+                    vuelto: payment.vuelto,
+                    saldo_pendiente: synchronizedCredit.saldo_pendiente
+                }),
+                now
+            ]);
+            const synchronizedAccount = await this.accountService.synchronizeAccount(
+                credit.pedido_id,
+                tx,
+                { now }
+            );
+            await tx.run(`
+                INSERT INTO historial_transacciones (
+                    tipo_accion, usuario_id, descripcion, fecha
+                ) VALUES ('abono_credito_paymentservice', ?, ?, ?)
+            `, [
+                cashier.id,
+                `Abono ${sequence.documentNumber} aplicado a ${credit.numero_credito}; monto ${amount}; saldo ${synchronizedCredit.saldo_pendiente}; cuenta ${synchronizedAccount.numero_cuenta}`,
+                now
+            ]);
+            await this.saveIdempotency(
+                IDEMPOTENCY_SCOPES.CREDIT_CREATE,
+                idempotencyKey,
+                fingerprint,
+                'pago',
+                inserted.id,
+                tx,
+                now
+            );
+            return this.buildResult(inserted.id, tx);
+        });
+    }
+
     async voidPayment(input = {}) {
         const paymentId = Number(input.paymentId ?? input.pago_id ?? input.id);
         const userId = Number(input.userId ?? input.usuario_id ?? input.anulado_por_usuario_id);
@@ -614,7 +996,6 @@ class PaymentService {
         if (!reason) throw new ValidationError('El motivo de anulación es requerido');
 
         const fingerprint = this.buildVoidFingerprint({ paymentId, userId, reason });
-
         return this.transactions.immediate(async tx => {
             const existingKey = await this.findIdempotency(
                 IDEMPOTENCY_SCOPES.VOID,
@@ -627,27 +1008,39 @@ class PaymentService {
             }
 
             const payment = await tx.get(`
-                SELECT pg.*, pf.estado AS prefactura_estado, pf.numero_documento
+                SELECT
+                    pg.*,
+                    pf.estado AS prefactura_estado,
+                    pf.numero_documento,
+                    cc.numero_credito,
+                    cc.estado AS credito_estado
                 FROM pagos pg
                 LEFT JOIN prefacturas pf ON pf.id = pg.prefactura_id
+                LEFT JOIN cuentas_credito cc ON cc.id = pg.credito_id
                 WHERE pg.id = ?
             `, [paymentId]);
             if (!payment) throw new NotFoundError('Pago no encontrado', { paymentId });
-            if (!payment.prefactura_id) {
-                throw new ConflictError('Los pagos legacy sin prefactura se revertirán durante su migración específica', {
-                    code: 'LEGACY_PAYMENT_VOID_NOT_SUPPORTED'
-                });
-            }
             if (payment.estado === PAYMENT_STATES.VOIDED) {
                 throw new ConflictError('El pago ya fue anulado con otra solicitud', {
-                    code: 'PAYMENT_ALREADY_VOIDED',
-                    paymentId
+                    code: 'PAYMENT_ALREADY_VOIDED', paymentId
                 });
             }
             if (payment.estado !== PAYMENT_STATES.CONFIRMED) {
                 throw new ConflictError('Solo un pago confirmado puede anularse', {
-                    code: 'PAYMENT_VOID_NOT_ALLOWED',
-                    estado: payment.estado
+                    code: 'PAYMENT_VOID_NOT_ALLOWED', estado: payment.estado
+                });
+            }
+            if (payment.metodo_pago_v3 === PAYMENT_METHODS.CREDIT
+                && payment.naturaleza === PAYMENT_NATURES.SALE_SETTLEMENT) {
+                throw new ConflictError('La apertura de crédito solo puede revertirse anulando el crédito completo', {
+                    code: 'CREDIT_SETTLEMENT_VOID_REQUIRES_CREDIT_CANCELLATION',
+                    credito_id: payment.credito_id
+                });
+            }
+            if (!payment.prefactura_id
+                && payment.naturaleza !== PAYMENT_NATURES.CREDIT_COLLECTION) {
+                throw new ConflictError('Los pagos legacy sin prefactura no admiten reverso automático', {
+                    code: 'LEGACY_PAYMENT_VOID_NOT_SUPPORTED'
                 });
             }
 
@@ -655,8 +1048,13 @@ class PaymentService {
             if (!user || Number(user.activo ?? 1) !== 1) {
                 throw new NotFoundError('Usuario activo no encontrado', { userId });
             }
+            const previousDocument = payment.prefactura_id
+                ? await tx.get('SELECT * FROM prefacturas WHERE id = ?', [payment.prefactura_id])
+                : null;
+            const previousCredit = payment.credito_id
+                ? await tx.get('SELECT * FROM cuentas_credito WHERE id = ?', [payment.credito_id])
+                : null;
 
-            const previousDocument = await tx.get('SELECT * FROM prefacturas WHERE id = ?', [payment.prefactura_id]);
             await tx.run(`
                 UPDATE pagos
                 SET estado = 'anulado',
@@ -668,7 +1066,6 @@ class PaymentService {
                     version = COALESCE(version, 1) + 1
                 WHERE id = ? AND estado = 'confirmado'
             `, [now, user.id, user.nombre, reason, now, paymentId]);
-
             const reversal = await tx.run(`
                 INSERT INTO reversos_pago (
                     pago_id, monto_revertido, usuario_id,
@@ -676,53 +1073,86 @@ class PaymentService {
                     clave_idempotencia, solicitud_fingerprint
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             `, [
-                paymentId,
-                payment.monto,
-                user.id,
-                user.nombre,
-                reason,
-                now,
-                idempotencyKey,
-                fingerprint
+                paymentId, payment.monto, user.id, user.nombre,
+                reason, now, idempotencyKey, fingerprint
             ]);
 
-            const synchronizedDocument = await this.synchronizePreinvoice(payment.prefactura_id, tx, now);
-            await tx.run(`
-                INSERT INTO historial_prefacturas (
-                    prefactura_id, evento, estado_anterior, estado_nuevo,
-                    usuario_id, usuario_nombre_snapshot, detalle, fecha
-                ) VALUES (?, 'pago_anulado', ?, ?, ?, ?, ?, ?)
-            `, [
-                payment.prefactura_id,
-                previousDocument.estado,
-                synchronizedDocument.estado,
-                user.id,
-                user.nombre,
-                JSON.stringify({
-                    pago_id: paymentId,
-                    numero_pago: payment.numero_pago,
-                    reverso_id: reversal.id,
-                    monto: payment.monto,
-                    motivo: reason,
-                    saldo_pendiente: synchronizedDocument.saldo_pendiente
-                }),
-                now
-            ]);
-
-            const synchronizedAccount = await this.accountService.synchronizeAccount(
-                payment.pedido_id,
-                tx,
-                { now }
-            );
-            await tx.run(`
-                INSERT INTO historial_transacciones (
-                    tipo_accion, usuario_id, descripcion, fecha
-                ) VALUES ('anular_pago_prefactura', ?, ?, ?)
-            `, [
-                user.id,
-                `Pago ${payment.numero_pago || payment.id} anulado en ${payment.numero_documento}; monto ${payment.monto}; saldo restaurado ${synchronizedDocument.saldo_pendiente}; cuenta ${synchronizedAccount.numero_cuenta}`,
-                now
-            ]);
+            if (payment.naturaleza === PAYMENT_NATURES.CREDIT_COLLECTION) {
+                if (!previousCredit) {
+                    throw new InvariantError('El abono no tiene un crédito asociado', {
+                        code: 'CREDIT_PAYMENT_WITHOUT_CREDIT', paymentId
+                    });
+                }
+                const synchronizedCredit = await this.synchronizeCredit(payment.credito_id, tx, now);
+                await tx.run(`
+                    INSERT INTO historial_creditos (
+                        credito_id, evento, estado_anterior, estado_nuevo,
+                        usuario_id, usuario_nombre_snapshot, detalle, fecha
+                    ) VALUES (?, 'abono_anulado', ?, ?, ?, ?, ?, ?)
+                `, [
+                    payment.credito_id,
+                    previousCredit.estado,
+                    synchronizedCredit.estado,
+                    user.id,
+                    user.nombre,
+                    JSON.stringify({
+                        pago_id: paymentId,
+                        numero_pago: payment.numero_pago,
+                        reverso_id: reversal.id,
+                        monto: payment.monto,
+                        motivo: reason,
+                        saldo_pendiente: synchronizedCredit.saldo_pendiente
+                    }),
+                    now
+                ]);
+                const synchronizedAccount = await this.accountService.synchronizeAccount(
+                    payment.pedido_id, tx, { now }
+                );
+                await tx.run(`
+                    INSERT INTO historial_transacciones (
+                        tipo_accion, usuario_id, descripcion, fecha
+                    ) VALUES ('anular_abono_credito', ?, ?, ?)
+                `, [
+                    user.id,
+                    `Abono ${payment.numero_pago || payment.id} anulado en ${payment.numero_credito || payment.credito_id}; monto ${payment.monto}; saldo restaurado ${synchronizedCredit.saldo_pendiente}; cuenta ${synchronizedAccount.numero_cuenta}`,
+                    now
+                ]);
+            } else {
+                const synchronizedDocument = await this.synchronizePreinvoice(payment.prefactura_id, tx, now);
+                await tx.run(`
+                    INSERT INTO historial_prefacturas (
+                        prefactura_id, evento, estado_anterior, estado_nuevo,
+                        usuario_id, usuario_nombre_snapshot, detalle, fecha
+                    ) VALUES (?, 'pago_anulado', ?, ?, ?, ?, ?, ?)
+                `, [
+                    payment.prefactura_id,
+                    previousDocument.estado,
+                    synchronizedDocument.estado,
+                    user.id,
+                    user.nombre,
+                    JSON.stringify({
+                        pago_id: paymentId,
+                        numero_pago: payment.numero_pago,
+                        reverso_id: reversal.id,
+                        monto: payment.monto,
+                        motivo: reason,
+                        saldo_pendiente: synchronizedDocument.saldo_pendiente
+                    }),
+                    now
+                ]);
+                const synchronizedAccount = await this.accountService.synchronizeAccount(
+                    payment.pedido_id, tx, { now }
+                );
+                await tx.run(`
+                    INSERT INTO historial_transacciones (
+                        tipo_accion, usuario_id, descripcion, fecha
+                    ) VALUES ('anular_pago_prefactura', ?, ?, ?)
+                `, [
+                    user.id,
+                    `Pago ${payment.numero_pago || payment.id} anulado en ${payment.numero_documento}; monto ${payment.monto}; saldo restaurado ${synchronizedDocument.saldo_pendiente}; cuenta ${synchronizedAccount.numero_cuenta}`,
+                    now
+                ]);
+            }
 
             await this.saveIdempotency(
                 IDEMPOTENCY_SCOPES.VOID,
@@ -733,10 +1163,10 @@ class PaymentService {
                 tx,
                 now
             );
-
             return this.buildResult(paymentId, tx);
         });
     }
+
 
     async getPayment(paymentId, client = this.db) {
         const id = Number(paymentId);
@@ -748,10 +1178,14 @@ class PaymentService {
                 pg.*,
                 pf.numero_documento,
                 pf.pagador_nombre,
-                p.numero_cuenta
+                p.numero_cuenta,
+                cc.numero_credito,
+                cc.estado AS credito_estado,
+                cc.saldo_pendiente AS credito_saldo_pendiente
             FROM pagos pg
             JOIN pedidos p ON p.id = pg.pedido_id
             LEFT JOIN prefacturas pf ON pf.id = pg.prefactura_id
+            LEFT JOIN cuentas_credito cc ON cc.id = pg.credito_id
             WHERE pg.id = ?
         `, [id]);
         if (!row) throw new NotFoundError('Pago no encontrado', { paymentId: id });
@@ -802,6 +1236,21 @@ class PaymentService {
             SELECT id
             FROM pagos
             WHERE prefactura_id = ?
+              AND COALESCE(naturaleza, 'liquidacion_venta') = 'liquidacion_venta'
+            ORDER BY fecha, id
+        `, [id]);
+        return Promise.all(rows.map(row => this.getPayment(row.id, client)));
+    }
+
+    async listByCredit(creditId, client = this.db) {
+        const id = Number(creditId);
+        if (!Number.isSafeInteger(id) || id <= 0) {
+            throw new ValidationError('ID de crédito inválido', { creditId });
+        }
+        const rows = await client.all(`
+            SELECT id
+            FROM pagos
+            WHERE credito_id = ?
             ORDER BY fecha, id
         `, [id]);
         return Promise.all(rows.map(row => this.getPayment(row.id, client)));
@@ -829,5 +1278,6 @@ module.exports.PaymentService = PaymentService;
 module.exports.PAYMENT_STATES = PAYMENT_STATES;
 module.exports.PAYMENT_METHODS = PAYMENT_METHODS;
 module.exports.IDEMPOTENCY_SCOPES = IDEMPOTENCY_SCOPES;
+module.exports.PAYMENT_NATURES = PAYMENT_NATURES;
 module.exports.normalizePaymentMethod = normalizePaymentMethod;
 module.exports.normalizePaymentTenders = normalizePaymentTenders;

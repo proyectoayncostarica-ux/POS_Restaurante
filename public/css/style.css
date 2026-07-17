@@ -11485,3 +11485,32 @@ body {
         grid-template-columns: 1fr;
     }
 }
+
+/* v3.2.4 · Créditos integrados con Payments */
+.cash-credit-status-card,
+.credit-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: .75rem;
+    padding: .9rem;
+    margin: .9rem 0;
+    border: 1px solid var(--border-color, #d9dee7);
+    border-radius: 12px;
+    background: var(--card-bg, #fff);
+}
+.cash-credit-status-card > div,
+.credit-detail-grid > div { display: flex; flex-direction: column; gap: .2rem; }
+.cash-credit-status-card small,
+.credit-detail-grid small { opacity: .7; }
+.accounts-credit-summary { margin-bottom: 1rem; }
+.credit-table td small { display: block; margin-top: .2rem; opacity: .7; }
+.credit-table td { vertical-align: middle; }
+.cash-credit-modal textarea { width: 100%; resize: vertical; }
+.credit-payment-modal .cash-mixed-grid { align-items: end; }
+@media (max-width: 720px) {
+    .credit-table thead { display: none; }
+    .credit-table, .credit-table tbody, .credit-table tr, .credit-table td { display: block; width: 100%; }
+    .credit-table tr { margin-bottom: .8rem; padding: .8rem; border: 1px solid var(--border-color, #d9dee7); border-radius: 12px; }
+    .credit-table td { border: 0; padding: .35rem 0; }
+    .credit-table td:last-child .d-flex { flex-direction: column; }
+}

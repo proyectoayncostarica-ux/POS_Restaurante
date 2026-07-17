@@ -431,62 +431,15 @@ router.post("/:id/pay", requireCapability(CAPABILITIES.CASH_COLLECT), async (req
         const servicio = servicePayment.monto_servicio;
         const total = servicePayment.total_con_servicio;
 
-        // 🔐 PROCESO DE CRÉDITO
+        // El crédito se formaliza únicamente sobre una prefactura persistente desde Caja.
         if (metodo_pago === 'credito') {
-            const bcrypt = require("bcryptjs");
-
-            const admin = await database.get("SELECT * FROM usuarios WHERE tipo = ? AND activo = 1 LIMIT 1", ["administrador"]);
-            if (!admin || !await bcrypt.compare(admin_pass || "", admin.password)) {
-                return res.status(401).json({ error: "Contraseña de administrador incorrecta" });
-            }
-
-            // 1. Actualizar estado del pedido a 'credito'
-            await database.run("UPDATE pedidos SET estado = ? WHERE id = ?", ["credito", id]);
-
-            // 2. Liberar la mesa
-            await database.run("UPDATE mesas SET estado = ?, cliente_nombre = NULL, fecha_apertura = NULL, cantidad_personas = NULL, hora_estimada = NULL WHERE id = ?", ["libre", pedido.mesa_id]);
-
-            // 3. Registrar en historial
-            await database.run(
-                "INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)",
-                [`credito_${nombreZona}`, req.session.userId, `Pedido #${pedido.id} registrado como crédito en ${nombreZona} ${pedido.mesa_numero}`, new Date().toISOString()]
-            );
-
-            // 4. Registrar en cuentas_credito
-            await database.run(`
-                INSERT INTO cuentas_credito (pedido_id, cliente_nombre, monto_total, fecha, usuario_origen, autorizado_por, mesa)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            `, [
-                pedido.id,
-                pedido.cliente_nombre || '',
-                total,
-                new Date().toISOString(),
-                req.session.userName || req.session.userNombre || 'usuario_desconocido',
-                admin.nombre,
-                `${nombreZona} ${pedido.mesa_numero}`
-            ]);
-
-            // 5. Sincronizar el agregado financiero global antes de responder.
-            const accountTotals = await accountService.synchronizeAccount(id);
-
-            // 6. Devolver respuesta
-            return res.json({
-                success: true,
-                data: {
-                    subtotal,
-                    servicio,
-                    total,
-                    metodo_pago,
-                    aplica_servicio: servicePayment.aplica_servicio,
-                    porcentaje_servicio: servicePayment.porcentaje_servicio,
-                    mesa_numero: pedido.mesa_numero,
-                    numero_cuenta: pedido.numero_cuenta,
-                    total_pagado: accountTotals.total_pagado,
-                    saldo_pendiente: accountTotals.saldo_pendiente,
-                    estado_operativo: accountTotals.estado_operativo,
-                    estado_financiero: accountTotals.estado_financiero,
-                    mensaje: `Saldo pendiente de pago - ₡${Number(total).toLocaleString('es-CR', { minimumFractionDigits: 2 })}`
-
+            return res.status(409).json({
+                error: 'Emite una prefactura y formaliza el crédito desde Caja.',
+                code: 'USE_PREINVOICE_CREDIT_FLOW',
+                details: {
+                    pedido_id: Number(id),
+                    numero_cuenta: pedido.numero_cuenta || null,
+                    mesa_liberada: false
                 }
             });
         }

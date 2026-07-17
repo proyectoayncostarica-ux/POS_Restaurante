@@ -1,4 +1,4 @@
-// Caja Component · v3.2.3
+// Caja Component · v3.2.4
 // Interfaz operativa de cobro por prefactura. La cuenta global continúa siendo
 // la única fuente financiera y pagar un documento no finaliza el servicio.
 const Cash = {
@@ -303,6 +303,74 @@ const Cash = {
             globalThis.document.getElementById('cash-payment-amount')?.select();
             this.updatePaymentTotals();
         }, 0);
+    },
+
+    openCreditModal(preinvoiceId = this.selectedPreinvoiceId) {
+        if (!this.has('cash.collect')) {
+            Utils.showNotification('Tu sesión no tiene autorización para formalizar créditos.', 'warning');
+            return;
+        }
+        const read = this.selectedRead;
+        if (!read || Number(read.prefactura?.id) !== Number(preinvoiceId)) {
+            this.openDocument(preinvoiceId).then(() => this.openCreditModal(preinvoiceId));
+            return;
+        }
+        if (!read.acciones?.puede_trasladar_credito) {
+            Utils.showNotification('Esta prefactura no admite traslado a crédito.', 'warning');
+            return;
+        }
+        const document = read.prefactura;
+        const balance = Number(document.saldo_pendiente_calculado || 0);
+        Utils.showModal(`Formalizar crédito · ${this.escapeHTML(document.numero_documento)}`, `
+            <div class="cash-credit-modal">
+                <div class="cash-payment-balance"><span>Saldo que se trasladará a crédito</span><strong>${Utils.formatCurrency(balance)}</strong></div>
+                <p class="cash-form-help">El documento quedará liquidado mediante crédito, pero la deuda continuará vinculada a la misma cuenta global. La mesa no se libera.</p>
+                <form id="cash-credit-form" onsubmit="Cash.submitCredit(event)">
+                    <input type="hidden" id="cash-credit-preinvoice-id" value="${Number(document.id)}">
+                    <input type="hidden" id="cash-credit-idempotency" value="${this.escapeAttribute(this.buildIdempotencyKey('credit'))}">
+                    <div class="form-group">
+                        <label for="cash-credit-admin-password">Contraseña de administrador *</label>
+                        <input id="cash-credit-admin-password" type="password" required autocomplete="current-password">
+                    </div>
+                    <div class="form-group">
+                        <label for="cash-credit-observation">Observación</label>
+                        <textarea id="cash-credit-observation" maxlength="500" rows="3" placeholder="Motivo o condición autorizada"></textarea>
+                    </div>
+                </form>
+            </div>
+        `, [
+            { text: 'Cancelar', class: 'btn-light', onclick: () => Utils.hideModal() },
+            { text: '<i class="fas fa-file-signature"></i> Autorizar crédito', class: 'btn-warning cash-credit-submit', align: 'right', onclick: () => Cash.submitCredit() }
+        ], 'modal-cash-credit');
+        setTimeout(() => document.getElementById('cash-credit-admin-password')?.focus(), 0);
+    },
+
+    async submitCredit(event) {
+        event?.preventDefault();
+        const preinvoiceId = Number(document.getElementById('cash-credit-preinvoice-id')?.value || 0);
+        const adminPassword = String(document.getElementById('cash-credit-admin-password')?.value || '');
+        const observation = String(document.getElementById('cash-credit-observation')?.value || '').trim();
+        const idempotencyKey = document.getElementById('cash-credit-idempotency')?.value;
+        if (!preinvoiceId || !adminPassword) {
+            Utils.showNotification('La contraseña de administrador es obligatoria.', 'warning');
+            return;
+        }
+        const button = document.querySelector('.modal-cash-credit .cash-credit-submit');
+        if (button) { button.disabled = true; button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Formalizando…'; }
+        try {
+            const response = await Utils.request(`/cash/preinvoices/${preinvoiceId}/credit`, {
+                method: 'POST',
+                headers: { 'Idempotency-Key': idempotencyKey },
+                body: JSON.stringify({ admin_password: adminPassword, observacion: observation })
+            });
+            Utils.hideModal();
+            Utils.showNotification(`Crédito ${response.data?.numero_credito || ''} formalizado sin cerrar la mesa.`, 'success');
+            await this.loadDetail(preinvoiceId, { render: false });
+            await this.load({ preserveSelection: true });
+        } catch (error) {
+            Utils.showNotification(error.message || 'No se pudo formalizar el crédito.', 'error');
+            if (button) { button.disabled = false; button.innerHTML = '<i class="fas fa-file-signature"></i> Autorizar crédito'; }
+        }
     },
 
     onPaymentMethodChange(method) {
@@ -634,6 +702,7 @@ const Cash = {
         const documentBalance = Number(this.summary?.saldo_documental_visible || 0);
         const globalSales = Number(this.summary?.ventas_globales_hoy || 0);
         const movementTotal = Number(this.summary?.movimientos_caja_hoy || 0);
+        const creditBalance = Number(this.summary?.saldo_creditos || 0);
         return `
             <div class="cash-foundation-grid cash-operational-summary">
                 <article class="cash-foundation-card">
@@ -651,6 +720,10 @@ const Cash = {
                 <article class="cash-foundation-card">
                     <span class="cash-foundation-icon"><i class="fas fa-money-bill-transfer"></i></span>
                     <div><small>Movimientos de Caja hoy</small><strong>${Utils.formatCurrency(movementTotal)}</strong></div>
+                </article>
+                <article class="cash-foundation-card">
+                    <span class="cash-foundation-icon"><i class="fas fa-file-invoice-dollar"></i></span>
+                    <div><small>Saldo de créditos activos</small><strong>${Utils.formatCurrency(creditBalance)}</strong></div>
                 </article>
             </div>
         `;
@@ -727,7 +800,9 @@ const Cash = {
         const payments = Array.isArray(read.pagos) ? read.pagos : [];
         const items = Array.isArray(document.items) ? document.items : [];
         const canCollect = this.has('cash.collect') && read.acciones?.puede_cobrar;
+        const canCredit = this.has('cash.collect') && read.acciones?.puede_trasladar_credito;
         const canReprint = this.has('cash.reprint') && read.acciones?.puede_reimprimir;
+        const credit = read.credito || null;
 
         return `
             <div class="cash-detail-heading">
@@ -772,6 +847,13 @@ const Cash = {
                 </div>
             </div>
 
+            ${credit ? `<div class="cash-credit-status-card">
+                <div><small>Crédito formalizado</small><strong>${this.escapeHTML(credit.numero_credito || '')}</strong></div>
+                <div><small>Deudor</small><strong>${this.escapeHTML(credit.cliente_nombre || '')}</strong></div>
+                <div><small>Saldo del crédito</small><strong>${Utils.formatCurrency(Number(credit.saldo_pendiente || 0))}</strong></div>
+                <span class="cash-document-status ${credit.estado === 'saldado' ? 'is-paid' : 'is-partial'}">${this.escapeHTML(credit.estado || '')}</span>
+            </div>` : ''}
+
             <div class="cash-detail-section">
                 <h4><i class="fas fa-money-bill-transfer"></i> Pagos del documento</h4>
                 ${this.renderDocumentPayments(payments)}
@@ -779,6 +861,7 @@ const Cash = {
 
             <div class="cash-detail-actions">
                 ${canReprint ? `<button type="button" class="btn btn-light" onclick="Cash.requestReprint(${Number(document.id)})"><i class="fas fa-print"></i> Reimprimir</button>` : ''}
+                ${canCredit ? `<button type="button" class="btn btn-warning" onclick="Cash.openCreditModal(${Number(document.id)})"><i class="fas fa-file-signature"></i> Trasladar a crédito</button>` : ''}
                 ${canCollect ? `<button type="button" class="btn btn-success" onclick="Cash.openPaymentModal(${Number(document.id)})"><i class="fas fa-cash-register"></i> Cobrar prefactura</button>` : ''}
                 ${!canCollect && read.acciones?.puede_cobrar ? '<span class="cash-action-hint"><i class="fas fa-lock"></i> Falta la capacidad cash.collect.</span>' : ''}
                 ${document.estado === 'pagada' ? '<span class="cash-action-success"><i class="fas fa-circle-check"></i> Documento liquidado. La mesa continúa activa.</span>' : ''}
@@ -808,7 +891,7 @@ const Cash = {
             <div class="cash-payment-tenders">
                 ${tenders.map(tender => `
                     <span class="cash-payment-tender">
-                        <i class="fas ${tender.tipo === 'tarjeta' ? 'fa-credit-card' : 'fa-money-bill-wave'}"></i>
+                        <i class="fas ${tender.tipo === 'tarjeta' ? 'fa-credit-card' : (tender.tipo === 'credito' ? 'fa-file-invoice-dollar' : 'fa-money-bill-wave')}"></i>
                         ${this.paymentMethodLabel(tender.tipo)} ${Utils.formatCurrency(Number(tender.monto_aplicado || 0))}
                         ${Number(tender.vuelto || 0) > 0 ? ` · Vuelto ${Utils.formatCurrency(Number(tender.vuelto || 0))}` : ''}
                     </span>

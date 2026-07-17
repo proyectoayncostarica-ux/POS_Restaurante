@@ -62,8 +62,10 @@ function legacyOperationalState(legacyState, persistedState) {
     return ACCOUNT_OPERATIONAL_STATES.OPEN;
 }
 
-function deriveFinancialState({ legacyState, totalMinor, paidMinor, persistedState }) {
+function deriveFinancialState({ legacyState, totalMinor, paidMinor, persistedState, creditBalanceMinor = null }) {
     if (legacyState === 'credito') return ACCOUNT_FINANCIAL_STATES.CREDIT;
+    if (creditBalanceMinor !== null && Number(creditBalanceMinor) > 0) return ACCOUNT_FINANCIAL_STATES.CREDIT;
+    if (creditBalanceMinor === null && persistedState === ACCOUNT_FINANCIAL_STATES.CREDIT) return ACCOUNT_FINANCIAL_STATES.CREDIT;
     if (totalMinor > 0 && paidMinor >= totalMinor) return ACCOUNT_FINANCIAL_STATES.RECONCILED;
     if (paidMinor > 0) return ACCOUNT_FINANCIAL_STATES.PARTIAL;
     if (persistedState === ACCOUNT_FINANCIAL_STATES.PENDING) return ACCOUNT_FINANCIAL_STATES.PENDING;
@@ -777,6 +779,13 @@ class AccountService {
             FROM pagos
             WHERE pedido_id = ?
               AND COALESCE(estado, 'confirmado') = 'confirmado'
+              AND COALESCE(naturaleza, 'liquidacion_venta') = 'liquidacion_venta'
+        `, [accountId]);
+        const credits = await client.get(`
+            SELECT COALESCE(SUM(saldo_pendiente), 0) AS saldo_credito
+            FROM cuentas_credito
+            WHERE pedido_id = ?
+              AND estado IN ('pendiente', 'parcial')
         `, [accountId]);
         const documents = await client.get(`
             SELECT COUNT(*) AS activos
@@ -798,7 +807,8 @@ class AccountService {
             paidMinor,
             persistedState: Number(documents?.activos || 0) > 0 && paidMinor <= 0
                 ? ACCOUNT_FINANCIAL_STATES.PENDING
-                : account.estado_financiero
+                : account.estado_financiero,
+            creditBalanceMinor: toMinorUnits(credits?.saldo_credito || 0)
         });
         const operationalState = legacyOperationalState(account.estado, account.estado_operativo);
 
@@ -817,7 +827,7 @@ class AccountService {
         const account = await client.get('SELECT * FROM pedidos WHERE id = ?', [accountId]);
         if (!account) throw new NotFoundError('Cuenta no encontrada', { accountId });
         const totals = await this.calculateAccountTotals(accountId, client, account);
-        const reconciliationDate = totals.estado_financiero === ACCOUNT_FINANCIAL_STATES.RECONCILED
+        const reconciliationDate = [ACCOUNT_FINANCIAL_STATES.RECONCILED, ACCOUNT_FINANCIAL_STATES.CREDIT].includes(totals.estado_financiero)
             ? (account.fecha_conciliacion || now)
             : null;
         const closeDate = [ACCOUNT_OPERATIONAL_STATES.CLOSED, ACCOUNT_OPERATIONAL_STATES.CANCELLED].includes(totals.estado_operativo)
@@ -1184,6 +1194,7 @@ class AccountService {
                 FROM pagos
                 WHERE pedido_id = ?
                   AND COALESCE(estado, 'confirmado') = 'confirmado'
+                  AND COALESCE(naturaleza, 'liquidacion_venta') = 'liquidacion_venta'
             `, [id]);
             const pendingSubtotalMinor = Math.max(
                 0,
@@ -1430,7 +1441,12 @@ class AccountService {
                 COALESCE((SELECT SUM(pp.cantidad) FROM pedido_productos pp WHERE pp.pedido_id = p.id), 0) AS unidades_consumidas,
                 COALESCE((SELECT SUM(pp.cantidad_asignada) FROM pedido_productos pp WHERE pp.pedido_id = p.id), 0) AS unidades_asignadas,
                 COALESCE((SELECT SUM(pp.cantidad - pp.cantidad_asignada) FROM pedido_productos pp WHERE pp.pedido_id = p.id), 0) AS unidades_disponibles,
-                COALESCE((SELECT SUM(pg.monto) FROM pagos pg WHERE pg.pedido_id = p.id AND COALESCE(pg.estado, 'confirmado') = 'confirmado'), 0) AS pagado_calculado
+                COALESCE((SELECT SUM(pg.monto) FROM pagos pg
+                          WHERE pg.pedido_id = p.id
+                            AND COALESCE(pg.estado, 'confirmado') = 'confirmado'
+                            AND COALESCE(pg.naturaleza, 'liquidacion_venta') = 'liquidacion_venta'), 0) AS pagado_calculado,
+                COALESCE((SELECT SUM(cc.saldo_pendiente) FROM cuentas_credito cc
+                          WHERE cc.pedido_id = p.id AND cc.estado IN ('pendiente', 'parcial')), 0) AS saldo_credito_calculado
             FROM pedidos p
             JOIN mesas m ON m.id = p.mesa_id
             JOIN usuarios u ON u.id = p.usuario_id
@@ -1455,7 +1471,8 @@ class AccountService {
             legacyState: row.estado,
             totalMinor,
             paidMinor,
-            persistedState: row.estado_financiero
+            persistedState: row.estado_financiero,
+            creditBalanceMinor: toMinorUnits(Number(row.saldo_credito_calculado || 0))
         });
 
         return {
@@ -1491,7 +1508,12 @@ class AccountService {
                 COALESCE((SELECT SUM(pp.cantidad) FROM pedido_productos pp WHERE pp.pedido_id = p.id), 0) AS unidades_consumidas,
                 COALESCE((SELECT SUM(pp.cantidad_asignada) FROM pedido_productos pp WHERE pp.pedido_id = p.id), 0) AS unidades_asignadas,
                 COALESCE((SELECT SUM(pp.cantidad - pp.cantidad_asignada) FROM pedido_productos pp WHERE pp.pedido_id = p.id), 0) AS unidades_disponibles,
-                COALESCE((SELECT SUM(pg.monto) FROM pagos pg WHERE pg.pedido_id = p.id AND COALESCE(pg.estado, 'confirmado') = 'confirmado'), 0) AS pagado_calculado
+                COALESCE((SELECT SUM(pg.monto) FROM pagos pg
+                          WHERE pg.pedido_id = p.id
+                            AND COALESCE(pg.estado, 'confirmado') = 'confirmado'
+                            AND COALESCE(pg.naturaleza, 'liquidacion_venta') = 'liquidacion_venta'), 0) AS pagado_calculado,
+                COALESCE((SELECT SUM(cc.saldo_pendiente) FROM cuentas_credito cc
+                          WHERE cc.pedido_id = p.id AND cc.estado IN ('pendiente', 'parcial')), 0) AS saldo_credito_calculado
             FROM pedidos p
             JOIN mesas m ON m.id = p.mesa_id
             JOIN usuarios u ON u.id = p.usuario_id
