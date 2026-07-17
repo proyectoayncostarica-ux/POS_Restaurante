@@ -3,12 +3,17 @@ const { TransactionService } = require('./transactionService');
 const { ValidationError, NotFoundError } = require('../errors/domainError');
 
 const DOCUMENT_SEQUENCE_TYPES = Object.freeze({
-    PREINVOICE: 'prefactura'
+    PREINVOICE: 'prefactura',
+    PAYMENT: 'pago'
 });
 
 const DOCUMENT_SEQUENCE_DEFINITIONS = Object.freeze({
     [DOCUMENT_SEQUENCE_TYPES.PREINVOICE]: Object.freeze({
         prefix: 'PF',
+        padding: 8
+    }),
+    [DOCUMENT_SEQUENCE_TYPES.PAYMENT]: Object.freeze({
+        prefix: 'PG',
         padding: 8
     })
 });

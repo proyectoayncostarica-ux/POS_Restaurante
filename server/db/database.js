@@ -417,14 +417,67 @@ class Database {
             `CREATE TABLE IF NOT EXISTS pagos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 pedido_id INTEGER NOT NULL,
+                prefactura_id INTEGER,
+                numero_pago TEXT UNIQUE,
+                numero_secuencia INTEGER UNIQUE,
+                estado TEXT NOT NULL DEFAULT 'confirmado' CHECK(estado IN ('pendiente', 'confirmado', 'anulado')),
                 metodo_pago TEXT NOT NULL CHECK(metodo_pago IN ('efectivo', 'tarjeta', 'credito')),
-                monto REAL NOT NULL,
+                monto REAL NOT NULL CHECK(monto > 0),
                 subtotal REAL,
                 servicio REAL NOT NULL DEFAULT 0,
                 porcentaje_servicio REAL,
                 aplica_servicio INTEGER,
+                referencia TEXT,
+                cajero_usuario_id INTEGER,
+                cajero_nombre_snapshot TEXT,
+                pagador_nombre_snapshot TEXT,
                 fecha TEXT NOT NULL,
-                FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE CASCADE
+                fecha_anulacion TEXT,
+                anulado_por_usuario_id INTEGER,
+                anulado_por_nombre_snapshot TEXT,
+                motivo_anulacion TEXT,
+                version INTEGER NOT NULL DEFAULT 1,
+                creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE CASCADE,
+                FOREIGN KEY (prefactura_id) REFERENCES prefacturas (id) ON DELETE RESTRICT,
+                FOREIGN KEY (cajero_usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL,
+                FOREIGN KEY (anulado_por_usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
+            )`,
+
+            `CREATE TABLE IF NOT EXISTS pago_componentes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pago_id INTEGER NOT NULL,
+                tipo TEXT NOT NULL CHECK(tipo IN ('subtotal', 'servicio')),
+                monto REAL NOT NULL DEFAULT 0,
+                creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(pago_id, tipo),
+                FOREIGN KEY (pago_id) REFERENCES pagos (id) ON DELETE CASCADE
+            )`,
+
+            `CREATE TABLE IF NOT EXISTS reversos_pago (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pago_id INTEGER NOT NULL UNIQUE,
+                monto_revertido REAL NOT NULL,
+                usuario_id INTEGER,
+                usuario_nombre_snapshot TEXT NOT NULL,
+                motivo TEXT NOT NULL,
+                fecha TEXT NOT NULL,
+                clave_idempotencia TEXT NOT NULL UNIQUE,
+                solicitud_fingerprint TEXT NOT NULL,
+                FOREIGN KEY (pago_id) REFERENCES pagos (id) ON DELETE RESTRICT,
+                FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
+            )`,
+
+            `CREATE TABLE IF NOT EXISTS claves_idempotencia (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ambito TEXT NOT NULL,
+                clave TEXT NOT NULL,
+                fingerprint TEXT NOT NULL,
+                recurso_tipo TEXT NOT NULL,
+                recurso_id INTEGER NOT NULL,
+                creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(ambito, clave)
             )`,
 
             `CREATE TABLE IF NOT EXISTS cuentas_credito (
@@ -621,9 +674,10 @@ class Database {
         // asegurar las columnas v3 después de esa reconstrucción antes del backfill.
         await this.ensureGlobalAccountColumns();
         await this.ensureConsumptionLineColumns();
+        await this.ensurePreinvoiceSchema();
+        await this.ensurePaymentSchema();
         await this.migrateGlobalAccounts();
         await this.migrateConsumptionLines();
-        await this.ensurePreinvoiceSchema();
         await this.cleanupOrphanRows();
         console.log('Migraciones de esquema aplicadas/verificadas');
     }
@@ -824,6 +878,152 @@ class Database {
         }
     }
 
+    async ensurePaymentSchema() {
+        await this.ensureColumn('pagos', 'prefactura_id', 'INTEGER');
+        await this.ensureColumn('pagos', 'numero_pago', 'TEXT');
+        await this.ensureColumn('pagos', 'numero_secuencia', 'INTEGER');
+        await this.ensureColumn('pagos', 'estado', "TEXT NOT NULL DEFAULT 'confirmado'");
+        await this.ensureColumn('pagos', 'referencia', 'TEXT');
+        await this.ensureColumn('pagos', 'cajero_usuario_id', 'INTEGER');
+        await this.ensureColumn('pagos', 'cajero_nombre_snapshot', 'TEXT');
+        await this.ensureColumn('pagos', 'pagador_nombre_snapshot', 'TEXT');
+        await this.ensureColumn('pagos', 'fecha_anulacion', 'TEXT');
+        await this.ensureColumn('pagos', 'anulado_por_usuario_id', 'INTEGER');
+        await this.ensureColumn('pagos', 'anulado_por_nombre_snapshot', 'TEXT');
+        await this.ensureColumn('pagos', 'motivo_anulacion', 'TEXT');
+        await this.ensureColumn('pagos', 'version', 'INTEGER NOT NULL DEFAULT 1');
+        await this.ensureColumn('pagos', 'creado_en', 'TEXT');
+        await this.ensureColumn('pagos', 'actualizado_en', 'TEXT');
+
+        await this.run(`CREATE TABLE IF NOT EXISTS pago_componentes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pago_id INTEGER NOT NULL,
+            tipo TEXT NOT NULL CHECK(tipo IN ('subtotal', 'servicio')),
+            monto REAL NOT NULL DEFAULT 0,
+            creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(pago_id, tipo),
+            FOREIGN KEY (pago_id) REFERENCES pagos (id) ON DELETE CASCADE
+        )`);
+        await this.run(`CREATE TABLE IF NOT EXISTS reversos_pago (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pago_id INTEGER NOT NULL UNIQUE,
+            monto_revertido REAL NOT NULL,
+            usuario_id INTEGER,
+            usuario_nombre_snapshot TEXT NOT NULL,
+            motivo TEXT NOT NULL,
+            fecha TEXT NOT NULL,
+            clave_idempotencia TEXT NOT NULL UNIQUE,
+            solicitud_fingerprint TEXT NOT NULL,
+            FOREIGN KEY (pago_id) REFERENCES pagos (id) ON DELETE RESTRICT,
+            FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
+        )`);
+        await this.run(`CREATE TABLE IF NOT EXISTS claves_idempotencia (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ambito TEXT NOT NULL,
+            clave TEXT NOT NULL,
+            fingerprint TEXT NOT NULL,
+            recurso_tipo TEXT NOT NULL,
+            recurso_id INTEGER NOT NULL,
+            creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(ambito, clave)
+        )`);
+
+        await this.run(`
+            INSERT OR IGNORE INTO secuencias_documentales (
+                tipo_documento, prefijo, longitud, ultimo_numero,
+                version, creado_en, actualizado_en
+            ) VALUES ('pago', 'PG', 8, 0, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `);
+
+        await this.run(`
+            UPDATE pagos
+            SET estado = CASE
+                    WHEN estado IS NULL OR estado NOT IN ('pendiente', 'confirmado', 'anulado') THEN 'confirmado'
+                    ELSE estado
+                END,
+                subtotal = COALESCE(subtotal, MAX(0, monto - COALESCE(servicio, 0))),
+                servicio = COALESCE(servicio, 0),
+                version = CASE WHEN version IS NULL OR version < 1 THEN 1 ELSE version END,
+                creado_en = COALESCE(creado_en, fecha, CURRENT_TIMESTAMP),
+                actualizado_en = COALESCE(actualizado_en, fecha, CURRENT_TIMESTAMP),
+                cajero_nombre_snapshot = COALESCE(
+                    NULLIF(cajero_nombre_snapshot, ''),
+                    (SELECT u.nombre FROM usuarios u WHERE u.id = pagos.cajero_usuario_id),
+                    'Migración legacy'
+                ),
+                pagador_nombre_snapshot = COALESCE(
+                    NULLIF(pagador_nombre_snapshot, ''),
+                    (SELECT pf.pagador_nombre FROM prefacturas pf WHERE pf.id = pagos.prefactura_id),
+                    (SELECT COALESCE(p.cliente_principal_snapshot, p.cliente_nombre, 'Cliente')
+                     FROM pedidos p WHERE p.id = pagos.pedido_id)
+                )
+        `);
+
+        const sequenceRow = await this.get(`
+            SELECT ultimo_numero
+            FROM secuencias_documentales
+            WHERE tipo_documento = 'pago'
+        `);
+        const maxExisting = await this.get(`
+            SELECT COALESCE(MAX(numero_secuencia), 0) AS maximo
+            FROM pagos
+        `);
+        let nextNumber = Math.max(
+            Number(sequenceRow?.ultimo_numero || 0),
+            Number(maxExisting?.maximo || 0)
+        );
+        const unnumbered = await this.all(`
+            SELECT id
+            FROM pagos
+            WHERE numero_secuencia IS NULL OR numero_pago IS NULL OR TRIM(numero_pago) = ''
+            ORDER BY id
+        `);
+        for (const payment of unnumbered) {
+            nextNumber += 1;
+            const paymentNumber = `PG-${String(nextNumber).padStart(8, '0')}`;
+            await this.run(`
+                UPDATE pagos
+                SET numero_secuencia = ?, numero_pago = ?
+                WHERE id = ?
+            `, [nextNumber, paymentNumber, payment.id]);
+        }
+        await this.run(`
+            UPDATE secuencias_documentales
+            SET ultimo_numero = ?,
+                actualizado_en = CURRENT_TIMESTAMP,
+                version = COALESCE(version, 1) + 1
+            WHERE tipo_documento = 'pago'
+              AND ultimo_numero < ?
+        `, [nextNumber, nextNumber]);
+
+        await this.run(`
+            INSERT OR IGNORE INTO pago_componentes (pago_id, tipo, monto, creado_en)
+            SELECT id, 'subtotal', COALESCE(subtotal, MAX(0, monto - COALESCE(servicio, 0))), COALESCE(fecha, CURRENT_TIMESTAMP)
+            FROM pagos
+        `);
+        await this.run(`
+            INSERT OR IGNORE INTO pago_componentes (pago_id, tipo, monto, creado_en)
+            SELECT id, 'servicio', COALESCE(servicio, 0), COALESCE(fecha, CURRENT_TIMESTAMP)
+            FROM pagos
+        `);
+
+        await this.run('CREATE INDEX IF NOT EXISTS idx_pagos_pedido ON pagos(pedido_id)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_pagos_prefactura ON pagos(prefactura_id)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_pagos_estado ON pagos(estado)');
+        await this.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_pagos_numero_pago ON pagos(numero_pago)');
+        await this.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_pagos_numero_secuencia ON pagos(numero_secuencia)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_pago_componentes_pago ON pago_componentes(pago_id)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_reversos_pago_pago ON reversos_pago(pago_id)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_claves_idempotencia_recurso ON claves_idempotencia(recurso_tipo, recurso_id)');
+
+        if (await this.tableExists('configuracion')) {
+            await this.run(`
+                INSERT OR REPLACE INTO configuracion (clave, valor, version_app)
+                VALUES ('v3_payment_schema_ready', ?, ?)
+            `, [new Date().toISOString(), APP_VERSION]);
+        }
+    }
+
     async ensureGlobalAccountColumns() {
         await this.ensureColumn('pedidos', 'numero_cuenta', 'TEXT');
         await this.ensureColumn('pedidos', 'estado_operativo', "TEXT NOT NULL DEFAULT 'abierta'");
@@ -874,6 +1074,10 @@ class Database {
             return;
         }
 
+        const paymentColumns = await this.getColumns('pagos');
+        const confirmedPaymentFilter = paymentColumns.includes('estado')
+            ? " AND COALESCE(pg.estado, 'confirmado') = 'confirmado'"
+            : '';
         const accounts = await this.all(`
             SELECT
                 p.id,
@@ -888,7 +1092,7 @@ class Database {
                 m.tipo_asiento AS mesa_tipo,
                 m.zona_id,
                 z.nombre AS zona_nombre,
-                COALESCE((SELECT SUM(pg.monto) FROM pagos pg WHERE pg.pedido_id = p.id), 0) AS total_pagado_calculado
+                COALESCE((SELECT SUM(pg.monto) FROM pagos pg WHERE pg.pedido_id = p.id${confirmedPaymentFilter}), 0) AS total_pagado_calculado
             FROM pedidos p
             LEFT JOIN mesas m ON m.id = p.mesa_id
             LEFT JOIN zonas z ON z.id = m.zona_id
@@ -1142,15 +1346,41 @@ class Database {
         await this.rebuildTable('pagos', `CREATE TABLE pagos_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             pedido_id INTEGER NOT NULL,
+            prefactura_id INTEGER,
+            numero_pago TEXT UNIQUE,
+            numero_secuencia INTEGER UNIQUE,
+            estado TEXT NOT NULL DEFAULT 'confirmado' CHECK(estado IN ('pendiente', 'confirmado', 'anulado')),
             metodo_pago TEXT NOT NULL CHECK(metodo_pago IN ('efectivo', 'tarjeta', 'credito')),
-            monto REAL NOT NULL,
+            monto REAL NOT NULL CHECK(monto > 0),
             subtotal REAL,
             servicio REAL NOT NULL DEFAULT 0,
             porcentaje_servicio REAL,
             aplica_servicio INTEGER,
+            referencia TEXT,
+            cajero_usuario_id INTEGER,
+            cajero_nombre_snapshot TEXT,
+            pagador_nombre_snapshot TEXT,
             fecha TEXT NOT NULL,
-            FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE CASCADE
-        )`, ['id', 'pedido_id', 'metodo_pago', 'monto', 'subtotal', 'servicio', 'porcentaje_servicio', 'aplica_servicio', 'fecha']);
+            fecha_anulacion TEXT,
+            anulado_por_usuario_id INTEGER,
+            anulado_por_nombre_snapshot TEXT,
+            motivo_anulacion TEXT,
+            version INTEGER NOT NULL DEFAULT 1,
+            creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE CASCADE,
+            FOREIGN KEY (prefactura_id) REFERENCES prefacturas (id) ON DELETE RESTRICT,
+            FOREIGN KEY (cajero_usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL,
+            FOREIGN KEY (anulado_por_usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
+        )`, [
+            'id', 'pedido_id', 'prefactura_id', 'numero_pago', 'numero_secuencia',
+            'estado', 'metodo_pago', 'monto', 'subtotal', 'servicio',
+            'porcentaje_servicio', 'aplica_servicio', 'referencia',
+            'cajero_usuario_id', 'cajero_nombre_snapshot', 'pagador_nombre_snapshot',
+            'fecha', 'fecha_anulacion', 'anulado_por_usuario_id',
+            'anulado_por_nombre_snapshot', 'motivo_anulacion', 'version',
+            'creado_en', 'actualizado_en'
+        ]);
 
         await this.rebuildTable('cuentas_credito', `CREATE TABLE cuentas_credito_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1301,6 +1531,18 @@ class Database {
         if (await this.tableExists('historial_prefacturas')) {
             await this.run(`DELETE FROM historial_prefacturas WHERE prefactura_id NOT IN (SELECT id FROM prefacturas)`);
             await this.run(`UPDATE historial_prefacturas SET usuario_id = NULL WHERE usuario_id IS NOT NULL AND usuario_id NOT IN (SELECT id FROM usuarios)`);
+        }
+        if (await this.tableExists('pagos')) {
+            await this.run(`UPDATE pagos SET prefactura_id = NULL WHERE prefactura_id IS NOT NULL AND prefactura_id NOT IN (SELECT id FROM prefacturas)`);
+            await this.run(`UPDATE pagos SET cajero_usuario_id = NULL WHERE cajero_usuario_id IS NOT NULL AND cajero_usuario_id NOT IN (SELECT id FROM usuarios)`);
+            await this.run(`UPDATE pagos SET anulado_por_usuario_id = NULL WHERE anulado_por_usuario_id IS NOT NULL AND anulado_por_usuario_id NOT IN (SELECT id FROM usuarios)`);
+        }
+        if (await this.tableExists('pago_componentes')) {
+            await this.run(`DELETE FROM pago_componentes WHERE pago_id NOT IN (SELECT id FROM pagos)`);
+        }
+        if (await this.tableExists('reversos_pago')) {
+            await this.run(`DELETE FROM reversos_pago WHERE pago_id NOT IN (SELECT id FROM pagos)`);
+            await this.run(`UPDATE reversos_pago SET usuario_id = NULL WHERE usuario_id IS NOT NULL AND usuario_id NOT IN (SELECT id FROM usuarios)`);
         }
     }
 

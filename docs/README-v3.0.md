@@ -661,3 +661,36 @@ La tabla legacy `pagos` aún no identifica la prefactura exacta liquidada. Ese v
 
 La suite automática cuenta con 62 pruebas aprobadas. La siguiente fase inicia Payments por prefactura.
 
+
+
+## 23. Estado actual · v3.2.0
+
+Payments ya dispone de un dominio backend transaccional por prefactura.
+
+La relación canónica es:
+
+```text
+pago → prefactura → cuenta global
+```
+
+Cada pago nuevo recibe `PG-########`, conserva cajero, pagador, método, referencia, subtotal, servicio, monto, fecha y estado. Los estados monetarios reconocidos son `pendiente`, `confirmado` y `anulado`; únicamente los confirmados participan en saldos, ventas y movimientos de Caja.
+
+El registro ejecuta en una sola transacción:
+
+```text
+validar idempotencia
+→ validar saldo documental
+→ generar número
+→ guardar pago y componentes
+→ actualizar prefactura
+→ actualizar cuenta global
+→ registrar historial
+```
+
+Los pagos parciales dejan la prefactura en `parcial`. Al completar el saldo queda `pagada`, pero la cuenta global mantiene su estado operativo abierto y la mesa continúa ocupada.
+
+Los reversos conservan el movimiento original, crean un registro auditable y restauran los saldos sin borrar información. Los movimientos anulados quedan excluidos del read model financiero.
+
+La migración preservó y numeró los pagos legacy disponibles y creó sus componentes de subtotal/servicio. El vínculo exacto con prefactura solo existe para movimientos creados por Payments; los registros antiguos permanecen identificados como `legacy_cuenta_global`.
+
+La suite automática cuenta con 70 pruebas aprobadas. La siguiente fase expondrá el servicio mediante endpoints y búsquedas operativas de Caja.

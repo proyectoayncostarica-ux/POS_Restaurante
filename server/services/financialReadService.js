@@ -199,6 +199,7 @@ class FinancialReadService {
                     MAX(pg.fecha) AS fecha_ultimo_pago,
                     GROUP_CONCAT(DISTINCT LOWER(pg.metodo_pago)) AS metodos_pago
                 FROM pagos pg
+                WHERE COALESCE(pg.estado, 'confirmado') = 'confirmado'
                 GROUP BY pg.pedido_id
             ),
             documentos AS (
@@ -356,6 +357,7 @@ class FinancialReadService {
             clauses.push(zone.clause.replace(/^AND\s+/i, ''));
             params.push(...zone.params);
         }
+        clauses.push("COALESCE(pg.estado, 'confirmado') = 'confirmado'");
         if (filters.accountId) {
             clauses.push('pg.pedido_id = ?');
             params.push(Number(filters.accountId));
@@ -373,11 +375,20 @@ class FinancialReadService {
             SELECT
                 pg.id,
                 pg.pedido_id,
+                pg.prefactura_id,
+                pg.numero_pago,
+                pg.estado AS estado_pago,
                 pg.metodo_pago,
                 pg.monto,
                 pg.subtotal,
                 pg.servicio,
+                pg.referencia,
+                pg.cajero_usuario_id,
+                pg.cajero_nombre_snapshot,
+                pg.pagador_nombre_snapshot,
                 pg.fecha,
+                pf.numero_documento,
+                pf.pagador_nombre AS prefactura_pagador,
                 p.numero_cuenta,
                 p.estado_operativo,
                 p.estado_financiero,
@@ -395,6 +406,7 @@ class FinancialReadService {
                 ) AS responsable_principal
             FROM pagos pg
             JOIN pedidos p ON p.id = pg.pedido_id
+            LEFT JOIN prefacturas pf ON pf.id = pg.prefactura_id
             JOIN mesas m ON m.id = p.mesa_id
             LEFT JOIN zonas z ON z.id = COALESCE(p.zona_id_snapshot, m.zona_id)
             ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''}
@@ -421,10 +433,15 @@ class FinancialReadService {
             responsable_principal: row.responsable_principal || null,
             estado_operativo: row.estado_operativo,
             estado_financiero: row.estado_financiero,
-            prefactura_id: null,
-            numero_documento: null,
-            pagador_nombre: null,
-            vinculo_documental: 'pendiente_paymentservice'
+            prefactura_id: row.prefactura_id ? Number(row.prefactura_id) : null,
+            numero_pago: row.numero_pago || `PG-${String(row.id).padStart(8, '0')}`,
+            estado_pago: row.estado_pago || 'confirmado',
+            numero_documento: row.numero_documento || null,
+            pagador_nombre: row.pagador_nombre_snapshot || row.prefactura_pagador || null,
+            cajero_usuario_id: row.cajero_usuario_id ? Number(row.cajero_usuario_id) : null,
+            cajero_nombre: row.cajero_nombre_snapshot || null,
+            referencia: row.referencia || null,
+            vinculo_documental: row.prefactura_id ? 'paymentservice' : 'legacy_cuenta_global'
         }));
     }
 
