@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.0.0 fix2 · Fuente financiera única y roadmap consolidado
+- **Línea de trabajo actual:** v3.0.0 · Auditoría y contrato de arquitectura modular
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -1011,22 +1011,3 @@ Documentos relacionados:
 - `docs/contrato-v3.0-compatibilidad-ui.md`
 - `docs/roadmap-v3.0-arquitectura-modular.md`
 - `docs/avance-v3.0.0-fix1-auditoria-caja-prefacturas.md`
-
-### v3.0.0 fix2 · Fuente financiera única y roadmap consolidado
-
-- **Objetivo:** consolidar el proceso MundiPOS 3.0 después de aprobar Caja, prefacturas divididas, continuidad del consumo y la cuenta global como única fuente financiera interna.
-- **Fuente de verdad:** la venta y los reportes financieros se construyen desde la cuenta global de la mesa/banco, conservando cliente principal, zona y responsables de atención.
-- **Documentos parciales:** cada prefactura, recibo o factura parcial puede tener número, pagador, ítems y pagos propios, pero no se registra como una venta independiente adicional.
-- **Conciliación:** una cuenta global de ₡5.000 liquidada mediante pagos de ₡3.000 y ₡2.000 representa una venta consolidada de ₡5.000 y dos movimientos de Caja que suman ₡5.000.
-- **Continuidad:** pagar una subcuenta no cierra la mesa; las cantidades pagadas quedan en historial, se excluyen del consumo disponible y la cuenta puede recibir productos nuevos.
-- **Responsabilidad:** los nombres de los pagadores parciales no reemplazan al cliente principal ni al mesero/salonero/bartender responsable de la cuenta global.
-- **Reportes:** Ventas utiliza una fila por cuenta global conciliada; Caja utiliza una fila por transacción monetaria. Ambos modelos deben conciliar sin doble contabilización.
-- **Roadmap:** se consolidan las fases desde `v3.0.1` hasta `v3.7.0`, incluyendo transacciones, capacidades, cuenta global, prefacturas, Caja, Payments, cierre explícito, Kitchen, Printing, reportes, realtime y limpieza legacy.
-- **Alcance:** actualización documental; no cambia lógica operativa, base de datos, PWA ni metadata `3.0.0`.
-
-Documentos relacionados:
-
-- `docs/README-v3.0.md`
-- `docs/roadmap-v3.0-arquitectura-modular.md`
-- `docs/contrato-v3.0-cuenta-global-fuente-financiera.md`
-- `docs/avance-v3.0.0-fix2-roadmap-financiero-consolidado.md`
