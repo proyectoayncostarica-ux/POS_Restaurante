@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.1.5 · Read model financiero consolidado
+- **Línea de trabajo actual:** v3.2.0 · Núcleo backend de Payments por prefactura
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -1197,3 +1197,34 @@ Documento técnico:
 Documento técnico:
 
 - `docs/avance-v3.1.5-read-model-financiero.md`
+
+
+
+## 23. Estado actual · v3.2.0
+
+MundiPOS incorpora el núcleo transaccional de Payments por prefactura. Cada movimiento nuevo puede enlazarse de forma exacta con:
+
+```text
+pago PG-########
+→ prefactura PF-########
+→ cuenta global CTA-########
+```
+
+`paymentService` registra pagos parciales o totales dentro de una transacción inmediata, guarda el cajero y el pagador como snapshots, separa subtotal y servicio, actualiza el saldo del documento y consolida únicamente pagos confirmados sobre la cuenta global.
+
+La idempotencia evita que un doble clic o reintento de red cree otro movimiento. Dos dispositivos que intenten liquidar el mismo saldo no pueden confirmarlo dos veces.
+
+Los reversos no eliminan pagos: cambian su estado a `anulado`, conservan motivo y usuario, restauran los saldos y quedan excluidos de Dashboard, Caja y reportes financieros.
+
+La regla operativa continúa intacta:
+
+```text
+prefactura pagada ≠ servicio cerrado
+saldo global cero ≠ mesa liberada automáticamente
+```
+
+La cuenta puede quedar financieramente conciliada y operativamente abierta para recibir consumo nuevo. La única venta sigue siendo la cuenta global.
+
+La migración numera pagos históricos como `PG-########` y genera sus componentes sin modificar montos. La suite automática cuenta con 70 pruebas aprobadas.
+
+Esta fase no expone todavía endpoints de cobro ni modifica la pantalla de Caja. La siguiente fase es `v3.2.1 · API y read model operativo de Caja`.

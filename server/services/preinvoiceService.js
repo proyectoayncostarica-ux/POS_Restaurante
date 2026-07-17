@@ -481,7 +481,7 @@ class PreinvoiceService {
         const account = await client.get(`
             SELECT
                 p.*,
-                COALESCE((SELECT SUM(pg.monto) FROM pagos pg WHERE pg.pedido_id = p.id), 0) AS pagado_calculado,
+                COALESCE((SELECT SUM(pg.monto) FROM pagos pg WHERE pg.pedido_id = p.id AND COALESCE(pg.estado, 'confirmado') = 'confirmado'), 0) AS pagado_calculado,
                 COALESCE((SELECT COUNT(*) FROM prefacturas pf
                           WHERE pf.pedido_id = p.id AND pf.estado <> 'anulada'), 0) AS documentos_activos
             FROM pedidos p

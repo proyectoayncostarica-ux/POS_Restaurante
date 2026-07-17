@@ -776,6 +776,12 @@ class AccountService {
             SELECT COALESCE(SUM(monto), 0) AS total_pagado
             FROM pagos
             WHERE pedido_id = ?
+              AND COALESCE(estado, 'confirmado') = 'confirmado'
+        `, [accountId]);
+        const documents = await client.get(`
+            SELECT COUNT(*) AS activos
+            FROM prefacturas
+            WHERE pedido_id = ? AND estado <> 'anulada'
         `, [accountId]);
 
         const service = this.calculateService(
@@ -790,7 +796,9 @@ class AccountService {
             legacyState: account.estado,
             totalMinor,
             paidMinor,
-            persistedState: account.estado_financiero
+            persistedState: Number(documents?.activos || 0) > 0 && paidMinor <= 0
+                ? ACCOUNT_FINANCIAL_STATES.PENDING
+                : account.estado_financiero
         });
         const operationalState = legacyOperationalState(account.estado, account.estado_operativo);
 
@@ -1175,6 +1183,7 @@ class AccountService {
                     COALESCE(SUM(servicio), 0) AS servicio_pagado
                 FROM pagos
                 WHERE pedido_id = ?
+                  AND COALESCE(estado, 'confirmado') = 'confirmado'
             `, [id]);
             const pendingSubtotalMinor = Math.max(
                 0,
@@ -1421,7 +1430,7 @@ class AccountService {
                 COALESCE((SELECT SUM(pp.cantidad) FROM pedido_productos pp WHERE pp.pedido_id = p.id), 0) AS unidades_consumidas,
                 COALESCE((SELECT SUM(pp.cantidad_asignada) FROM pedido_productos pp WHERE pp.pedido_id = p.id), 0) AS unidades_asignadas,
                 COALESCE((SELECT SUM(pp.cantidad - pp.cantidad_asignada) FROM pedido_productos pp WHERE pp.pedido_id = p.id), 0) AS unidades_disponibles,
-                COALESCE((SELECT SUM(pg.monto) FROM pagos pg WHERE pg.pedido_id = p.id), 0) AS pagado_calculado
+                COALESCE((SELECT SUM(pg.monto) FROM pagos pg WHERE pg.pedido_id = p.id AND COALESCE(pg.estado, 'confirmado') = 'confirmado'), 0) AS pagado_calculado
             FROM pedidos p
             JOIN mesas m ON m.id = p.mesa_id
             JOIN usuarios u ON u.id = p.usuario_id
@@ -1482,7 +1491,7 @@ class AccountService {
                 COALESCE((SELECT SUM(pp.cantidad) FROM pedido_productos pp WHERE pp.pedido_id = p.id), 0) AS unidades_consumidas,
                 COALESCE((SELECT SUM(pp.cantidad_asignada) FROM pedido_productos pp WHERE pp.pedido_id = p.id), 0) AS unidades_asignadas,
                 COALESCE((SELECT SUM(pp.cantidad - pp.cantidad_asignada) FROM pedido_productos pp WHERE pp.pedido_id = p.id), 0) AS unidades_disponibles,
-                COALESCE((SELECT SUM(pg.monto) FROM pagos pg WHERE pg.pedido_id = p.id), 0) AS pagado_calculado
+                COALESCE((SELECT SUM(pg.monto) FROM pagos pg WHERE pg.pedido_id = p.id AND COALESCE(pg.estado, 'confirmado') = 'confirmado'), 0) AS pagado_calculado
             FROM pedidos p
             JOIN mesas m ON m.id = p.mesa_id
             JOIN usuarios u ON u.id = p.usuario_id

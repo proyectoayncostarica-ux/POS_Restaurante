@@ -893,11 +893,15 @@ git commit -m "v3.1.5: agrega lectura financiera consolidada por cuenta"
 
 ## v3.2.0 · Núcleo backend de Payments por prefactura
 
+### Estado
+
+Completada.
+
 ### Objetivo
 
-Crear `paymentService` y un modelo monetario transaccional.
+Crear `paymentService` y un modelo monetario transaccional que aplique movimientos a una prefactura concreta y consolide su efecto sobre la cuenta global.
 
-### Entidades previstas
+### Entidades implementadas
 
 ```text
 pagos
@@ -906,31 +910,65 @@ reversos_pago
 claves_idempotencia
 ```
 
-### Cambios previstos
+### Cambios implementados
 
-- pago aplicado a `prefactura_id`;
-- usuario cajero;
-- método de pago;
-- monto;
-- estado;
-- referencia;
-- efectivo recibido y vuelto cuando aplique;
-- idempotencia;
-- reverso/anulación autorizada;
-- actualización de saldo de prefactura;
-- actualización del total pagado consolidado de la cuenta global.
+- vínculo exacto `pago → prefactura → cuenta global`;
+- número único `PG-########` generado transaccionalmente;
+- cajero y pagador guardados como snapshots;
+- estados `pendiente`, `confirmado` y `anulado`;
+- referencia opcional;
+- componentes de subtotal y servicio;
+- idempotencia separada para crear y anular;
+- pagos parciales por prefactura;
+- reverso autorizado a nivel de servicio;
+- actualización transaccional de saldo y estado de prefactura;
+- actualización consolidada de total pagado, saldo y estado financiero de la cuenta global;
+- exclusión de movimientos anulados en Dashboard, Caja y reportes;
+- migración y numeración de pagos legacy.
 
-### Regla
+### Reglas
 
-Payments registra movimientos. No crea ventas independientes y no libera mesas.
+```text
+Payments registra movimientos, no ventas.
+Solo pagos confirmados afectan saldos y reportes.
+Un pago de prefactura no libera mesa ni cierra servicio.
+La cuenta global continúa siendo la única fuente financiera.
+```
 
-### Criterios de aprobación
+`paymentService` admite `efectivo` y `tarjeta` como movimientos base. Efectivo recibido, vuelto y combinaciones operativas quedan para `v3.2.3`; crédito se integra en `v3.2.4`.
 
-- doble clic no duplica un pago;
-- dos dispositivos no cobran el mismo saldo completo;
-- un reverso restaura el saldo;
-- la cuenta global refleja la suma confirmada;
-- un documento pagado no cierra el servicio.
+### Criterios aprobados
+
+- doble clic con la misma clave no duplica un pago;
+- una clave reutilizada con datos diferentes genera conflicto;
+- dos dispositivos no cobran dos veces el mismo saldo;
+- un monto superior al saldo se rechaza sin escrituras parciales;
+- un reverso restaura el saldo documental y global;
+- pagos anulados no forman parte de ventas ni movimientos confirmados;
+- una prefactura pagada puede coexistir con una cuenta operativamente abierta;
+- la mesa permanece ocupada hasta la finalización explícita.
+
+### Validación
+
+```text
+8 pruebas específicas de Payments
+70 pruebas totales
+0 fallos
+```
+
+Migración sobre copia operativa:
+
+```text
+15 pagos preservados y numerados
+30 componentes creados
+0 problemas de claves foráneas
+```
+
+### Documento
+
+```text
+docs/avance-v3.2.0-payments-prefactura.md
+```
 
 ### Commit
 
