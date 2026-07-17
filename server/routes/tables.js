@@ -1,5 +1,6 @@
 const express = require('express');
 const database = require('../db/database');
+const { CASHIER_CAPABILITIES } = require('../security/capabilities');
 
 const router = express.Router();
 
@@ -185,9 +186,33 @@ async function getWorkRolesWithZones() {
         return acc;
     }, new Map());
 
+    const roleIds = roles.map(role => Number(role.id)).filter(Boolean);
+    const capabilityRows = roleIds.length ? await database.all(`
+        SELECT rtc.rol_trabajo_id, c.codigo, c.nombre, c.descripcion, c.categoria
+        FROM rol_trabajo_capacidades rtc
+        INNER JOIN capacidades c ON c.id = rtc.capacidad_id AND c.activa = 1
+        WHERE rtc.rol_trabajo_id IN (${roleIds.map(() => '?').join(',')})
+        ORDER BY c.categoria ASC, c.nombre ASC
+    `, roleIds) : [];
+    const capabilitiesByRole = capabilityRows.reduce((acc, capability) => {
+        const roleId = Number(capability.rol_trabajo_id);
+        if (!acc.has(roleId)) acc.set(roleId, []);
+        acc.get(roleId).push({
+            codigo: capability.codigo,
+            nombre: capability.nombre,
+            descripcion: capability.descripcion,
+            categoria: capability.categoria
+        });
+        return acc;
+    }, new Map());
+
     return roles.map(role => ({
         ...role,
-        zonas: zonesByRole.get(role.id) || []
+        requiere_zona: Number(role.requiere_zona ?? 1),
+        es_sistema: Number(role.es_sistema || 0),
+        destino_inicial: role.destino_inicial || 'dashboard',
+        zonas: zonesByRole.get(role.id) || [],
+        capacidades: capabilitiesByRole.get(Number(role.id)) || []
     }));
 }
 
@@ -201,9 +226,43 @@ function normalizeZoneIds(value) {
     return [...new Set(ids)];
 }
 
-async function validateActiveZoneIds(zoneIds = []) {
+function normalizeCapabilityCodes(value) {
+    const rawList = Array.isArray(value) ? value : [value];
+    return [...new Set(rawList
+        .flatMap(item => String(item ?? '').split(','))
+        .map(item => item.trim())
+        .filter(Boolean))];
+}
+
+async function validateCapabilityCodes(codes = []) {
+    const normalized = normalizeCapabilityCodes(codes);
+    if (!normalized.length) return { codes: [] };
+
+    const rows = await database.all(`
+        SELECT codigo FROM capacidades
+        WHERE activa = 1 AND codigo IN (${normalized.map(() => '?').join(',')})
+    `, normalized);
+    const found = new Set(rows.map(row => row.codigo));
+    const missing = normalized.filter(code => !found.has(code));
+    if (missing.length) return { error: `Capacidades inválidas: ${missing.join(', ')}` };
+    return { codes: normalized };
+}
+
+async function replaceWorkRoleCapabilities(roleId, codes = []) {
+    await database.run('DELETE FROM rol_trabajo_capacidades WHERE rol_trabajo_id = ?', [roleId]);
+    for (const code of codes) {
+        await database.run(`
+            INSERT INTO rol_trabajo_capacidades (rol_trabajo_id, capacidad_id, creado_en)
+            SELECT ?, id, ? FROM capacidades WHERE codigo = ? AND activa = 1
+        `, [roleId, new Date().toISOString(), code]);
+    }
+}
+
+async function validateActiveZoneIds(zoneIds = [], requiresZone = true) {
     if (!zoneIds.length) {
-        return { error: 'Debe seleccionar al menos una zona activa para este rol de trabajo' };
+        return requiresZone
+            ? { error: 'Debe seleccionar al menos una zona activa para este rol de trabajo' }
+            : { zones: [] };
     }
 
     const placeholders = zoneIds.map(() => '?').join(',');
@@ -749,9 +808,15 @@ router.get('/structure', async (req, res) => {
             ORDER BY tp.orden ASC, tp.nombre ASC
         `, typeFilterParams);
 
-        const [compatibilidad, rolesTrabajo] = await Promise.all([
+        const [compatibilidad, rolesTrabajo, capacidades] = await Promise.all([
             database.getDynamicModelCompatibilityReport(),
-            restrictStructure ? Promise.resolve([]) : getWorkRolesWithZones()
+            restrictStructure ? Promise.resolve([]) : getWorkRolesWithZones(),
+            restrictStructure ? Promise.resolve([]) : database.all(`
+                SELECT codigo, nombre, descripcion, categoria, activa
+                FROM capacidades
+                WHERE activa = 1
+                ORDER BY categoria ASC, nombre ASC
+            `)
         ]);
 
         res.json({
@@ -760,6 +825,7 @@ router.get('/structure', async (req, res) => {
                 zonas,
                 tipos_puesto: tiposPuesto,
                 roles_trabajo: rolesTrabajo,
+                capacidades,
                 compatibilidad
             }
         });
@@ -1016,17 +1082,18 @@ router.get('/work-roles', requireAdmin, async (req, res) => {
 // Crear rol de trabajo usando únicamente zonas activas existentes.
 router.post('/work-roles', requireAdmin, async (req, res) => {
     try {
-        const activeZones = await database.get('SELECT COUNT(*) AS count FROM zonas WHERE activa = 1');
-        if (Number(activeZones?.count || 0) === 0) {
-            return res.status(409).json({ error: 'Antes de crear roles de trabajo debe crear zonas activas del local' });
-        }
-
         const payload = validateName(req.body?.nombre, 'nombre del rol de trabajo');
         if (payload.error) return res.status(400).json({ error: payload.error });
 
+        const requiresZone = Number(req.body?.requiere_zona ?? 1) === 1;
         const zoneIds = normalizeZoneIds(req.body?.zona_ids);
-        const zoneValidation = await validateActiveZoneIds(zoneIds);
+        const zoneValidation = await validateActiveZoneIds(zoneIds, requiresZone);
         if (zoneValidation.error) return res.status(400).json({ error: zoneValidation.error });
+        const capabilityValidation = await validateCapabilityCodes(req.body?.capability_codes || req.body?.capacidades);
+        if (capabilityValidation.error) return res.status(400).json({ error: capabilityValidation.error });
+        if (!capabilityValidation.codes.length) {
+            return res.status(400).json({ error: 'Debe seleccionar al menos una capacidad para el rol de trabajo' });
+        }
 
         const slug = normalizeSlug(payload.nombre, 'rol-trabajo');
         const existing = await database.get('SELECT id FROM roles_trabajo WHERE slug = ? OR LOWER(nombre) = LOWER(?)', [slug, payload.nombre]);
@@ -1035,18 +1102,21 @@ router.post('/work-roles', requireAdmin, async (req, res) => {
         }
 
         const result = await database.run(`
-            INSERT INTO roles_trabajo (nombre, slug, descripcion, activo, creado_en, actualizado_en)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO roles_trabajo (nombre, slug, descripcion, activo, requiere_zona, es_sistema, destino_inicial, creado_en, actualizado_en)
+            VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
         `, [
             payload.nombre,
             slug,
             String(req.body?.descripcion || '').trim() || null,
             toBooleanFlag(req.body?.activo, true),
+            requiresZone ? 1 : 0,
+            String(req.body?.destino_inicial || (requiresZone ? 'dashboard' : 'cash')).trim() || 'dashboard',
             new Date().toISOString(),
             new Date().toISOString()
         ]);
 
         await replaceWorkRoleZones(result.lastID, zoneIds);
+        await replaceWorkRoleCapabilities(result.lastID, capabilityValidation.codes);
 
         await database.run(
             'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
@@ -1072,9 +1142,20 @@ router.put('/work-roles/:id', requireAdmin, async (req, res) => {
         const payload = validateName(req.body?.nombre, 'nombre del rol de trabajo');
         if (payload.error) return res.status(400).json({ error: payload.error });
 
+        const requiresZone = Number(role.es_sistema) === 1 && role.slug === 'cajero'
+            ? false
+            : Number(req.body?.requiere_zona ?? role.requiere_zona ?? 1) === 1;
         const zoneIds = normalizeZoneIds(req.body?.zona_ids);
-        const zoneValidation = await validateActiveZoneIds(zoneIds);
+        const zoneValidation = await validateActiveZoneIds(zoneIds, requiresZone);
         if (zoneValidation.error) return res.status(400).json({ error: zoneValidation.error });
+        const capabilityValidation = await validateCapabilityCodes(req.body?.capability_codes || req.body?.capacidades);
+        if (capabilityValidation.error) return res.status(400).json({ error: capabilityValidation.error });
+        if (Number(role.es_sistema) !== 1 && !capabilityValidation.codes.length) {
+            return res.status(400).json({ error: 'Debe seleccionar al menos una capacidad para el rol de trabajo' });
+        }
+        if (Number(role.es_sistema) === 1 && role.slug === 'cajero') {
+            capabilityValidation.codes = [...new Set([...capabilityValidation.codes, ...CASHIER_CAPABILITIES])];
+        }
 
         const duplicate = await database.get('SELECT id FROM roles_trabajo WHERE LOWER(nombre) = LOWER(?) AND id != ?', [payload.nombre, id]);
         if (duplicate) {
@@ -1086,17 +1167,24 @@ router.put('/work-roles/:id', requireAdmin, async (req, res) => {
             SET nombre = ?,
                 descripcion = ?,
                 activo = ?,
+                requiere_zona = ?,
+                destino_inicial = ?,
                 actualizado_en = ?
             WHERE id = ?
         `, [
             payload.nombre,
             String(req.body?.descripcion || '').trim() || null,
             toBooleanFlag(req.body?.activo, role.activo === 1),
+            requiresZone ? 1 : 0,
+            Number(role.es_sistema) === 1 && role.slug === 'cajero'
+                ? 'cash'
+                : (String(req.body?.destino_inicial || role.destino_inicial || 'dashboard').trim() || 'dashboard'),
             new Date().toISOString(),
             id
         ]);
 
         await replaceWorkRoleZones(id, zoneIds);
+        await replaceWorkRoleCapabilities(id, capabilityValidation.codes);
 
         await database.run(
             'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',

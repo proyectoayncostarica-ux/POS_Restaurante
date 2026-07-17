@@ -1,5 +1,7 @@
 const express = require("express");
 const database = require("../db/database");
+const requireCapability = require("../middleware/requireCapability");
+const { CAPABILITIES } = require("../security/capabilities");
 
 const router = express.Router();
 
@@ -660,7 +662,7 @@ router.put("/:pedido_id/products/:producto_id", async (req, res) => {
 });
 
 // Procesar pago de pedido
-router.post("/:id/pay", async (req, res) => {
+router.post("/:id/pay", requireCapability(CAPABILITIES.CASH_COLLECT), async (req, res) => {
     try {
         const { id } = req.params;
         const { metodo_pago, productos_divididos, admin_pass } = req.body;

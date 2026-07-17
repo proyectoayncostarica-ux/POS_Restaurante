@@ -4,6 +4,11 @@ const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const { AsyncLocalStorage } = require('async_hooks');
 const { APP_VERSION } = require('../config/appInfo');
+const {
+    CAPABILITY_DEFINITIONS,
+    CASHIER_CAPABILITIES,
+    LEGACY_ROLE_BACKFILL
+} = require('../security/capabilities');
 
 const DEFAULT_DB_PATH = path.join(__dirname, '../../data/restaurant.db');
 class Database {
@@ -102,8 +107,31 @@ class Database {
                 slug TEXT NOT NULL UNIQUE,
                 descripcion TEXT,
                 activo INTEGER NOT NULL DEFAULT 1,
+                requiere_zona INTEGER NOT NULL DEFAULT 1,
+                es_sistema INTEGER NOT NULL DEFAULT 0,
+                destino_inicial TEXT NOT NULL DEFAULT 'dashboard',
                 creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 actualizado_en TEXT
+            )`,
+
+            `CREATE TABLE IF NOT EXISTS capacidades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                codigo TEXT NOT NULL UNIQUE,
+                nombre TEXT NOT NULL,
+                descripcion TEXT,
+                categoria TEXT NOT NULL,
+                activa INTEGER NOT NULL DEFAULT 1,
+                creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                actualizado_en TEXT
+            )`,
+
+            `CREATE TABLE IF NOT EXISTS rol_trabajo_capacidades (
+                rol_trabajo_id INTEGER NOT NULL,
+                capacidad_id INTEGER NOT NULL,
+                creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (rol_trabajo_id, capacidad_id),
+                FOREIGN KEY (rol_trabajo_id) REFERENCES roles_trabajo (id) ON DELETE CASCADE,
+                FOREIGN KEY (capacidad_id) REFERENCES capacidades (id) ON DELETE CASCADE
             )`,
 
             `CREATE TABLE IF NOT EXISTS rol_trabajo_zonas (
@@ -356,6 +384,8 @@ class Database {
             'CREATE INDEX IF NOT EXISTS idx_zonas_slug ON zonas(slug)',
             'CREATE INDEX IF NOT EXISTS idx_tipos_puesto_slug ON tipos_puesto(slug)',
             'CREATE INDEX IF NOT EXISTS idx_roles_trabajo_slug ON roles_trabajo(slug)',
+            'CREATE INDEX IF NOT EXISTS idx_capacidades_codigo ON capacidades(codigo)',
+            'CREATE INDEX IF NOT EXISTS idx_rol_capacidades_capacidad ON rol_trabajo_capacidades(capacidad_id)',
             'CREATE INDEX IF NOT EXISTS idx_rol_trabajo_zonas_zona ON rol_trabajo_zonas(zona_id)',
             'CREATE INDEX IF NOT EXISTS idx_usuario_roles_trabajo_usuario ON usuario_roles_trabajo(usuario_id)',
             'CREATE INDEX IF NOT EXISTS idx_usuario_roles_trabajo_rol ON usuario_roles_trabajo(rol_trabajo_id)',
@@ -386,6 +416,10 @@ class Database {
     async migrateSchema() {
         await this.ensureColumn('usuarios', 'activo', "INTEGER NOT NULL DEFAULT 1");
         await this.ensureColumn('usuarios', 'fecha_creacion', "TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP");
+
+        await this.ensureColumn('roles_trabajo', 'requiere_zona', 'INTEGER NOT NULL DEFAULT 1');
+        await this.ensureColumn('roles_trabajo', 'es_sistema', 'INTEGER NOT NULL DEFAULT 0');
+        await this.ensureColumn('roles_trabajo', 'destino_inicial', "TEXT NOT NULL DEFAULT 'dashboard'");
 
         await this.ensureColumn('mesas', 'zona', "TEXT NOT NULL DEFAULT 'salon'");
         await this.ensureColumn('mesas', 'tipo_asiento', "TEXT NOT NULL DEFAULT 'mesa'");
@@ -1066,7 +1100,70 @@ class Database {
         };
     }
 
+    async replaceRoleCapabilities(roleId, capabilityCodes = []) {
+        await this.run('DELETE FROM rol_trabajo_capacidades WHERE rol_trabajo_id = ?', [roleId]);
+
+        for (const code of [...new Set(capabilityCodes)]) {
+            await this.run(`
+                INSERT OR IGNORE INTO rol_trabajo_capacidades (rol_trabajo_id, capacidad_id, creado_en)
+                SELECT ?, id, ? FROM capacidades WHERE codigo = ? AND activa = 1
+            `, [roleId, new Date().toISOString(), code]);
+        }
+    }
+
+    async ensureCapabilitiesAndCashierRole() {
+        const now = new Date().toISOString();
+
+        for (const capability of CAPABILITY_DEFINITIONS) {
+            await this.run(`
+                INSERT INTO capacidades (codigo, nombre, descripcion, categoria, activa, creado_en, actualizado_en)
+                VALUES (?, ?, ?, ?, 1, ?, ?)
+                ON CONFLICT(codigo) DO UPDATE SET
+                    nombre = excluded.nombre,
+                    descripcion = excluded.descripcion,
+                    categoria = excluded.categoria,
+                    activa = 1,
+                    actualizado_en = excluded.actualizado_en
+            `, [capability.code, capability.name, capability.description, capability.category, now, now]);
+        }
+
+        let cashierRole = await this.get("SELECT id FROM roles_trabajo WHERE slug = 'cajero'");
+        if (!cashierRole) {
+            const result = await this.run(`
+                INSERT INTO roles_trabajo (nombre, slug, descripcion, activo, requiere_zona, es_sistema, destino_inicial, creado_en, actualizado_en)
+                VALUES ('Cajero', 'cajero', 'Cobro de prefacturas y operación de Caja sin obligación de zona.', 1, 0, 1, 'cash', ?, ?)
+            `, [now, now]);
+            cashierRole = { id: result.id };
+        } else {
+            await this.run(`
+                UPDATE roles_trabajo
+                SET requiere_zona = 0, es_sistema = 1, destino_inicial = 'cash', activo = 1, actualizado_en = ?
+                WHERE id = ?
+            `, [now, cashierRole.id]);
+        }
+
+        for (const code of CASHIER_CAPABILITIES) {
+            await this.run(`
+                INSERT OR IGNORE INTO rol_trabajo_capacidades (rol_trabajo_id, capacidad_id, creado_en)
+                SELECT ?, id, ? FROM capacidades WHERE codigo = ? AND activa = 1
+            `, [cashierRole.id, now, code]);
+        }
+
+        const backfillMarker = await this.get("SELECT valor FROM configuracion WHERE clave = 'v3_capability_backfill_done'");
+        if (!backfillMarker) {
+            const legacyRoles = await this.all("SELECT id FROM roles_trabajo WHERE id != ? AND COALESCE(requiere_zona, 1) = 1", [cashierRole.id]);
+            for (const role of legacyRoles) {
+                await this.replaceRoleCapabilities(role.id, LEGACY_ROLE_BACKFILL);
+            }
+            await this.run(`
+                INSERT OR REPLACE INTO configuracion (clave, valor, version_app) VALUES (?, ?, ?)
+            `, ['v3_capability_backfill_done', now, APP_VERSION]);
+        }
+    }
+
     async insertInitialData() {
+        await this.ensureCapabilitiesAndCashierRole();
+
         const userCount = await this.get('SELECT COUNT(*) as count FROM usuarios');
         if ((!userCount || userCount.count === 0) && this.shouldSeedDemoUser()) {
             const hashedPassword = await bcrypt.hash('admin123', 10);

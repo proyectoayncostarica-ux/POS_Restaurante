@@ -2,6 +2,11 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const database = require('../db/database');
 const realtime = require('../utils/realtime');
+const {
+    allCapabilityCodes,
+    syncSessionCapabilities,
+    normalizeCodes
+} = require('../services/capabilityService');
 
 const router = express.Router();
 const adminVerificationAttempts = new Map();
@@ -74,14 +79,20 @@ function mapRoleRow(row = {}) {
         slug: row.slug,
         descripcion: row.descripcion,
         activo: normalizeBooleanNumber(row.activo),
+        requiere_zona: normalizeBooleanNumber(row.requiere_zona ?? 1),
+        es_sistema: normalizeBooleanNumber(row.es_sistema),
+        destino_inicial: row.destino_inicial || 'dashboard',
         zonas_total: Number(row.zonas_total || 0),
         zonas_activas: Number(row.zonas_activas || 0),
-        zonas: []
+        zonas: [],
+        capacidades: []
     };
 }
 
 function isSelectableWorkRole(role = {}) {
-    return Number(role.activo) === 1 && Number(role.zonas_activas || 0) > 0;
+    if (Number(role.activo) !== 1) return false;
+    if (Number(role.requiere_zona ?? 1) === 0) return true;
+    return Number(role.zonas_activas || 0) > 0;
 }
 
 function getSelectableWorkRoles(roles = []) {
@@ -530,6 +541,9 @@ async function getUserWorkRoles(userId) {
             rt.slug,
             rt.descripcion,
             rt.activo,
+            rt.requiere_zona,
+            rt.es_sistema,
+            rt.destino_inicial,
             COUNT(rtz.zona_id) AS zonas_total,
             SUM(CASE WHEN z.activa = 1 THEN 1 ELSE 0 END) AS zonas_activas
         FROM usuario_roles_trabajo urt
@@ -584,6 +598,27 @@ async function getUserWorkRoles(userId) {
         mappedRoles.forEach(role => {
             role.zonas = zonesByRole.get(role.id) || [];
         });
+
+        const capabilityRows = await database.all(`
+            SELECT rtc.rol_trabajo_id, c.codigo, c.nombre, c.categoria
+            FROM rol_trabajo_capacidades rtc
+            INNER JOIN capacidades c ON c.id = rtc.capacidad_id AND c.activa = 1
+            WHERE rtc.rol_trabajo_id IN (${placeholders})
+            ORDER BY c.categoria ASC, c.nombre ASC
+        `, roleIds);
+        const capabilitiesByRole = capabilityRows.reduce((acc, capability) => {
+            const roleId = Number(capability.rol_trabajo_id);
+            if (!acc.has(roleId)) acc.set(roleId, []);
+            acc.get(roleId).push({
+                codigo: capability.codigo,
+                nombre: capability.nombre,
+                categoria: capability.categoria
+            });
+            return acc;
+        }, new Map());
+        mappedRoles.forEach(role => {
+            role.capacidades = capabilitiesByRole.get(role.id) || [];
+        });
     }
 
     return mappedRoles;
@@ -621,6 +656,14 @@ function buildOperationalSession(req, user, rolesTrabajo = [], options = {}) {
     const mode = activeRoles.length
         ? 'roles_trabajo'
         : (blockedWithoutRole ? 'bloqueado_sin_rol' : (isAdmin ? 'administrador_sin_rol' : 'pendiente'));
+    const capabilities = isAdmin
+        ? allCapabilityCodes()
+        : normalizeCodes(activeRoles.flatMap(role => (role.capacidades || []).map(item => item.codigo || item)));
+    syncSessionCapabilities(req, capabilities);
+
+    const onlyCashRoles = activeRoles.length > 0
+        && activeRoles.every(role => String(role.destino_inicial || '').toLowerCase() === 'cash');
+    const initialDestination = onlyCashRoles ? 'cash' : 'dashboard';
 
     return {
         activa: canOperate,
@@ -631,8 +674,10 @@ function buildOperationalSession(req, user, rolesTrabajo = [], options = {}) {
         roles_trabajo_activos: activeRoles,
         rol_trabajo_ids: activeRoles.map(role => Number(role.id)),
         roles_disponibles: selectableRoles,
+        capacidades: capabilities,
+        destino_inicial: initialDestination,
         mensaje: blockedWithoutRole
-            ? 'Este usuario no tiene un rol de trabajo activo con zonas activas. Un administrador debe asignarlo antes de operar.'
+            ? 'Este usuario no tiene un rol de trabajo activo disponible. Un administrador debe asignarlo antes de operar.'
             : null
     };
 }
@@ -645,6 +690,8 @@ function buildUserPayload(req, user, rolesTrabajo = [], operationalSession = nul
         nombre: user.nombre || req.session.userName,
         tipo: user.tipo || req.session.userType,
         roles_trabajo: rolesTrabajo,
+        capacidades: sessionPayload.capacidades || [],
+        destino_inicial: sessionPayload.destino_inicial || 'dashboard',
         sesion_operativa: sessionPayload
     };
 }

@@ -1,6 +1,6 @@
 {
   "name": "mundipos",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "description": "MundiPOS - sistema POS local para restaurante/bar",
   "main": "server/app.js",
   "scripts": {

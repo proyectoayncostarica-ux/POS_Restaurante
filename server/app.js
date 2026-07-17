@@ -22,6 +22,7 @@ const accountsRoutes = require('./routes/accounts');
 const creditsRoutes = require('./routes/credits');
 const usersRoutes = require('./routes/users');
 const settingsRoutes = require('./routes/settings');
+const cashRoutes = require('./routes/cash');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -249,6 +250,7 @@ app.use('/api/accounts', requireAuth, accountsRoutes);
 app.use('/api/credits', requireAuth, creditsRoutes);
 app.use('/api/users', requireAuth, usersRoutes);
 app.use('/api/settings', requireAuth, settingsRoutes);
+app.use('/api/cash', requireAuth, cashRoutes);
 
 // Ruta principal - servir index.html sin redirecciones para evitar bucles en navegadores móviles con caché PWA vieja.
 app.get('/POS/*', sendAppIndex);

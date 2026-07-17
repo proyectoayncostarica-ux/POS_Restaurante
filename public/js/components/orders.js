@@ -300,9 +300,11 @@ const Orders = {
                                 <i class="fas fa-eye"></i>
                             </button>
                             ${order.estado === 'pendiente' ? `
-                                <button class="btn btn-success btn-sm" onclick="Orders.showPaymentModal(${order.id})">
-                                    <i class="fas fa-dollar-sign"></i>
-                                </button>
+                                ${typeof Access !== 'undefined' && Access.has('cash.collect') ? `
+                                    <button class="btn btn-success btn-sm" onclick="Orders.showPaymentModal(${order.id})">
+                                        <i class="fas fa-dollar-sign"></i>
+                                    </button>
+                                ` : ''}
                                 <button class="btn btn-primary btn-sm" onclick="Orders.showAddProductsModal(${order.id})">
                                     <i class="fas fa-plus"></i>
                                 </button>
@@ -621,6 +623,10 @@ const Orders = {
 
     // Mostrar modal de pago
     async showPaymentModal(orderId) {
+        if (typeof Access !== 'undefined' && !Access.has('cash.collect')) {
+            Utils.showNotification('Tu sesión no tiene autorización para registrar cobros. Usa Caja con un rol autorizado.', 'warning');
+            return;
+        }
         try {
             const response = await Utils.request(`/orders/${orderId}`);
             const order = response.data;
@@ -990,7 +996,7 @@ const Orders = {
             ];
 
             // Mostrar "Pagar" solo si el pedido está pendiente
-            if (order.estado !== 'pagado') {
+            if (order.estado !== 'pagado' && (typeof Access === 'undefined' || Access.has('cash.collect'))) {
                 modalButtons.push({
                     text: 'Pagar',
                     class: 'btn-success text-white',

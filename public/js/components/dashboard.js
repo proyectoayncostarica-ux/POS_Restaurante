@@ -1071,6 +1071,10 @@ async verCuenta(cuentaId) {
 
     // Abrir modal de procesar pago desde el dashboard
     abrirProcesarPago(mesaId, pedidoId) {
+        if (typeof Access !== 'undefined' && !Access.has('cash.collect')) {
+            Utils.showNotification('El cobro requiere una sesión autorizada de Caja.', 'warning');
+            return;
+        }
         Orders.load().then(() => {
             Orders.showPaymentModal(pedidoId);
         });

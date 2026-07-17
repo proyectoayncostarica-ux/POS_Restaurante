@@ -1,7 +1,7 @@
 // Tables Component
 const Tables = {
     data: [],
-    structure: { zonas: [], tipos_puesto: [], roles_trabajo: [], compatibilidad: null },
+    structure: { zonas: [], tipos_puesto: [], roles_trabajo: [], capacidades: [], compatibilidad: null },
 
     // Cargar datos de mesas
     async load() {
@@ -12,7 +12,7 @@ const Tables = {
             ]);
 
             this.data = tablesResponse.data || [];
-            this.structure = structureResponse.data || { zonas: [], tipos_puesto: [], roles_trabajo: [], compatibilidad: null };
+            this.structure = structureResponse.data || { zonas: [], tipos_puesto: [], roles_trabajo: [], capacidades: [], compatibilidad: null };
             this.render();
         } catch (error) {
             console.error('Error cargando zonas:', error);
@@ -52,6 +52,18 @@ const Tables = {
 
     getWorkRoleById(id) {
         return (this.structure?.roles_trabajo || []).find(role => Number(role.id) === Number(id));
+    },
+
+    getCapabilities() {
+        return this.structure?.capacidades || [];
+    },
+
+    capabilityCodesFromRole(role = {}) {
+        return (role.capacidades || []).map(item => item.codigo).filter(Boolean);
+    },
+
+    defaultOperationalCapabilities() {
+        return ['orders.operate', 'orders.split', 'orders.issue_preinvoice', 'orders.finalize_service', 'kitchen.operate'];
     },
 
     formatBooleanLabel(value, trueLabel = 'Sí', falseLabel = 'No') {
@@ -488,7 +500,7 @@ const Tables = {
         : 'Sin zonas asignadas';
 
     return `
-        <article class="zone-admin-card work-role-card ${Number(role.activo) === 1 && activeZones.length ? '' : 'is-inactive'}">
+        <article class="zone-admin-card work-role-card ${Number(role.activo) === 1 && (Number(role.requiere_zona ?? 1) === 0 || activeZones.length) ? '' : 'is-inactive'}">
             <div class="zone-admin-icon role-icon">
                 <i class="fas fa-user-tag"></i>
             </div>
@@ -497,8 +509,9 @@ const Tables = {
                 <small>${zoneNames}</small>
                 <div class="zone-admin-badges">
                     <span>${this.formatBooleanLabel(role.activo, 'Activo', 'Inactivo')}</span>
-                    <span>${Number(activeZones.length)} zonas activas</span>
-                    ${Number(activeZones.length) === 0 ? '<span class="warning-chip">Requiere zona activa</span>' : ''}
+                    <span>${Number(role.requiere_zona ?? 1) === 0 ? 'Sin zona requerida' : `${Number(activeZones.length)} zonas activas`}</span>
+                    <span>${Number(role.capacidades?.length || 0)} capacidades</span>
+                    ${Number(role.requiere_zona ?? 1) === 1 && Number(activeZones.length) === 0 ? '<span class="warning-chip">Requiere zona activa</span>' : ''}
                 </div>
             </div>
             <button class="btn btn-light btn-sm" onclick="Tables.showWorkRoleFormModal(${Number(role.id)})">
@@ -862,25 +875,18 @@ const Tables = {
     }
 
     const zonas = this.activeZones();
-    if (!zonas.length) {
-        Utils.showModal('Crear zonas primero', `
-            <div class="work-role-empty-state">
-                <div class="work-role-empty-icon"><i class="fas fa-map-location-dot"></i></div>
-                <h4>No hay zonas activas para asignar</h4>
-                <p>Antes de crear roles de trabajo, cree zonas reales del local. Los roles solo pueden vincularse a zonas existentes y activas.</p>
-                <button class="btn btn-primary" onclick="Utils.hideModal(); Tables.showZoneFormModal();">
-                    <i class="fas fa-plus"></i> Crear zona
-                </button>
-            </div>
-        `, [
-            { text: 'Cerrar', class: 'btn-light' }
-        ], 'modal-zone-structure');
-        return;
-    }
 
     const role = roleId ? this.getWorkRoleById(roleId) : null;
     const isEdit = Boolean(role);
     const selectedZoneIds = new Set((role?.zonas || []).map(zone => Number(zone.id)));
+    const requiresZone = role ? Number(role.requiere_zona ?? 1) === 1 : true;
+    const selectedCapabilities = new Set(role ? this.capabilityCodesFromRole(role) : this.defaultOperationalCapabilities());
+    const capabilityGroups = this.getCapabilities().reduce((acc, capability) => {
+        const group = capability.categoria || 'Otras';
+        if (!acc[group]) acc[group] = [];
+        acc[group].push(capability);
+        return acc;
+    }, {});
 
     Utils.showModal(isEdit ? 'Editar rol de trabajo' : 'Nuevo rol de trabajo', `
         <form id="work-role-form" class="zone-structure-form">
@@ -893,35 +899,62 @@ const Tables = {
                 <label for="work-role-description">Descripción</label>
                 <textarea id="work-role-description" name="descripcion" rows="2" maxlength="160" placeholder="Describe cuándo o dónde se usa este rol">${this.escapeHtml(role?.descripcion || '')}</textarea>
             </div>
-            <div class="work-role-zone-picker">
+            <div class="structure-switch-grid">
+                ${this.renderSwitch('work-role-requires-zone', 'requiere_zona', 'Requiere zonas operativas', requiresZone)}
+                ${this.renderSwitch('work-role-active', 'activo', 'Rol activo', role ? Number(role.activo) === 1 : true)}
+            </div>
+            <div id="work-role-zone-picker" class="work-role-zone-picker">
                 <div class="work-role-zone-title">
-                    <strong>Zonas asignadas *</strong>
-                    <span>Seleccione zonas creadas y activas</span>
+                    <strong>Zonas asignadas</strong>
+                    <span>Obligatorias solo para roles de atención</span>
                 </div>
                 <div class="work-role-zone-list">
-                    ${zonas.map(zone => `
+                    ${zonas.length ? zonas.map(zone => `
                         <label class="work-role-zone-option" for="work-role-zone-${Number(zone.id)}">
                             <input type="checkbox" id="work-role-zone-${Number(zone.id)}" name="zona_ids" value="${Number(zone.id)}" ${selectedZoneIds.has(Number(zone.id)) ? 'checked' : ''}>
                             <span class="work-role-zone-icon" style="--zone-color:${this.escapeHtml(zone.color || '#3498db')}">
                                 <i class="fas ${this.escapeHtml(zone.icono || 'fa-location-dot')}"></i>
                             </span>
-                            <span>
-                                <strong>${this.escapeHtml(zone.nombre)}</strong>
-                                <small>${Number(zone.puestos_total || 0)} puestos</small>
-                            </span>
+                            <span><strong>${this.escapeHtml(zone.nombre)}</strong><small>${Number(zone.puestos_total || 0)} puestos</small></span>
                         </label>
-                    `).join('')}
+                    `).join('') : '<p class="text-muted">No hay zonas activas. Puede crear un rol sin zona, como Cajero.</p>'}
                 </div>
             </div>
-            <div class="structure-switch-grid one-column">
-                ${this.renderSwitch('work-role-active', 'activo', 'Rol activo', role ? Number(role.activo) === 1 : true)}
+            <div class="work-role-capability-picker">
+                <div class="work-role-zone-title"><strong>Capacidades</strong><span>Define qué puede ejecutar este rol</span></div>
+                ${Object.entries(capabilityGroups).map(([group, capabilities]) => `
+                    <fieldset class="work-role-capability-group">
+                        <legend>${this.escapeHtml(group)}</legend>
+                        <div class="work-role-capability-list">
+                            ${capabilities.map(capability => `
+                                <label class="work-role-capability-option">
+                                    <input type="checkbox" name="capability_codes" value="${this.escapeHtml(capability.codigo)}" ${selectedCapabilities.has(capability.codigo) ? 'checked' : ''}>
+                                    <span><strong>${this.escapeHtml(capability.nombre)}</strong><small>${this.escapeHtml(capability.descripcion || capability.codigo)}</small></span>
+                                </label>
+                            `).join('')}
+                        </div>
+                    </fieldset>
+                `).join('')}
             </div>
         </form>
     `, [
         { text: 'Cancelar', class: 'btn-light' },
         { text: `<i class="fas fa-save"></i> ${isEdit ? 'Guardar' : 'Crear rol'}`, class: 'btn-success', onclick: 'Tables.saveWorkRole()' }
     ], 'modal-zone-structure');
+
+    const requiresZoneInput = document.getElementById('work-role-requires-zone');
+    if (requiresZoneInput) {
+        requiresZoneInput.disabled = Boolean(role && Number(role.es_sistema) === 1 && role.slug === 'cajero');
+        requiresZoneInput.addEventListener('change', () => this.syncWorkRoleScope());
+    }
+    this.syncWorkRoleScope();
 },
+
+    syncWorkRoleScope() {
+        const requiresZone = document.getElementById('work-role-requires-zone')?.checked !== false;
+        const picker = document.getElementById('work-role-zone-picker');
+        if (picker) picker.classList.toggle('is-optional', !requiresZone);
+    },
 
     async saveWorkRole() {
     const form = document.getElementById('work-role-form');
@@ -930,9 +963,16 @@ const Tables = {
     const roleId = document.getElementById('work-role-id')?.value;
     const formData = new FormData(form);
     const zonaIds = formData.getAll('zona_ids').map(value => Number(value)).filter(Boolean);
+    const requiereZona = formData.get('requiere_zona') === 'on';
+    const capabilityCodes = formData.getAll('capability_codes').map(value => String(value)).filter(Boolean);
 
-    if (!zonaIds.length) {
+    if (requiereZona && !zonaIds.length) {
         Utils.showNotification('Seleccione al menos una zona activa para el rol de trabajo', 'warning');
+        return;
+    }
+
+    if (!capabilityCodes.length) {
+        Utils.showNotification('Seleccione al menos una capacidad para el rol de trabajo', 'warning');
         return;
     }
 
@@ -940,6 +980,9 @@ const Tables = {
         nombre: formData.get('nombre'),
         descripcion: formData.get('descripcion'),
         zona_ids: zonaIds,
+        requiere_zona: requiereZona ? 1 : 0,
+        destino_inicial: requiereZona ? 'dashboard' : 'cash',
+        capability_codes: capabilityCodes,
         activo: formData.get('activo') === 'on'
     };
 

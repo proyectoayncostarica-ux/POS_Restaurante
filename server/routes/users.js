@@ -40,8 +40,12 @@ function mapWorkRolesToUsers(users = [], links = []) {
             slug: role.slug,
             descripcion: role.descripcion,
             activo: role.activo,
+            requiere_zona: Number(role.requiere_zona ?? 1),
+            es_sistema: Number(role.es_sistema || 0),
+            destino_inicial: role.destino_inicial || 'dashboard',
             zonas_total: role.zonas_total,
-            zonas_activas: role.zonas_activas
+            zonas_activas: role.zonas_activas,
+            capacidades: []
         });
         return acc;
     }, new Map());
@@ -72,6 +76,9 @@ async function getUsersWithWorkRoles(whereSql = '', params = []) {
             rt.slug,
             rt.descripcion,
             rt.activo,
+            rt.requiere_zona,
+            rt.es_sistema,
+            rt.destino_inicial,
             COUNT(rtz.zona_id) AS zonas_total,
             SUM(CASE WHEN z.activa = 1 THEN 1 ELSE 0 END) AS zonas_activas
         FROM usuario_roles_trabajo urt
@@ -83,7 +90,30 @@ async function getUsersWithWorkRoles(whereSql = '', params = []) {
         ORDER BY rt.activo DESC, rt.nombre ASC
     `, userIds);
 
-    return mapWorkRolesToUsers(users, links);
+    const mappedUsers = mapWorkRolesToUsers(users, links);
+    const roleIds = [...new Set(links.map(link => Number(link.id)).filter(Boolean))];
+    if (!roleIds.length) return mappedUsers;
+
+    const rolePlaceholders = roleIds.map(() => '?').join(',');
+    const capabilities = await database.all(`
+        SELECT rtc.rol_trabajo_id, c.codigo, c.nombre, c.categoria
+        FROM rol_trabajo_capacidades rtc
+        INNER JOIN capacidades c ON c.id = rtc.capacidad_id AND c.activa = 1
+        WHERE rtc.rol_trabajo_id IN (${rolePlaceholders})
+        ORDER BY c.categoria ASC, c.nombre ASC
+    `, roleIds);
+    const byRole = capabilities.reduce((acc, item) => {
+        const roleId = Number(item.rol_trabajo_id);
+        if (!acc.has(roleId)) acc.set(roleId, []);
+        acc.get(roleId).push({ codigo: item.codigo, nombre: item.nombre, categoria: item.categoria });
+        return acc;
+    }, new Map());
+
+    mappedUsers.forEach(user => {
+        user.roles_trabajo.forEach(role => { role.capacidades = byRole.get(Number(role.id)) || []; });
+        user.capacidades = [...new Set(user.roles_trabajo.flatMap(role => role.capacidades.map(item => item.codigo)))];
+    });
+    return mappedUsers;
 }
 
 async function getAvailableWorkRoles() {
@@ -94,6 +124,9 @@ async function getAvailableWorkRoles() {
             rt.slug,
             rt.descripcion,
             rt.activo,
+            rt.requiere_zona,
+            rt.es_sistema,
+            rt.destino_inicial,
             COUNT(rtz.zona_id) AS zonas_total,
             SUM(CASE WHEN z.activa = 1 THEN 1 ELSE 0 END) AS zonas_activas,
             GROUP_CONCAT(z.nombre, ' · ') AS zonas_nombre
@@ -116,17 +149,20 @@ async function validateUserWorkRoles(tipo, rawRoleIds = []) {
             SELECT COUNT(*) AS count
             FROM roles_trabajo rt
             WHERE rt.activo = 1
-              AND EXISTS (
-                  SELECT 1
-                  FROM rol_trabajo_zonas rtz
-                  INNER JOIN zonas z ON z.id = rtz.zona_id
-                  WHERE rtz.rol_trabajo_id = rt.id
-                    AND z.activa = 1
+              AND (
+                  COALESCE(rt.requiere_zona, 1) = 0
+                  OR EXISTS (
+                      SELECT 1
+                      FROM rol_trabajo_zonas rtz
+                      INNER JOIN zonas z ON z.id = rtz.zona_id
+                      WHERE rtz.rol_trabajo_id = rt.id
+                        AND z.activa = 1
+                  )
               )
         `);
 
         if (Number(activeRoles?.count || 0) === 0) {
-            return { error: 'Antes de crear usuarios estándar debe existir al menos un rol de trabajo activo con zonas activas' };
+            return { error: 'Antes de crear usuarios estándar debe existir al menos un rol de trabajo activo disponible' };
         }
 
         return { error: 'Los usuarios estándar deben tener al menos un rol de trabajo asignado' };
@@ -138,6 +174,7 @@ async function validateUserWorkRoles(tipo, rawRoleIds = []) {
             rt.id,
             rt.nombre,
             rt.activo,
+            rt.requiere_zona,
             COUNT(CASE WHEN z.activa = 1 THEN z.id END) AS zonas_activas
         FROM roles_trabajo rt
         LEFT JOIN rol_trabajo_zonas rtz ON rtz.rol_trabajo_id = rt.id
@@ -150,9 +187,10 @@ async function validateUserWorkRoles(tipo, rawRoleIds = []) {
         return { error: 'Uno o más roles de trabajo seleccionados no existen' };
     }
 
-    const invalidRole = roles.find(role => Number(role.activo) !== 1 || Number(role.zonas_activas || 0) === 0);
+    const invalidRole = roles.find(role => Number(role.activo) !== 1
+        || (Number(role.requiere_zona ?? 1) === 1 && Number(role.zonas_activas || 0) === 0));
     if (invalidRole) {
-        return { error: `El rol de trabajo "${invalidRole.nombre}" está inactivo o no tiene zonas activas` };
+        return { error: `El rol de trabajo "${invalidRole.nombre}" está inactivo o no cumple sus requisitos operativos` };
     }
 
     return { roleIds };

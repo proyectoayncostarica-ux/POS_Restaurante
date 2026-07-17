@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.0.1 · Infraestructura transaccional y pruebas base
+- **Línea de trabajo actual:** v3.0.2 · Capacidades, rol Cajero y navegación autorizada
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -1045,3 +1045,24 @@ Documentos relacionados:
 Documento técnico:
 
 - `docs/avance-v3.0.1-infraestructura-transaccional-pruebas.md`
+
+### v3.0.2 · Capacidades, rol Cajero y navegación autorizada
+
+- **Objetivo:** separar permisos funcionales del tipo rígido de usuario y del acceso por zona, creando la base autorizada para Caja sin alterar todavía el dominio de Payments.
+- **Modelo de usuario:** `usuarios.tipo` conserva `basico` y `administrador`. `Cajero` se implementa como rol de trabajo/capacidad operativa, permitiendo usuarios exclusivos de Caja y usuarios mixtos como `Salonero + Cajero` o `Bartender + Cajero`.
+- **Persistencia:** se agregan `capacidades` y `rol_trabajo_capacidades`; `roles_trabajo` incorpora `requiere_zona`, `es_sistema` y `destino_inicial`.
+- **Rol inicial:** la migración crea o normaliza el rol de sistema `Cajero`, activo, sin obligación de zona y con destino inicial `cash`.
+- **Capacidades:** se registran permisos para Cuentas, Caja, Cocina e Impresión. El administrador conserva acceso total sin depender de asignaciones explícitas.
+- **Compatibilidad:** los roles operativos existentes reciben una asignación inicial de capacidades mediante un backfill único, incluyendo acceso/cobro legacy para no bloquear el funcionamiento actual. El administrador puede retirar esas capacidades después desde la gestión de roles.
+- **Backend:** `requireCapability()` vuelve a consultar las capacidades activas del usuario/roles antes de autorizar operaciones sensibles. La ruta legacy de pago queda protegida por `cash.collect`.
+- **Sesión operativa:** las capacidades se calculan como unión de los roles activos. Un cajero exclusivo puede iniciar sesión sin zona; un usuario mixto combina atención y Caja.
+- **Navegación:** Caja se abre desde el botón del header y solo aparece con `cash.access`. Un cajero exclusivo entra directamente a Caja y no ve módulos operativos para los que no tiene capacidad.
+- **Caja inicial:** se agrega una vista base de Caja con resumen de cuentas pendientes. El registro transaccional de pagos se implementará en `v3.2.x`.
+- **Administración:** la gestión de roles permite definir si requieren zona y seleccionar capacidades agrupadas. Usuarios acepta roles sin zona y muestra claramente el perfil Cajero.
+- **Pruebas:** la suite asciende a 15 casos aprobados, incluyendo creación del rol Cajero, esquema persistente, usuario exclusivo, usuario mixto y acceso total de administrador.
+- **Versión:** visible `3.0`, package y seguimiento interno `3.0.2`.
+
+Documento técnico:
+
+- `docs/avance-v3.0.2-capacidades-cajero-navegacion.md`
+

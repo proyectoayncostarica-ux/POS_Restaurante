@@ -369,7 +369,7 @@ git diff --cached --name-only | Select-String -Pattern "data/restaurant.db|\.env
 
 Si el filtro imprime algo, el commit debe detenerse.
 
-## 12. Estado actual · v3.0.1
+## 14. Estado actual · v3.0.1
 
 La infraestructura transaccional y la primera suite automática ya están disponibles.
 
@@ -392,3 +392,46 @@ Reglas para las siguientes fases:
 - ampliar fixtures y pruebas junto con cada dominio nuevo.
 
 La interfaz visible continúa sin cambios en `v3.0.1`.
+
+## 15. Estado actual · v3.0.2
+
+La aplicación ya dispone de un modelo persistente de capacidades y de un rol operativo `Cajero` independiente de las zonas.
+
+Reglas vigentes desde esta fase:
+
+```text
+usuarios.tipo = basico | administrador
+Cajero = rol de trabajo con capacidades de Caja
+Administrador = acceso completo
+Capacidades efectivas = unión de roles activos
+Autorización real = backend mediante requireCapability()
+```
+
+Capacidades registradas:
+
+```text
+orders.operate
+orders.split
+orders.issue_preinvoice
+orders.finalize_service
+cash.access
+cash.collect
+cash.reprint
+cash.reverse
+kitchen.operate
+printing.configure
+printing.retry
+```
+
+La navegación visible respeta estas reglas:
+
+- un cajero exclusivo inicia directamente en Caja y no necesita zona;
+- un usuario mixto conserva atención y puede abrir Caja desde el header;
+- Caja permanece oculta para usuarios sin `cash.access`;
+- ocultar un botón no sustituye la protección backend;
+- el endpoint legacy de cobro requiere `cash.collect` mientras sea adaptador temporal.
+
+La vista Caja de `v3.0.2` es una base de navegación y consulta. No implementa todavía el nuevo núcleo Payments ni el cobro por prefactura, que pertenecen a `v3.2.x`.
+
+La suite automática cuenta con 15 pruebas aprobadas. Las próximas fases deben ampliar estas pruebas sin eliminar la cobertura transaccional y de capacidades existente.
+

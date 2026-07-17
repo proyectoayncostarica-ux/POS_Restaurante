@@ -44,6 +44,7 @@ async function applySqlStatements(db, statements) {
 }
 
 module.exports = {
+    Database,
     createTestDatabase,
     applySqlStatements
 };

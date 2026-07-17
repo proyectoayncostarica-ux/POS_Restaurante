@@ -5,6 +5,61 @@ let headerClockTimer = null;
 let lastDesktopDateTime = '';
 let lastMobileDateTime = '';
 
+const Access = {
+    has(capability) {
+        const type = String(currentUser?.tipo || '').toLowerCase();
+        if (type === 'administrador' || type === 'admin') return true;
+        const capabilities = Array.isArray(currentUser?.capacidades)
+            ? currentUser.capacidades
+            : (currentUser?.sesion_operativa?.capacidades || []);
+        return capabilities.includes(capability);
+    },
+
+    canOpen(sectionName) {
+        const type = String(currentUser?.tipo || '').toLowerCase();
+        if (type === 'administrador' || type === 'admin') return true;
+
+        const requirements = {
+            dashboard: 'orders.operate',
+            tables: 'orders.operate',
+            menu: 'orders.operate',
+            orders: 'orders.operate',
+            accounts: 'orders.operate',
+            cash: 'cash.access',
+            users: '__admin__',
+            settings: '__admin__'
+        };
+        const required = requirements[sectionName];
+        if (!required) return false;
+        if (required === '__admin__') return false;
+        return this.has(required);
+    },
+
+    getInitialSection() {
+        const requested = currentUser?.destino_inicial || currentUser?.sesion_operativa?.destino_inicial;
+        if (requested && this.canOpen(requested)) return requested;
+        if (this.canOpen('dashboard')) return 'dashboard';
+        if (this.canOpen('cash')) return 'cash';
+        return 'dashboard';
+    },
+
+    applyNavigation() {
+        document.querySelectorAll('[data-section]').forEach(link => {
+            const section = link.getAttribute('data-section');
+            const item = link.closest('.nav-item') || link;
+            item.hidden = !this.canOpen(section);
+        });
+
+        const visibleSidebarLinks = Array.from(document.querySelectorAll('#sidebar .nav-link'))
+            .filter(link => !link.closest('.nav-item')?.hidden);
+        const menuToggle = document.getElementById('menu-toggle');
+        if (menuToggle) menuToggle.hidden = visibleSidebarLinks.length === 0;
+
+        const cashButton = document.getElementById('cash-header-btn');
+        if (cashButton) cashButton.hidden = !this.canOpen('cash');
+    }
+};
+
 const DashboardFocus = {
     isActive: false,
 
@@ -521,7 +576,8 @@ const Auth = {
         }
 
         this.updateUserInfo();
-        Navigation.showSection('dashboard');
+        Access.applyNavigation();
+        Navigation.showSection(Access.getInitialSection());
         loadRestaurantName();
         startHeaderClock();
         Realtime.connect();
@@ -551,7 +607,8 @@ const Auth = {
         mainApp.style.display = 'grid';
         mainApp.classList.add('app-entering');
         this.updateUserInfo();
-        Navigation.showSection('dashboard');
+        Access.applyNavigation();
+        Navigation.showSection(Access.getInitialSection());
         startHeaderClock();
         Realtime.connect();
         updateGreeting();
@@ -649,12 +706,12 @@ const Auth = {
         const zones = Array.isArray(role.zonas) ? role.zonas.filter(zone => Number(zone.activa) === 1) : [];
         const zoneNames = zones.length
             ? zones.map(zone => this.escapeHtml(zone.nombre)).join(' · ')
-            : 'Sin zonas activas';
+            : (Number(role.requiere_zona ?? 1) === 0 ? 'No requiere zona · acceso por capacidades' : 'Sin zonas activas');
 
         return `
             <label class="operational-role-card operational-role-card-check ${checked ? 'is-selected' : ''}" data-role-id="${Number(role.id)}">
                 <input type="checkbox" class="operational-role-checkbox" value="${Number(role.id)}" ${checked ? 'checked' : ''} onchange="Auth.syncOperationalRoleSelectionState()">
-                <span class="operational-role-icon"><i class="fas fa-user-tag"></i></span>
+                <span class="operational-role-icon"><i class="fas ${String(role.slug || '') === 'cajero' ? 'fa-cash-register' : 'fa-user-tag'}"></i></span>
                 <span class="operational-role-copy">
                     <strong>${this.escapeHtml(role.nombre)}</strong>
                     <small>${zoneNames}</small>
@@ -1146,6 +1203,7 @@ const Auth = {
 
         if (usuarioActualElement) usuarioActualElement.textContent = currentUser.nombre;
         if (tipoUsuarioElement) tipoUsuarioElement.textContent = userTypeLabel;
+        Access.applyNavigation();
     }
 };
 
@@ -1231,6 +1289,12 @@ const Navigation = {
 
     // Mostrar sección
     async showSection(sectionName) {
+        if (!Access.canOpen(sectionName)) {
+            Utils.showNotification('Tu sesión no tiene acceso a esta sección.', 'warning');
+            const fallback = Access.getInitialSection();
+            if (fallback !== sectionName) return this.showSection(fallback);
+            return;
+        }
         {
             const transitionId = ++navigationTransitionId;
             const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -1246,6 +1310,9 @@ const Navigation = {
             if (link) {
                 link.classList.add('active');
             }
+
+            const cashButton = document.getElementById('cash-header-btn');
+            if (cashButton) cashButton.classList.toggle('active', sectionName === 'cash');
 
             if (window.innerWidth <= 768) {
                 this.closeSidebar();
@@ -1285,41 +1352,7 @@ const Navigation = {
             }
 
             return;
-        }
-
-        // Ocultar todas las secciones
-        document.querySelectorAll('.content-section').forEach(section => {
-            section.classList.remove('active');
-        });
-
-        // Remover clase active de todos los links
-        document.querySelectorAll('.nav-link').forEach(link => {
-            link.classList.remove('active');
-        });
-
-        // Mostrar sección seleccionada
-        const section = document.getElementById(`${sectionName}-section`);
-        if (section) {
-            section.classList.add('active');
-        }
-
-        // Activar link correspondiente
-        const link = document.querySelector(`[data-section="${sectionName}"]`);
-        if (link) {
-            link.classList.add('active');
-        }
-
-        currentSection = sectionName;
-        DashboardFocus.handleSectionChange(sectionName);
-
-        // Cargar contenido de la sección
-        this.loadSectionContent(sectionName);
-
-        // Cerrar sidebar en móvil
-        if (window.innerWidth <= 768) {
-            document.getElementById('sidebar').classList.remove('open');
-        }
-    },
+        }    },
 
     // Cargar contenido de sección
     async loadSectionContent(sectionName) {
@@ -1339,6 +1372,9 @@ const Navigation = {
                     break;
                 case 'accounts':
                     await Accounts.load();
+                    break;
+                case 'cash':
+                    await Cash.load();
                     break;
                 case 'users':
                     await Users.load();
@@ -2158,6 +2194,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 // Funciones globales para acceso desde HTML
 window.Utils = Utils;
 window.Auth = Auth;
+window.Access = Access;
 window.Navigation = Navigation;
 window.PWA = PWA;
 window.Realtime = Realtime;

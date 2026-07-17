@@ -231,23 +231,35 @@ git commit -m "v3.0.1: agrega base transaccional y pruebas de dominio"
 
 ## v3.0.2 · Capacidades, rol Cajero y navegación autorizada
 
+### Estado
+
+```text
+IMPLEMENTADO · pendiente de validación operativa y git seguro
+```
+
 ### Objetivo
 
-Separar permisos funcionales de rol de sistema y acceso por zona.
+Separar permisos funcionales de rol de sistema y acceso por zona, habilitando un cajero exclusivo o combinado sin convertir `cajero` en un tercer tipo rígido de usuario.
 
-### Cambios previstos
+### Cambios implementados
 
-- capacidades persistentes;
-- relación capacidades ↔ roles de trabajo;
-- rol inicial `Cajero` sin obligación de zona;
-- usuarios mixtos atención + Caja;
-- `requireCapability()` backend;
-- capacidades en sesión;
-- destino inicial Caja para cajero exclusivo;
-- botón Caja del header condicionado por capacidad;
-- administrador conserva acceso completo.
+- tablas `capacidades` y `rol_trabajo_capacidades`;
+- columnas `requiere_zona`, `es_sistema` y `destino_inicial` en `roles_trabajo`;
+- catálogo canónico de capacidades en `server/security/capabilities.js`;
+- servicio de resolución de capacidades por roles activos;
+- middleware `requireCapability()` con administrador como acceso total;
+- rol de sistema `Cajero`, sin zona y con destino inicial Caja;
+- capacidades incluidas en sesión y payload de usuario;
+- unión de capacidades para usuarios con varios roles activos;
+- botón Caja en el header condicionado por `cash.access`;
+- destino inicial Caja para usuario exclusivamente cajero;
+- ocultamiento de módulos no autorizados en PC y móvil;
+- sección base Caja y endpoint protegido de resumen;
+- gestión administrativa de capacidades dentro de roles de trabajo;
+- soporte de roles sin zona en Usuarios y sesión operativa;
+- protección de la ruta legacy de pago con `cash.collect`.
 
-### Capacidades mínimas
+### Capacidades registradas
 
 ```text
 orders.operate
@@ -263,16 +275,47 @@ printing.configure
 printing.retry
 ```
 
-### Riesgo a controlar
+### Compatibilidad temporal
 
-No bloquear usuarios actuales por ausencia de capacidades durante la migración. Debe existir migración y compatibilidad temporal explícita.
+Para no bloquear a los usuarios actuales durante la transición, la migración ejecuta una sola vez un backfill sobre roles operativos existentes. Estos reciben las capacidades de atención y las capacidades legacy mínimas de Caja.
 
-### Criterios de aprobación
+El administrador debe poder revisar posteriormente cada rol y retirar `cash.access`, `cash.collect` o `cash.reprint` cuando el negocio utilice un cajero exclusivo.
 
-- cajero exclusivo puede iniciar sesión sin zona;
+La compatibilidad no sustituye el modelo final: desde esta fase toda operación nueva debe depender de capacidades explícitas.
+
+### Archivos principales
+
+```text
+server/security/capabilities.js
+server/services/capabilityService.js
+server/middleware/requireCapability.js
+server/routes/cash.js
+public/js/components/cash.js
+```
+
+También se actualizan autenticación, Usuarios, Zonas/Roles, Orders, Dashboard, navegación, base de datos, estilos, PWA y pruebas.
+
+### Pruebas automáticas
+
+La suite queda en 15 casos aprobados, incluyendo:
+
+- esquema de capacidades;
+- creación/normalización del rol Cajero;
+- cajero exclusivo sin zona;
+- usuario mixto con unión de capacidades;
+- administrador con acceso total;
+- cobertura transaccional, monetaria e idempotencia de `v3.0.1`.
+
+### Criterios de aprobación operativa
+
+- cajero exclusivo puede iniciar sesión sin zona y entra a Caja;
 - usuario mixto conserva atención y accede a Caja;
-- usuario sin `cash.collect` no puede cobrar aunque llame el endpoint manualmente;
-- navegación PC/móvil respeta capacidades.
+- usuario sin `cash.access` no ve el botón Caja;
+- usuario sin `cash.collect` recibe `403 CAPABILITY_REQUIRED` al intentar llamar manualmente la ruta de pago;
+- administrador puede editar capacidades de roles;
+- navegación PC/móvil respeta capacidades;
+- usuarios actuales continúan operando después de la migración;
+- `npm test` termina con 15 pruebas y 0 fallos.
 
 ### Commit
 

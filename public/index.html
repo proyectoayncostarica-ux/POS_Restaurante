@@ -14,7 +14,7 @@
     <meta name="msapplication-starturl" content="/POS/">
     <title>MundiPOS</title>
     <link rel="manifest" href="/POS/manifest.webmanifest">
-    <link rel="stylesheet" href="/POS/css/style.css?v=2.2.5M.13-presentation-images">
+    <link rel="stylesheet" href="/POS/css/style.css?v=3.0.2-capabilities-cashier">
     <link rel="icon" href="/POS/favicon.ico" type="image/x-icon">
     <link rel="shortcut icon" href="/POS/favicon.ico" type="image/x-icon">
     <link rel="apple-touch-icon" href="/POS/assets/icons/mundipos-icon-180.png">
@@ -142,6 +142,10 @@
                 <button id="dashboard-fullscreen-btn" class="btn btn-secondary dashboard-fullscreen-btn" type="button" onclick="DashboardFocus.toggle()" aria-label="Activar pantalla completa operativa del Dashboard" title="Pantalla completa">
                     <i class="fas fa-expand"></i>
                     <span class="dashboard-fullscreen-label">Pantalla completa</span>
+                </button>
+                <button id="cash-header-btn" class="btn btn-secondary cash-header-btn" type="button" onclick="Navigation.showSection('cash')" aria-label="Abrir Caja" title="Caja" hidden>
+                    <i class="fas fa-cash-register"></i>
+                    <span class="cash-header-label">Caja</span>
                 </button>
                 <button id="daily-close-btn" class="btn btn-secondary daily-close-btn" type="button" aria-label="Cierre diario" title="Cierre diario">
                     <i class="fas fa-cash-register"></i>
@@ -327,6 +331,10 @@
                 <!-- Contenido de cuentas -->
             </section>
 
+            <section id="cash-section" class="content-section">
+                <!-- Contenido autorizado de Caja -->
+            </section>
+
             <section id="users-section" class="content-section">
                 <!-- Contenido de usuarios -->
             </section>
@@ -351,13 +359,14 @@
     </div>
 
     <!-- Scripts -->
-    <script src="js/main.js?v=2.2.5M.13-presentation-images"></script>
-    <script src="js/components/dashboard.js?v=2.2.5M.13-presentation-images"></script>
-    <script src="js/components/tables.js?v=2.2.5M.13-presentation-images"></script>
-    <script src="js/components/menu.js?v=2.2.5M.13-presentation-images"></script>
-    <script src="js/components/orders.js?v=2.2.5M.13-presentation-images"></script>
-    <script src="js/components/accounts.js?v=2.2.5M.13-presentation-images"></script>
-    <script src="js/components/users.js?v=2.2.5M.13-presentation-images"></script>
-    <script src="js/components/settings.js?v=2.2.5M.13-presentation-images"></script>
+    <script src="js/main.js?v=3.0.2-capabilities-cashier"></script>
+    <script src="js/components/dashboard.js?v=3.0.2-capabilities-cashier"></script>
+    <script src="js/components/tables.js?v=3.0.2-capabilities-cashier"></script>
+    <script src="js/components/menu.js?v=3.0.2-capabilities-cashier"></script>
+    <script src="js/components/orders.js?v=3.0.2-capabilities-cashier"></script>
+    <script src="js/components/accounts.js?v=3.0.2-capabilities-cashier"></script>
+    <script src="js/components/cash.js?v=3.0.2-capabilities-cashier"></script>
+    <script src="js/components/users.js?v=3.0.2-capabilities-cashier"></script>
+    <script src="js/components/settings.js?v=3.0.2-capabilities-cashier"></script>
 </body>
 </html>

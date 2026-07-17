@@ -117,13 +117,13 @@ const Users = {
     },
 
     renderWorkRoleReadiness() {
-        const activeRoles = this.workRoles.filter(role => Number(role.activo) === 1 && Number(role.zonas_activas || 0) > 0);
+        const activeRoles = this.workRoles.filter(role => Number(role.activo) === 1 && (Number(role.requiere_zona ?? 1) === 0 || Number(role.zonas_activas || 0) > 0));
 
         if (activeRoles.length) {
             return `
                 <div class="users-workrole-note ok">
                     <i class="fas fa-user-tag"></i>
-                    <span>${activeRoles.length} rol(es) de trabajo disponibles para asignar a usuarios estándar.</span>
+                    <span>${activeRoles.length} rol(es) de trabajo disponibles, incluyendo roles con o sin zona.</span>
                 </div>
             `;
         }
@@ -131,7 +131,7 @@ const Users = {
         return `
             <div class="users-workrole-note warning">
                 <i class="fas fa-triangle-exclamation"></i>
-                <span>Antes de crear usuarios estándar, crea al menos un rol de trabajo activo con zonas activas desde el módulo Zonas.</span>
+                <span>Antes de crear usuarios estándar, crea al menos un rol de trabajo activo desde el módulo Zonas.</span>
             </div>
         `;
     },
@@ -145,9 +145,10 @@ const Users = {
         return `
             <div class="user-work-role-chips">
                 ${roles.map(role => `
-                    <span class="user-work-role-chip ${Number(role.activo) === 1 && Number(role.zonas_activas || 0) > 0 ? '' : 'is-warning'}">
-                        <i class="fas fa-user-tag"></i>
+                    <span class="user-work-role-chip ${Number(role.activo) === 1 && (Number(role.requiere_zona ?? 1) === 0 || Number(role.zonas_activas || 0) > 0) ? '' : 'is-warning'}">
+                        <i class="fas ${String(role.slug || '') === 'cajero' ? 'fa-cash-register' : 'fa-user-tag'}"></i>
                         ${this.escapeHtml(role.nombre)}
+                        ${Number(role.requiere_zona ?? 1) === 0 ? '<small>sin zona</small>' : ''}
                     </span>
                 `).join('')}
             </div>
@@ -274,11 +275,11 @@ const Users = {
             <div class="user-work-role-picker">
                 <div class="user-work-role-picker-title">
                     <strong>Roles de trabajo</strong>
-                    <span>Selecciona las zonas operativas permitidas para este usuario.</span>
+                    <span>Selecciona roles de atención, Caja o una combinación de ambos.</span>
                 </div>
                 <div class="user-work-role-options">
                     ${roles.map(role => {
-                        const isUsable = Number(role.activo) === 1 && Number(role.zonas_activas || 0) > 0;
+                        const isUsable = Number(role.activo) === 1 && (Number(role.requiere_zona ?? 1) === 0 || Number(role.zonas_activas || 0) > 0);
                         return `
                             <label class="user-work-role-option ${isUsable ? '' : 'is-disabled'}">
                                 <input type="checkbox"
@@ -289,7 +290,7 @@ const Users = {
                                        onchange="Users.syncWorkRoleHint('${formPrefix}')">
                                 <span>
                                     <strong>${this.escapeHtml(role.nombre)}</strong>
-                                    <small>${this.escapeHtml(role.zonas_nombre || 'Sin zonas activas')}</small>
+                                    <small>${Number(role.requiere_zona ?? 1) === 0 ? 'No requiere zona · acceso por capacidades' : this.escapeHtml(role.zonas_nombre || 'Sin zonas activas')}</small>
                                 </span>
                             </label>
                         `;
@@ -318,7 +319,7 @@ const Users = {
         }
 
         if (selectedCount === 0) {
-            hint.textContent = 'Los usuarios estándar deben tener al menos un rol de trabajo.';
+            hint.textContent = 'Los usuarios estándar deben tener al menos un rol operativo.';
             hint.className = 'text-danger';
         } else {
             hint.textContent = `${selectedCount} rol(es) de trabajo seleccionado(s).`;
@@ -357,7 +358,7 @@ const Users = {
                 ${this.renderWorkRolePicker([], 'create-user-form')}
                 <div class="form-group">
                     <small class="text-muted">
-                        <strong>Usuario Estándar:</strong> opera puestos según sus roles de trabajo.<br>
+                        <strong>Usuario Estándar:</strong> opera según sus roles y capacidades. Un Cajero exclusivo no requiere zona.<br>
                         <strong>Administrador:</strong> acceso completo al sistema y puede quedar sin roles operativos.
                     </small>
                 </div>
@@ -399,7 +400,7 @@ const Users = {
         }
 
         if (data.tipo === 'basico' && data.roles_trabajo_ids.length === 0) {
-            Utils.showNotification('Los usuarios estándar deben tener al menos un rol de trabajo', 'warning');
+            Utils.showNotification('Los usuarios estándar deben tener al menos un rol operativo', 'warning');
             return;
         }
 
@@ -486,7 +487,7 @@ const Users = {
         };
 
         if (data.tipo === 'basico' && data.roles_trabajo_ids.length === 0) {
-            Utils.showNotification('Los usuarios estándar deben tener al menos un rol de trabajo', 'warning');
+            Utils.showNotification('Los usuarios estándar deben tener al menos un rol operativo', 'warning');
             return;
         }
 
