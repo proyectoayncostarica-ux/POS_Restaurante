@@ -10737,3 +10737,671 @@ body {
         margin: 3px 0;
     }
 }
+
+/* v3.2.2 · Caja operativa y modal de cobro */
+.cash-page-loading,
+.cash-panel-loading,
+.cash-detail-empty,
+.cash-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.65rem;
+    min-height: 220px;
+    padding: 2rem;
+    color: #64748b;
+    text-align: center;
+}
+
+.cash-page-loading i,
+.cash-panel-loading i,
+.cash-detail-empty i,
+.cash-empty-state i {
+    color: #b38c34;
+    font-size: 2rem;
+}
+
+.cash-section-header {
+    align-items: flex-start;
+    gap: 1rem;
+}
+
+.cash-section-header > div:first-child {
+    min-width: 0;
+}
+
+.cash-operational-summary {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.cash-operational-summary .cash-foundation-card {
+    min-height: 98px;
+    padding: 0.95rem;
+}
+
+.cash-operational-summary .cash-foundation-card strong {
+    font-size: 1.25rem;
+}
+
+.cash-workspace {
+    display: grid;
+    grid-template-columns: minmax(340px, 0.92fr) minmax(480px, 1.45fr);
+    gap: 1rem;
+    align-items: start;
+    margin-bottom: 1rem;
+}
+
+.cash-queue-panel,
+.cash-detail-panel,
+.cash-movements-panel {
+    border: 1px solid rgba(15, 23, 42, 0.09);
+    border-radius: 18px;
+    background: #ffffff;
+    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.07);
+}
+
+.cash-queue-panel,
+.cash-detail-panel {
+    min-height: 520px;
+}
+
+.cash-detail-panel {
+    padding: 1.1rem;
+}
+
+.cash-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1.1rem 0.8rem;
+}
+
+.cash-panel-header h3,
+.cash-detail-heading h3 {
+    margin: 0;
+    color: #172033;
+}
+
+.cash-result-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 34px;
+    height: 34px;
+    padding: 0 0.6rem;
+    border-radius: 999px;
+    color: #ffffff;
+    background: #172033;
+    font-weight: 800;
+}
+
+.cash-search-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(135px, auto) auto auto;
+    gap: 0.55rem;
+    padding: 0 1.1rem 1rem;
+}
+
+.cash-search-input-wrap {
+    position: relative;
+}
+
+.cash-search-input-wrap i {
+    position: absolute;
+    top: 50%;
+    left: 0.85rem;
+    transform: translateY(-50%);
+    color: #94a3b8;
+    pointer-events: none;
+}
+
+.cash-search-input-wrap input,
+.cash-search-form select {
+    width: 100%;
+    min-height: 42px;
+    border: 1px solid #d7dee8;
+    border-radius: 10px;
+    background: #ffffff;
+}
+
+.cash-search-input-wrap input {
+    padding-left: 2.45rem;
+}
+
+.cash-queue-scroll {
+    max-height: 650px;
+    overflow-y: auto;
+    padding: 0 0.85rem 1rem;
+}
+
+.cash-account-group {
+    margin-bottom: 0.85rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    overflow: hidden;
+    background: #fbfdff;
+}
+
+.cash-account-group-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.85rem 0.9rem 0.55rem;
+}
+
+.cash-account-group-header strong,
+.cash-account-group-header span {
+    display: block;
+}
+
+.cash-account-group-header strong {
+    color: #172033;
+    font-size: 0.98rem;
+}
+
+.cash-account-group-header div > span {
+    margin-top: 0.18rem;
+    color: #64748b;
+    font-size: 0.8rem;
+}
+
+.cash-split-badge {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 0.35rem;
+    flex: 0 0 auto;
+    padding: 0.34rem 0.55rem;
+    border-radius: 999px;
+    color: #7a5a13;
+    background: rgba(201, 165, 74, 0.17);
+    font-size: 0.72rem;
+    font-weight: 800;
+}
+
+.cash-account-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.8rem;
+    padding: 0 0.9rem 0.75rem;
+    color: #64748b;
+    font-size: 0.78rem;
+}
+
+.cash-account-meta span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.32rem;
+}
+
+.cash-document-list {
+    border-top: 1px solid #e2e8f0;
+}
+
+.cash-document-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto 16px;
+    align-items: center;
+    gap: 0.7rem;
+    width: 100%;
+    padding: 0.78rem 0.9rem;
+    border: 0;
+    border-bottom: 1px solid #edf1f6;
+    color: inherit;
+    background: #ffffff;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.cash-document-row:last-child {
+    border-bottom: 0;
+}
+
+.cash-document-row:hover,
+.cash-document-row:focus-visible {
+    background: #f7fafc;
+}
+
+.cash-document-row.is-selected {
+    background: rgba(31, 93, 166, 0.08);
+    box-shadow: inset 4px 0 0 #1f5da6;
+}
+
+.cash-document-main strong,
+.cash-document-main small,
+.cash-document-amount strong,
+.cash-document-amount small {
+    display: block;
+}
+
+.cash-document-main small,
+.cash-document-amount small {
+    margin-top: 0.12rem;
+    color: #64748b;
+    font-size: 0.74rem;
+}
+
+.cash-document-amount {
+    min-width: 94px;
+    text-align: right;
+}
+
+.cash-document-status {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.3rem 0.52rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.cash-document-status.is-pending {
+    color: #8a5b09;
+    background: #fff3cd;
+}
+
+.cash-document-status.is-partial {
+    color: #175f85;
+    background: #dff3ff;
+}
+
+.cash-document-status.is-paid {
+    color: #17643a;
+    background: #dcf6e8;
+}
+
+.cash-document-status.is-voided {
+    color: #8b2635;
+    background: #fde4e8;
+}
+
+.cash-detail-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-bottom: 0.95rem;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.cash-detail-heading p {
+    margin: 0.25rem 0 0;
+    color: #64748b;
+}
+
+.cash-account-context {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.65rem;
+    margin: 1rem 0;
+}
+
+.cash-account-context > div,
+.cash-payment-context > div {
+    padding: 0.72rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 11px;
+    background: #f8fafc;
+}
+
+.cash-account-context small,
+.cash-account-context strong,
+.cash-payment-context small,
+.cash-payment-context strong {
+    display: block;
+}
+
+.cash-account-context small,
+.cash-payment-context small {
+    color: #64748b;
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.cash-account-context strong,
+.cash-payment-context strong {
+    margin-top: 0.18rem;
+    overflow-wrap: anywhere;
+    color: #172033;
+}
+
+.cash-document-totals {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.55rem;
+    margin-bottom: 1rem;
+}
+
+.cash-document-totals > div {
+    padding: 0.7rem 0.75rem;
+    border-radius: 11px;
+    background: #f1f5f9;
+}
+
+.cash-document-totals span,
+.cash-document-totals strong {
+    display: block;
+}
+
+.cash-document-totals span {
+    color: #64748b;
+    font-size: 0.73rem;
+}
+
+.cash-document-totals strong {
+    margin-top: 0.16rem;
+    color: #172033;
+}
+
+.cash-document-totals .is-balance {
+    color: #ffffff;
+    background: linear-gradient(135deg, #172033, #1f5da6);
+}
+
+.cash-document-totals .is-balance span,
+.cash-document-totals .is-balance strong {
+    color: #ffffff;
+}
+
+.cash-detail-section {
+    margin-top: 1rem;
+}
+
+.cash-detail-section h4 {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0 0 0.6rem;
+    color: #334155;
+    font-size: 0.95rem;
+}
+
+.cash-items-table th,
+.cash-items-table td,
+.cash-movements-table th,
+.cash-movements-table td {
+    white-space: nowrap;
+}
+
+.cash-items-table td:first-child,
+.cash-movements-table td:nth-child(4) {
+    white-space: normal;
+}
+
+.cash-payment-history {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.cash-payment-history-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.7rem 0.75rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 11px;
+}
+
+.cash-payment-history-row.is-voided {
+    opacity: 0.72;
+    background: #fff7f8;
+}
+
+.cash-payment-history-row small {
+    display: block;
+    margin-top: 0.12rem;
+    color: #64748b;
+}
+
+.cash-inline-empty {
+    padding: 1rem;
+    border: 1px dashed #cbd5e1;
+    border-radius: 11px;
+    color: #64748b;
+    text-align: center;
+}
+
+.cash-detail-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-top: 1.1rem;
+    padding-top: 1rem;
+    border-top: 1px solid #e2e8f0;
+}
+
+.cash-action-hint,
+.cash-action-success {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.55rem 0.7rem;
+    border-radius: 10px;
+    font-size: 0.82rem;
+}
+
+.cash-action-hint {
+    color: #8a5b09;
+    background: #fff3cd;
+}
+
+.cash-action-success {
+    color: #17643a;
+    background: #dcf6e8;
+}
+
+.cash-movements-panel {
+    margin-bottom: 1rem;
+    padding-bottom: 0.85rem;
+}
+
+.cash-movements-panel .table-responsive {
+    padding: 0 1rem;
+}
+
+.modal-content.modal-cash-payment {
+    width: min(620px, calc(100vw - 30px));
+    max-height: calc(100vh - 30px);
+}
+
+.modal-content.modal-cash-payment .modal-body {
+    overflow-y: auto;
+}
+
+.cash-payment-context {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.55rem;
+    margin-bottom: 0.8rem;
+}
+
+.cash-payment-balance {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    padding: 0.9rem 1rem;
+    border-radius: 12px;
+    color: #ffffff;
+    background: linear-gradient(135deg, #172033, #1f5da6);
+}
+
+.cash-payment-balance strong {
+    font-size: 1.35rem;
+}
+
+.cash-form-help {
+    display: block;
+    margin-top: 0.25rem;
+    color: #64748b;
+}
+
+.cash-payment-scope-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+    margin-top: 0.8rem;
+    padding: 0.75rem;
+    border-radius: 10px;
+    color: #315b78;
+    background: #eaf6ff;
+    font-size: 0.84rem;
+}
+
+@media (max-width: 1180px) {
+    .cash-operational-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .cash-workspace {
+        grid-template-columns: minmax(300px, 0.82fr) minmax(430px, 1.18fr);
+    }
+
+    .cash-account-context {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .cash-document-totals {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 900px) {
+    .cash-workspace {
+        grid-template-columns: 1fr;
+    }
+
+    .cash-queue-panel,
+    .cash-detail-panel {
+        min-height: auto;
+    }
+
+    .cash-queue-scroll {
+        max-height: 520px;
+    }
+}
+
+@media (max-width: 640px) {
+    .cash-section-header {
+        flex-direction: column;
+    }
+
+    .cash-section-header > .btn {
+        width: 100%;
+    }
+
+    .cash-operational-summary {
+        grid-template-columns: 1fr 1fr;
+        gap: 0.65rem;
+    }
+
+    .cash-operational-summary .cash-foundation-card {
+        align-items: flex-start;
+        min-height: 104px;
+        gap: 0.65rem;
+        padding: 0.75rem;
+    }
+
+    .cash-operational-summary .cash-foundation-icon {
+        width: 38px;
+        height: 38px;
+        border-radius: 12px;
+    }
+
+    .cash-operational-summary .cash-foundation-card small {
+        font-size: 0.7rem;
+    }
+
+    .cash-operational-summary .cash-foundation-card strong {
+        font-size: 1rem;
+    }
+
+    .cash-search-form {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .cash-search-form select {
+        grid-column: 1 / -1;
+    }
+
+    .cash-search-form .btn-primary span {
+        display: none;
+    }
+
+    .cash-document-row {
+        grid-template-columns: minmax(0, 1fr) auto 14px;
+    }
+
+    .cash-document-row .cash-document-status {
+        grid-column: 1;
+        justify-self: start;
+    }
+
+    .cash-document-amount {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+    }
+
+    .cash-document-row > .fa-chevron-right {
+        grid-column: 3;
+        grid-row: 1 / span 2;
+    }
+
+    .cash-account-context,
+    .cash-payment-context,
+    .cash-document-totals {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .cash-payment-history-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .cash-payment-history-row > span:nth-child(2),
+    .cash-payment-history-row > .cash-document-status {
+        justify-self: start;
+    }
+
+    .cash-detail-actions {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .cash-detail-actions .btn,
+    .cash-action-hint,
+    .cash-action-success {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .modal-content.modal-cash-payment .modal-footer {
+        gap: 0.65rem;
+    }
+
+    .modal-content.modal-cash-payment .modal-footer .left-buttons,
+    .modal-content.modal-cash-payment .modal-footer .right-buttons,
+    .modal-content.modal-cash-payment .modal-footer .btn {
+        width: 100%;
+    }
+}
+
+@media (max-width: 420px) {
+    .cash-operational-summary {
+        grid-template-columns: 1fr;
+    }
+
+    .cash-account-context,
+    .cash-payment-context,
+    .cash-document-totals {
+        grid-template-columns: 1fr;
+    }
+}

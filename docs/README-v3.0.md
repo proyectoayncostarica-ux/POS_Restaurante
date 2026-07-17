@@ -732,3 +732,27 @@ Los cobros utilizan `Idempotency-Key`, conservan el vínculo `pago → prefactur
 La reimpresión queda auditada, pero no se marca como realizada mientras no exista el módulo Printing. La API informa explícitamente que todavía no se creó un trabajo físico de impresión.
 
 No se modifica el esquema SQLite. La suite funcional cuenta con 76 pruebas aprobadas; en Windows, con el addon `sqlite3@6.0.1`, el total esperado es 78. La siguiente fase construirá la interfaz visual completa de Caja sobre este contrato.
+
+
+## 26. Estado actual · v3.2.2
+
+MundiPOS incorpora la interfaz operativa completa de Caja sobre la API de `v3.2.1`. La navegación continúa autorizada mediante `cash.access` y el cajero exclusivo entra directamente a esta sección desde el header.
+
+La pantalla diferencia:
+
+```text
+resumen operativo
+cola agrupada por cuenta global
+documentos individuales por pagador
+detalle de ítems y saldo
+historial de pagos
+movimientos de Caja del día
+```
+
+El cajero busca una prefactura, la selecciona y abre un modal para registrar un abono o liquidar el saldo. La mutación requiere `cash.collect`, usa idempotencia y nunca libera automáticamente la mesa. La reimpresión requiere `cash.reprint` y mantiene su estado pendiente de Printing.
+
+Dashboard deja de ejecutar cobros. Los accesos previos desde Orders solo redirigen al contexto correspondiente de Caja; Payments no aparece como módulo técnico visible.
+
+La UI está adaptada para PC y móvil. El caché PWA cambia a `v3.2.2-cash-ui` para evitar que dispositivos instalados conserven el componente anterior.
+
+Esta fase admite cobros simples en efectivo o tarjeta. El cálculo de efectivo recibido, vuelto y pagos mixtos se implementará en `v3.2.3`.

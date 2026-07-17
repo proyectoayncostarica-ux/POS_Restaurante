@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.2.0 · Núcleo backend de Payments por prefactura
+- **Línea de trabajo actual:** v3.2.2 · Sección visual Caja y modal de cobro
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -1286,3 +1286,30 @@ Documento técnico:
 - `docs/avance-v3.2.1-api-read-model-caja.md`
 
 La siguiente fase es `v3.2.2 · Sección visual Caja y modal de cobro`.
+
+
+## 26. Caja operativa visual · v3.2.2
+
+La sección visible `Caja` conecta la cola y el read model de `v3.2.1` con el flujo real del cajero. El usuario autorizado puede buscar prefacturas por documento, cuenta global, mesa/banco, zona, cliente principal, pagador o responsable; abrir el detalle del documento; revisar ítems, saldo y pagos; y registrar un cobro sin abandonar Caja.
+
+La bandeja agrupa las prefacturas bajo la cuenta global para preservar la fuente financiera única. En PC funciona como cola y panel de detalle; en móvil utiliza cards y apila la lectura del documento debajo de la búsqueda.
+
+El modal de cobro permite registrar un abono o el saldo completo mediante efectivo o tarjeta. El monto se valida contra el saldo documental, la tarjeta exige referencia en la interfaz, el envío queda bloqueado mientras se procesa y cada solicitud incluye `Idempotency-Key`. Efectivo recibido, vuelto y pagos mixtos continúan reservados para `v3.2.3`.
+
+Dashboard ya no inicia un pago directo. Los accesos legacy de Orders se convierten en una fachada que abre la sección Caja y localiza la cuenta; la transacción monetaria siempre comienza dentro del módulo autorizado.
+
+La reimpresión se solicita desde Caja y se abre mediante la impresión del navegador, pero continúa auditada como pendiente del servicio Printing. Pagar una prefactura no cierra la mesa ni elimina al cliente principal o responsables.
+
+Pruebas:
+
+```text
+6 pruebas específicas de interfaz Caja
+82 pruebas funcionales aprobadas en el entorno de construcción
+84 pruebas esperadas en Windows con sqlite3@6.0.1 instalado
+```
+
+Documento técnico:
+
+- `docs/avance-v3.2.2-caja-visual-modal-cobro.md`
+
+La siguiente fase es `v3.2.3 · Efectivo, vuelto, tarjeta y pagos mixtos`.

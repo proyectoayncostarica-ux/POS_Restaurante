@@ -303,9 +303,9 @@ const Orders = {
                                 <i class="fas fa-eye"></i>
                             </button>
                             ${order.estado === 'pendiente' ? `
-                                ${typeof Access !== 'undefined' && Access.has('cash.collect') ? `
-                                    <button class="btn btn-success btn-sm" onclick="Orders.showPaymentModal(${order.id})">
-                                        <i class="fas fa-dollar-sign"></i>
+                                ${typeof Access !== 'undefined' && Access.has('cash.access') ? `
+                                    <button class="btn btn-success btn-sm" title="Abrir cuenta en Caja" onclick="Orders.openInCash(${order.id})">
+                                        <i class="fas fa-cash-register"></i>
                                     </button>
                                 ` : ''}
                                 <button class="btn btn-primary btn-sm" onclick="Orders.showAddProductsModal(${order.id})">
@@ -322,11 +322,11 @@ const Orders = {
     //Confirma Pago
     confirmarPago(orderId, zona, numero) {
         Utils.confirm(
-            `¿Deseas cobrar el pedido #${orderId} de la ${zona.toLowerCase()} ${numero}?`,
-            'Confirmar Pago'
+            `¿Deseas abrir en Caja la cuenta #${orderId} de la ${zona.toLowerCase()} ${numero}?`,
+            'Abrir en Caja'
         ).then(confirmado => {
             if (confirmado) {
-                Orders.showPaymentModal(orderId);
+                Orders.openInCash(orderId);
             }
         });
     },
@@ -624,80 +624,22 @@ const Orders = {
   }
     },
 
-    // Mostrar modal de pago
-    async showPaymentModal(orderId) {
-        if (typeof Access !== 'undefined' && !Access.has('cash.collect')) {
-            Utils.showNotification('Tu sesión no tiene autorización para registrar cobros. Usa Caja con un rol autorizado.', 'warning');
+    // Fachada temporal: el cobro visible ya no ocurre dentro de Orders.
+    async openInCash(orderId) {
+        if (typeof Access !== 'undefined' && !Access.has('cash.access')) {
+            Utils.showNotification('Tu sesión no tiene acceso a Caja.', 'warning');
             return;
         }
-        try {
-            const response = await Utils.request(`/orders/${orderId}`);
-            const order = response.data;
-            const isBarra = order.mesa_tipo?.toLowerCase() === 'barra';
-
-            const subtotal = Number(order.subtotal ?? order.total ?? 0);
-            const aplicaServicio = Number(order.aplica_servicio || 0) === 1;
-            const porcentajeServicio = Number(order.porcentaje_servicio || 0);
-            const servicio = Number(order.monto_servicio || 0);
-            const total = Number(order.total_con_servicio ?? (subtotal + servicio));
-
-            const nombreZona = isBarra ? 'Banco' : 'Mesa';
-
-            Utils.showModal(`Procesar Pago - Pedido #${order.id}`, `
-                <div class="payment-details">
-                    <div class="order-summary mb-3">
-                        <p><strong>${nombreZona}:</strong> ${order.mesa_numero}</p>
-                        <p><strong>Cliente:</strong> ${order.cliente_nombre}</p>
-                    </div>
-
-                    <div class="payment-breakdown">
-                        <div class="d-flex justify-content-between">
-                            <span>Subtotal:</span>
-                            <span>${Utils.formatCurrency(subtotal)}</span>
-                        </div>
-                        <div class="d-flex justify-content-between">
-                            <span>Servicio (<span id="pago-servicio-porcentaje">${porcentajeServicio}</span>%):</span>
-                            <span id="pago-servicio">${Utils.formatCurrency(servicio)}</span>
-                        </div>
-                        <hr>
-                        <div class="d-flex justify-content-between">
-                            <strong>Total:</strong>
-                            <strong id="pago-total">${Utils.formatCurrency(total)}</strong>
-                        </div>
-                    </div>
-
-                    <form id="payment-form" class="mt-3">
-                        <div class="form-group">
-                            <label for="metodo-pago">Método de Pago *</label>
-                            <select id="metodo-pago" name="metodo_pago" required>
-                                <option value="">Seleccione método</option>
-                                <option value="efectivo">Efectivo</option>
-                                <option value="tarjeta">Tarjeta</option>
-                                <option value="credito">Crédito</option>
-                            </select>
-                        </div>
-
-                        <div class="service-policy-note">
-                            ${aplicaServicio ? `Servicio aplicado automáticamente según configuración de la zona/puesto.` : `Esta cuenta no aplica servicio según configuración.`}
-                        </div>
-                        <input type="hidden" id="aplicar-servicio" value="${aplicaServicio ? '1' : '0'}">
-                        <input type="hidden" id="porcentaje-servicio" value="${porcentajeServicio}">
-                    </form>
-                </div>
-            `, [
-                {
-                    text: 'Cancelar',
-                    class: 'btn-light'
-                },
-                {
-                    text: 'Procesar Pago',
-                    class: 'btn-success',
-                    onclick: `Orders.processPayment(${orderId}, ${order.mesa_id})`
-                }
-            ]);
-        } catch (error) {
-            Utils.showNotification('Error cargando datos del pedido', 'error');
+        if (typeof Navigation === 'undefined' || typeof Cash === 'undefined') {
+            Utils.showNotification('Caja no está disponible en esta sesión.', 'error');
+            return;
         }
+        await Navigation.showSection('cash');
+        await Cash.focusAccount(orderId);
+    },
+
+    async showPaymentModal(orderId) {
+        return this.openInCash(orderId);
     },
 
     updatePaymentTotal(subtotal) {

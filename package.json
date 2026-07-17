@@ -1,6 +1,6 @@
 {
   "name": "mundipos",
-  "version": "3.2.1",
+  "version": "3.2.2",
   "description": "MundiPOS - sistema POS local para restaurante/bar",
   "main": "server/app.js",
   "scripts": {
@@ -18,6 +18,7 @@
     "test:financial": "node --test --test-concurrency=1 tests/financialReadService.test.js",
     "test:payments": "node --test --test-concurrency=1 tests/paymentService.test.js tests/paymentMigration.test.js",
     "test:cash-api": "node --test --test-concurrency=1 tests/cashReadService.test.js",
+    "test:cash-ui": "node --test --test-concurrency=1 tests/cashUiWorkflow.test.js",
     "test:sqlite-driver": "node --test --test-concurrency=1 tests/sqliteDriverCompatibility.test.js",
     "security:audit": "npm audit --omit=dev"
   },

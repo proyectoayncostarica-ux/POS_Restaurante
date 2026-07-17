@@ -1136,48 +1136,121 @@ git commit -m "v3.2.1: agrega API operativa de Caja"
 
 ---
 
-## v3.2.2 · Sección visual Caja y botón del header
+## v3.2.2 · Sección visual Caja y modal de cobro
+
+**Estado: implementada.**
 
 ### Objetivo
 
-Crear la interfaz visible de cobro sin exponer el servicio Payments como módulo técnico.
+Conectar la API de Caja con una interfaz visible, autorizada y adaptable, sin exponer Payments como módulo técnico ni permitir cobros directos desde Dashboard.
 
-### Cambios previstos
+### Implementación
 
-- botón `Caja` en header;
-- `cash-section`;
-- bandeja de documentos pendientes y pagados;
-- filtros y búsqueda;
-- detalle de cuenta global y documento;
-- apertura del modal de cobro;
+- botón `Caja` del header conservado como acceso principal;
 - destino inicial Caja para cajero exclusivo;
-- retiro del cobro directo de Dashboard;
-- handlers legacy de Orders convertidos en fachadas temporales o eliminados.
+- resumen de cuentas, documentos, saldo documental, ventas globales y movimientos;
+- bandeja agrupada por cuenta global;
+- búsqueda por documento, cuenta, mesa/banco, zona, cliente, pagador o responsable;
+- filtros por estado;
+- panel de detalle con cuenta global, ítems, saldo e historial de pagos;
+- modal para abono o pago completo;
+- métodos simples `efectivo` y `tarjeta`;
+- referencia requerida en la UI para tarjeta;
+- clave `Idempotency-Key` por envío;
+- bloqueo local durante el procesamiento;
+- actualización de cola, detalle, resumen y movimientos después del cobro;
+- reimpresión auditada mediante navegador;
+- layouts específicos para PC y móvil;
+- caché PWA `v3.2.2-cash-ui`;
+- Dashboard sin acceso directo al modal de pago;
+- Orders convertido en fachada de navegación hacia Caja.
+
+### Flujo
+
+```text
+Caja
+→ buscar cuenta o prefactura
+→ seleccionar documento
+→ verificar pagador, ítems y saldo
+→ abrir modal de cobro
+→ registrar pago idempotente
+→ actualizar documento y cuenta global
+→ mantener mesa operativamente abierta
+```
+
+### Capacidades
+
+```text
+cash.access   consulta la bandeja y el detalle
+cash.collect  habilita el botón y la mutación de cobro
+cash.reprint  habilita la solicitud de reimpresión
+```
+
+La autorización backend de `v3.2.1` permanece como fuente real de seguridad.
 
 ### PC
 
-- tabla/bandeja amplia;
-- panel de detalle;
-- filtros persistentes durante la sesión.
+- cola y detalle en dos paneles;
+- tablas de ítems y movimientos;
+- filtros visibles;
+- saldo documental destacado.
 
 ### Móvil
 
 - cards compactas;
-- búsqueda accesible;
-- modal táctil;
-- navegación compatible con header y barra inferior existentes.
+- cola y detalle apilados;
+- scroll al documento seleccionado;
+- controles táctiles;
+- modal de ancho completo;
+- caché actualizado para PWA instalada.
+
+### Límites de fase
+
+No incluye todavía:
+
+- efectivo recibido;
+- cálculo y validación de vuelto;
+- pagos mixtos;
+- medios configurables;
+- reverso visual;
+- impresión física o cola Printing;
+- finalización del servicio.
 
 ### Criterios de aprobación
 
 - el cajero exclusivo entra a Caja;
 - el usuario mixto abre Caja sin perder su sesión operativa;
-- Dashboard no muestra cobro directo;
-- el flujo visible de cobro se inicia desde Caja.
+- una cuenta dividida aparece agrupada con documentos separados;
+- búsqueda y filtros localizan documentos;
+- el detalle coincide con la cuenta global;
+- el modal permite abono o liquidación simple;
+- el envío repetido no duplica pagos;
+- usuario sin `cash.collect` no ve acción operativa y backend lo bloquea;
+- Dashboard no inicia cobros;
+- Orders abre Caja en vez de procesar dinero;
+- una prefactura pagada mantiene la mesa abierta;
+- PC y móvil completan el mismo flujo;
+- 6 pruebas específicas de UI terminan sin fallos;
+- en Windows, la suite completa con sqlite3 instalado termina con 84 pruebas.
+
+### Archivos
+
+```text
+public/js/components/cash.js
+public/js/components/dashboard.js
+public/js/components/orders.js
+public/css/style.css
+public/index.html
+public/service-worker.js
+server/config/appInfo.js
+tests/cashUiWorkflow.test.js
+docs/avance-v3.2.2-caja-visual-modal-cobro.md
+```
 
 ### Commit
 
 ```powershell
-git commit -m "v3.2.2: agrega Caja operativa desde el header"
+git commit -m "v3.2.2: agrega Caja visual y modal de cobro"
 ```
 
 ---

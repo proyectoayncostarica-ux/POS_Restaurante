@@ -461,8 +461,7 @@ const Dashboard = {
 
         return {
             label: 'Agregar productos',
-            onclick: `Dashboard.abrirAgregarProductos(${mesa.id}, ${mesa.pedido_id})`,
-            doubleClick: `Dashboard.abrirProcesarPago(${mesa.id}, ${mesa.pedido_id})`
+            onclick: `Dashboard.abrirAgregarProductos(${mesa.id}, ${mesa.pedido_id})`
         };
     },
 
@@ -1066,16 +1065,8 @@ const Dashboard = {
         });
     },
 
-    // Abrir modal de procesar pago desde el dashboard
-    abrirProcesarPago(mesaId, pedidoId) {
-        if (typeof Access !== 'undefined' && !Access.has('cash.collect')) {
-            Utils.showNotification('El cobro requiere una sesión autorizada de Caja.', 'warning');
-            return;
-        }
-        Orders.load().then(() => {
-            Orders.showPaymentModal(pedidoId);
-        });
-    }
+    // v3.2.2: Dashboard no procesa dinero. El cobro inicia exclusivamente en Caja.
+
 };
 
 // Iniciar auto-refresh cuando se carga el script
