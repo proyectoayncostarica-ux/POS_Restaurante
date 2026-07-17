@@ -368,3 +368,27 @@ git diff --cached --name-only | Select-String -Pattern "data/restaurant.db|\.env
 ```
 
 Si el filtro imprime algo, el commit debe detenerse.
+
+## 12. Estado actual · v3.0.1
+
+La infraestructura transaccional y la primera suite automática ya están disponibles.
+
+Desde esta fase, las nuevas mutaciones críticas deben construirse sobre:
+
+```text
+database.withTransaction()
+transactionService
+DomainError
+money.js
+idempotency.js
+```
+
+Reglas para las siguientes fases:
+
+- no emitir realtime antes del commit;
+- no ejecutar varias escrituras financieras sin transacción;
+- no calcular dinero con sumas flotantes dispersas;
+- no registrar pagos sin clave/fingerprint de idempotencia cuando Payments sea implementado;
+- ampliar fixtures y pruebas junto con cada dominio nuevo.
+
+La interfaz visible continúa sin cambios en `v3.0.1`.

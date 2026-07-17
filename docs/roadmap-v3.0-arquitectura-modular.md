@@ -165,6 +165,8 @@ git commit -m "v3.0.0 fix2: consolida fuente financiera y roadmap v3"
 
 ## v3.0.1 · Infraestructura transaccional y pruebas base
 
+**Estado:** implementada; pendiente validación operativa y commit seguro.
+
 ### Objetivo
 
 Crear la base común antes de modificar dinero, cantidades, documentos o cierre de mesas.
@@ -201,6 +203,23 @@ package.json
 - cálculos monetarios repetibles;
 - suite ejecutable en una base temporal;
 - ningún flujo visible cambia todavía.
+
+### Implementación realizada
+
+- `database.withTransaction()` con conexión aislada, cola, modos SQLite y savepoints;
+- `transactionService` como fachada para servicios futuros;
+- errores de dominio con códigos estables;
+- utilidades monetarias e idempotencia;
+- SQLite temporal y fixtures mínimos;
+- `npm test` con 11 pruebas aprobadas;
+- package y seguimiento interno actualizados a `3.0.1`;
+- sin cambios visuales ni migración de rutas operativas.
+
+Documento:
+
+```text
+docs/avance-v3.0.1-infraestructura-transaccional-pruebas.md
+```
 
 ### Commit
 

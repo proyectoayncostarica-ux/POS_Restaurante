@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.0.0 fix2 · Fuente financiera única y roadmap consolidado
+- **Línea de trabajo actual:** v3.0.1 · Infraestructura transaccional y pruebas base
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -1030,3 +1030,18 @@ Documentos relacionados:
 - `docs/roadmap-v3.0-arquitectura-modular.md`
 - `docs/contrato-v3.0-cuenta-global-fuente-financiera.md`
 - `docs/avance-v3.0.0-fix2-roadmap-financiero-consolidado.md`
+
+### v3.0.1 · Infraestructura transaccional y pruebas base
+
+- **Objetivo:** crear una base segura antes de migrar cuentas, prefacturas, pagos, documentos o cierres de mesa.
+- **Transacciones:** `database.withTransaction()` soporta `BEGIN DEFERRED/IMMEDIATE/EXCLUSIVE`, rollback centralizado, conexiones aisladas, cola de mutaciones, savepoints y callbacks posteriores a commit/rollback.
+- **Servicios:** se agrega una fachada `transactionService` para los futuros servicios de Cuentas, Payments, Kitchen y Printing.
+- **Dominio:** se crean errores con códigos estables, utilidades monetarias deterministas y funciones base de idempotencia/fingerprint.
+- **Pruebas:** `npm test` queda funcional con SQLite temporal, fixtures mínimos y casos de commit, rollback, savepoints, concurrencia, dinero e idempotencia.
+- **Resultado:** 11 pruebas aprobadas sin fallos en la validación de esta subfase.
+- **Compatibilidad:** no cambia UI/UX, Dashboard, Cuentas, Caja, base funcional ni PWA.
+- **Versión:** visible `3.0`, package y seguimiento interno `3.0.1`.
+
+Documento técnico:
+
+- `docs/avance-v3.0.1-infraestructura-transaccional-pruebas.md`

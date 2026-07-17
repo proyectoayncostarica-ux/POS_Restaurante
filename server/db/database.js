@@ -2,26 +2,31 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
+const { AsyncLocalStorage } = require('async_hooks');
 const { APP_VERSION } = require('../config/appInfo');
 
 const DEFAULT_DB_PATH = path.join(__dirname, '../../data/restaurant.db');
-const DB_PATH = process.env.DB_PATH
-    ? path.resolve(process.cwd(), process.env.DB_PATH)
-    : DEFAULT_DB_PATH;
-
 class Database {
-    constructor() {
+    constructor(options = {}) {
         this.db = null;
+        this.dbPath = options.dbPath
+            ? path.resolve(options.dbPath)
+            : (process.env.DB_PATH
+                ? path.resolve(process.cwd(), process.env.DB_PATH)
+                : DEFAULT_DB_PATH);
+        this.transactionStorage = new AsyncLocalStorage();
+        this.transactionQueue = Promise.resolve();
+        this.savepointCounter = 0;
     }
 
     connect() {
         return new Promise((resolve, reject) => {
-            const dataDir = path.dirname(DB_PATH);
+            const dataDir = path.dirname(this.dbPath);
             if (!fs.existsSync(dataDir)) {
                 fs.mkdirSync(dataDir, { recursive: true });
             }
 
-            this.db = new sqlite3.Database(DB_PATH, async (err) => {
+            this.db = new sqlite3.Database(this.dbPath, async (err) => {
                 if (err) {
                     console.error('Error al conectar con la base de datos:', err);
                     reject(err);
@@ -31,7 +36,7 @@ class Database {
                 try {
                     await this.run('PRAGMA journal_mode = WAL');
                     await this.run('PRAGMA busy_timeout = 5000');
-                    console.log(`Conectado a la base de datos SQLite: ${DB_PATH}`);
+                    console.log(`Conectado a la base de datos SQLite: ${this.dbPath}`);
                     resolve();
                 } catch (pragmaError) {
                     reject(pragmaError);
@@ -1141,9 +1146,13 @@ class Database {
         }
     }
 
-    run(sql, params = []) {
+    getActiveConnection() {
+        return this.transactionStorage.getStore()?.connection || this.db;
+    }
+
+    rawRun(connection, sql, params = []) {
         return new Promise((resolve, reject) => {
-            this.db.run(sql, params, function(err) {
+            connection.run(sql, params, function(err) {
                 if (err) {
                     reject(err);
                 } else {
@@ -1153,9 +1162,9 @@ class Database {
         });
     }
 
-    get(sql, params = []) {
+    rawGet(connection, sql, params = []) {
         return new Promise((resolve, reject) => {
-            this.db.get(sql, params, (err, row) => {
+            connection.get(sql, params, (err, row) => {
                 if (err) {
                     reject(err);
                 } else {
@@ -1165,9 +1174,9 @@ class Database {
         });
     }
 
-    all(sql, params = []) {
+    rawAll(connection, sql, params = []) {
         return new Promise((resolve, reject) => {
-            this.db.all(sql, params, (err, rows) => {
+            connection.all(sql, params, (err, rows) => {
                 if (err) {
                     reject(err);
                 } else {
@@ -1175,6 +1184,171 @@ class Database {
                 }
             });
         });
+    }
+
+    openConnection() {
+        return new Promise((resolve, reject) => {
+            const connection = new sqlite3.Database(this.dbPath, async (err) => {
+                if (err) {
+                    reject(err);
+                    return;
+                }
+
+                try {
+                    await this.rawRun(connection, 'PRAGMA busy_timeout = 5000');
+                    await this.rawRun(connection, 'PRAGMA foreign_keys = ON');
+                    resolve(connection);
+                } catch (error) {
+                    connection.close(() => reject(error));
+                }
+            });
+        });
+    }
+
+    closeConnection(connection) {
+        return new Promise((resolve, reject) => {
+            connection.close((err) => err ? reject(err) : resolve());
+        });
+    }
+
+    createTransactionClient(connection, callbacks) {
+        return {
+            run: (sql, params = []) => this.rawRun(connection, sql, params),
+            get: (sql, params = []) => this.rawGet(connection, sql, params),
+            all: (sql, params = []) => this.rawAll(connection, sql, params),
+            afterCommit: (callback) => {
+                if (typeof callback !== 'function') {
+                    throw new TypeError('afterCommit requiere una función');
+                }
+                callbacks.afterCommit.push(callback);
+            },
+            afterRollback: (callback) => {
+                if (typeof callback !== 'function') {
+                    throw new TypeError('afterRollback requiere una función');
+                }
+                callbacks.afterRollback.push(callback);
+            }
+        };
+    }
+
+    async runNestedTransaction(work, store) {
+        const savepoint = `sp_${++this.savepointCounter}`;
+        const commitCallbackStart = store.callbacks.afterCommit.length;
+        const rollbackCallbackStart = store.callbacks.afterRollback.length;
+        await this.rawRun(store.connection, `SAVEPOINT ${savepoint}`);
+
+        try {
+            const result = await work(store.client);
+            await this.rawRun(store.connection, `RELEASE SAVEPOINT ${savepoint}`);
+            return result;
+        } catch (error) {
+            await this.rawRun(store.connection, `ROLLBACK TO SAVEPOINT ${savepoint}`);
+            await this.rawRun(store.connection, `RELEASE SAVEPOINT ${savepoint}`);
+
+            const nestedRollbackCallbacks = store.callbacks.afterRollback.slice(rollbackCallbackStart);
+            store.callbacks.afterCommit.length = commitCallbackStart;
+            store.callbacks.afterRollback.length = rollbackCallbackStart;
+
+            for (const callback of nestedRollbackCallbacks) {
+                try {
+                    await callback(error);
+                } catch (callbackError) {
+                    error.afterRollbackError = callbackError;
+                }
+            }
+
+            throw error;
+        }
+    }
+
+    withTransaction(work, options = {}) {
+        if (typeof work !== 'function') {
+            return Promise.reject(new TypeError('withTransaction requiere una función'));
+        }
+
+        const activeStore = this.transactionStorage.getStore();
+        if (activeStore) {
+            return this.runNestedTransaction(work, activeStore);
+        }
+
+        const mode = String(options.mode || 'IMMEDIATE').toUpperCase();
+        if (!['DEFERRED', 'IMMEDIATE', 'EXCLUSIVE'].includes(mode)) {
+            return Promise.reject(new TypeError(`Modo de transacción no soportado: ${mode}`));
+        }
+
+        const executeCore = async () => {
+            const connection = await this.openConnection();
+            const callbacks = { afterCommit: [], afterRollback: [] };
+            const client = this.createTransactionClient(connection, callbacks);
+            let result;
+            let transactionError = null;
+
+            try {
+                await this.rawRun(connection, `BEGIN ${mode}`);
+                result = await this.transactionStorage.run(
+                    { connection, client, callbacks },
+                    () => work(client)
+                );
+                await this.rawRun(connection, 'COMMIT');
+            } catch (error) {
+                transactionError = error;
+                try {
+                    await this.rawRun(connection, 'ROLLBACK');
+                } catch (rollbackError) {
+                    transactionError.rollbackError = rollbackError;
+                }
+            } finally {
+                await this.closeConnection(connection);
+            }
+
+            return { result, transactionError, callbacks };
+        };
+
+        const queuedCore = this.transactionQueue.then(executeCore, executeCore);
+        this.transactionQueue = queuedCore.then(() => undefined, () => undefined);
+
+        return queuedCore.then(async ({ result, transactionError, callbacks }) => {
+            if (transactionError) {
+                for (const callback of callbacks.afterRollback) {
+                    try {
+                        await callback(transactionError);
+                    } catch (callbackError) {
+                        transactionError.afterRollbackError = callbackError;
+                    }
+                }
+                throw transactionError;
+            }
+
+            for (const callback of callbacks.afterCommit) {
+                await callback();
+            }
+
+            return result;
+        });
+    }
+
+    run(sql, params = []) {
+        const connection = this.getActiveConnection();
+        if (!connection) {
+            return Promise.reject(new Error('La base de datos no está conectada'));
+        }
+        return this.rawRun(connection, sql, params);
+    }
+
+    get(sql, params = []) {
+        const connection = this.getActiveConnection();
+        if (!connection) {
+            return Promise.reject(new Error('La base de datos no está conectada'));
+        }
+        return this.rawGet(connection, sql, params);
+    }
+
+    all(sql, params = []) {
+        const connection = this.getActiveConnection();
+        if (!connection) {
+            return Promise.reject(new Error('La base de datos no está conectada'));
+        }
+        return this.rawAll(connection, sql, params);
     }
 
     close() {
@@ -1198,3 +1372,4 @@ class Database {
 
 const database = new Database();
 module.exports = database;
+module.exports.Database = Database;
