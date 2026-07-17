@@ -466,125 +466,173 @@ class AccountService {
         return rows.map(row => this.toConsumptionLineRead(row));
     }
 
-    async assignAvailableQuantities(accountId, assignments, options = {}) {
+    async assignAvailableQuantitiesInTransaction(accountId, assignments, client, options = {}) {
         const id = Number(accountId);
-        const normalized = this.normalizeQuantityAssignments(assignments);
+        const normalized = options.normalized
+            ? assignments
+            : this.normalizeQuantityAssignments(assignments);
         const now = options.now || new Date().toISOString();
 
-        return this.transactions.immediate(async tx => {
-            const account = await tx.get(`
-                SELECT id, estado_operativo
-                FROM pedidos
-                WHERE id = ?
-            `, [id]);
-            if (!account) throw new NotFoundError('Cuenta no encontrada', { accountId: id });
-            if (account.estado_operativo !== ACCOUNT_OPERATIONAL_STATES.OPEN) {
-                throw new ConflictError('Solo una cuenta abierta puede asignar consumo', {
-                    code: 'ACCOUNT_NOT_OPEN',
+        if (!client?.get || !client?.run) {
+            throw new ValidationError('Se requiere una conexión transaccional para asignar cantidades');
+        }
+
+        const account = await client.get(`
+            SELECT id, estado_operativo
+            FROM pedidos
+            WHERE id = ?
+        `, [id]);
+        if (!account) throw new NotFoundError('Cuenta no encontrada', { accountId: id });
+        if (account.estado_operativo !== ACCOUNT_OPERATIONAL_STATES.OPEN) {
+            throw new ConflictError('Solo una cuenta abierta puede asignar consumo', {
+                code: 'ACCOUNT_NOT_OPEN',
+                accountId: id
+            });
+        }
+
+        const reserved = [];
+        for (const assignment of normalized) {
+            const line = await client.get(`
+                SELECT * FROM pedido_productos
+                WHERE id = ? AND pedido_id = ?
+            `, [assignment.pedido_producto_id, id]);
+            if (!line) {
+                throw new NotFoundError('Línea de consumo no encontrada', {
+                    pedido_producto_id: assignment.pedido_producto_id,
                     accountId: id
                 });
             }
 
-            for (const assignment of normalized) {
-                const line = await tx.get(`
-                    SELECT * FROM pedido_productos
-                    WHERE id = ? AND pedido_id = ?
-                `, [assignment.pedido_producto_id, id]);
-                if (!line) {
-                    throw new NotFoundError('Línea de consumo no encontrada', {
-                        pedido_producto_id: assignment.pedido_producto_id,
-                        accountId: id
-                    });
-                }
-
-                const current = this.toConsumptionLineRead(line);
-                if (assignment.version !== null && assignment.version !== current.version) {
-                    throw new ConflictError('La línea cambió en otro dispositivo', {
-                        code: 'CONSUMPTION_LINE_VERSION_CONFLICT',
-                        pedido_producto_id: current.pedido_producto_id,
-                        expected_version: assignment.version,
-                        current_version: current.version
-                    });
-                }
-                if (assignment.cantidad > current.cantidad_disponible) {
-                    throw new InvariantError('La cantidad seleccionada supera la cantidad disponible', {
-                        code: 'CONSUMPTION_QUANTITY_EXCEEDED',
-                        pedido_producto_id: current.pedido_producto_id,
-                        cantidad_consumida: current.cantidad_consumida,
-                        cantidad_asignada: current.cantidad_asignada,
-                        cantidad_disponible: current.cantidad_disponible,
-                        cantidad_solicitada: assignment.cantidad
-                    });
-                }
-
-                const updated = await tx.run(`
-                    UPDATE pedido_productos
-                    SET cantidad_asignada = cantidad_asignada + ?,
-                        actualizado_en = ?,
-                        version = COALESCE(version, 1) + 1
-                    WHERE id = ?
-                      AND pedido_id = ?
-                      AND cantidad - cantidad_asignada >= ?
-                `, [assignment.cantidad, now, current.pedido_producto_id, id, assignment.cantidad]);
-
-                if (updated.changes !== 1) {
-                    throw new ConflictError('La disponibilidad de la línea cambió durante la operación', {
-                        code: 'CONSUMPTION_LINE_CONCURRENT_CHANGE',
-                        pedido_producto_id: current.pedido_producto_id
-                    });
-                }
+            const current = this.toConsumptionLineRead(line);
+            if (assignment.version !== null && assignment.version !== undefined && assignment.version !== current.version) {
+                throw new ConflictError('La línea cambió en otro dispositivo', {
+                    code: 'CONSUMPTION_LINE_VERSION_CONFLICT',
+                    pedido_producto_id: current.pedido_producto_id,
+                    expected_version: assignment.version,
+                    current_version: current.version
+                });
+            }
+            if (assignment.cantidad > current.cantidad_disponible) {
+                throw new InvariantError('La cantidad seleccionada supera la cantidad disponible', {
+                    code: 'CONSUMPTION_QUANTITY_EXCEEDED',
+                    pedido_producto_id: current.pedido_producto_id,
+                    cantidad_consumida: current.cantidad_consumida,
+                    cantidad_asignada: current.cantidad_asignada,
+                    cantidad_disponible: current.cantidad_disponible,
+                    cantidad_solicitada: assignment.cantidad
+                });
             }
 
+            const updated = await client.run(`
+                UPDATE pedido_productos
+                SET cantidad_asignada = cantidad_asignada + ?,
+                    actualizado_en = ?,
+                    version = COALESCE(version, 1) + 1
+                WHERE id = ?
+                  AND pedido_id = ?
+                  AND cantidad - cantidad_asignada >= ?
+            `, [assignment.cantidad, now, current.pedido_producto_id, id, assignment.cantidad]);
+
+            if (updated.changes !== 1) {
+                throw new ConflictError('La disponibilidad de la línea cambió durante la operación', {
+                    code: 'CONSUMPTION_LINE_CONCURRENT_CHANGE',
+                    pedido_producto_id: current.pedido_producto_id
+                });
+            }
+
+            reserved.push({
+                ...current,
+                cantidad_reservada: assignment.cantidad,
+                version_resultante: current.version + 1
+            });
+        }
+
+        return reserved;
+    }
+
+    async assignAvailableQuantities(accountId, assignments, options = {}) {
+        const id = Number(accountId);
+        const normalized = this.normalizeQuantityAssignments(assignments);
+
+        return this.transactions.immediate(async tx => {
+            await this.assignAvailableQuantitiesInTransaction(id, normalized, tx, {
+                ...options,
+                normalized: true
+            });
             return this.getConsumptionLines(id, tx);
         });
+    }
+
+    async releaseAssignedQuantitiesInTransaction(accountId, assignments, client, options = {}) {
+        const id = Number(accountId);
+        const normalized = options.normalized
+            ? assignments
+            : this.normalizeQuantityAssignments(assignments);
+        const now = options.now || new Date().toISOString();
+
+        if (!client?.get || !client?.run) {
+            throw new ValidationError('Se requiere una conexión transaccional para liberar cantidades');
+        }
+
+        const released = [];
+        for (const assignment of normalized) {
+            const line = await client.get(`
+                SELECT * FROM pedido_productos
+                WHERE id = ? AND pedido_id = ?
+            `, [assignment.pedido_producto_id, id]);
+            if (!line) throw new NotFoundError('Línea de consumo no encontrada');
+            const current = this.toConsumptionLineRead(line);
+
+            if (assignment.version !== null && assignment.version !== undefined && assignment.version !== current.version) {
+                throw new ConflictError('La línea cambió en otro dispositivo', {
+                    code: 'CONSUMPTION_LINE_VERSION_CONFLICT',
+                    pedido_producto_id: current.pedido_producto_id
+                });
+            }
+            if (assignment.cantidad > current.cantidad_asignada) {
+                throw new InvariantError('No se puede liberar más cantidad de la asignada', {
+                    code: 'CONSUMPTION_RELEASE_EXCEEDED',
+                    pedido_producto_id: current.pedido_producto_id,
+                    cantidad_asignada: current.cantidad_asignada,
+                    cantidad_solicitada: assignment.cantidad
+                });
+            }
+
+            const updated = await client.run(`
+                UPDATE pedido_productos
+                SET cantidad_asignada = cantidad_asignada - ?,
+                    actualizado_en = ?,
+                    version = COALESCE(version, 1) + 1
+                WHERE id = ?
+                  AND pedido_id = ?
+                  AND cantidad_asignada >= ?
+            `, [assignment.cantidad, now, current.pedido_producto_id, id, assignment.cantidad]);
+            if (updated.changes !== 1) {
+                throw new ConflictError('La asignación cambió durante la operación', {
+                    code: 'CONSUMPTION_LINE_CONCURRENT_CHANGE',
+                    pedido_producto_id: current.pedido_producto_id
+                });
+            }
+
+            released.push({
+                ...current,
+                cantidad_liberada: assignment.cantidad,
+                version_resultante: current.version + 1
+            });
+        }
+
+        return released;
     }
 
     async releaseAssignedQuantities(accountId, assignments, options = {}) {
         const id = Number(accountId);
         const normalized = this.normalizeQuantityAssignments(assignments);
-        const now = options.now || new Date().toISOString();
 
         return this.transactions.immediate(async tx => {
-            for (const assignment of normalized) {
-                const line = await tx.get(`
-                    SELECT * FROM pedido_productos
-                    WHERE id = ? AND pedido_id = ?
-                `, [assignment.pedido_producto_id, id]);
-                if (!line) throw new NotFoundError('Línea de consumo no encontrada');
-                const current = this.toConsumptionLineRead(line);
-
-                if (assignment.version !== null && assignment.version !== current.version) {
-                    throw new ConflictError('La línea cambió en otro dispositivo', {
-                        code: 'CONSUMPTION_LINE_VERSION_CONFLICT',
-                        pedido_producto_id: current.pedido_producto_id
-                    });
-                }
-                if (assignment.cantidad > current.cantidad_asignada) {
-                    throw new InvariantError('No se puede liberar más cantidad de la asignada', {
-                        code: 'CONSUMPTION_RELEASE_EXCEEDED',
-                        pedido_producto_id: current.pedido_producto_id,
-                        cantidad_asignada: current.cantidad_asignada,
-                        cantidad_solicitada: assignment.cantidad
-                    });
-                }
-
-                const updated = await tx.run(`
-                    UPDATE pedido_productos
-                    SET cantidad_asignada = cantidad_asignada - ?,
-                        actualizado_en = ?,
-                        version = COALESCE(version, 1) + 1
-                    WHERE id = ?
-                      AND pedido_id = ?
-                      AND cantidad_asignada >= ?
-                `, [assignment.cantidad, now, current.pedido_producto_id, id, assignment.cantidad]);
-                if (updated.changes !== 1) {
-                    throw new ConflictError('La asignación cambió durante la operación', {
-                        code: 'CONSUMPTION_LINE_CONCURRENT_CHANGE',
-                        pedido_producto_id: current.pedido_producto_id
-                    });
-                }
-            }
-
+            await this.releaseAssignedQuantitiesInTransaction(id, normalized, tx, {
+                ...options,
+                normalized: true
+            });
             return this.getConsumptionLines(id, tx);
         });
     }

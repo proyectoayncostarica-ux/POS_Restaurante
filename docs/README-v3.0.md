@@ -542,3 +542,42 @@ Esta fase todavía no crea prefacturas. `cantidad_asignada` es la infraestructur
 
 La suite automática cuenta con 36 pruebas aprobadas. La siguiente fase implementará secuencias y persistencia documental de prefacturas.
 
+## 19. Estado actual · v3.1.2
+
+MundiPOS ya dispone de un modelo documental persistente para prefacturas, todavía sin exposición visual.
+
+Entidades:
+
+```text
+secuencias_documentales
+prefacturas
+prefactura_items
+historial_prefacturas
+```
+
+Cada prefactura recibe un número global `PF-########` y un ordinal dentro de la cuenta. Conserva el nombre del pagador, pero mantiene en snapshot el cliente principal, la mesa/banco, la zona y los responsables originales de la cuenta global.
+
+La emisión interna es atómica:
+
+```text
+reservar cantidades
++ generar número
++ guardar documento
++ guardar ítems
++ guardar historial
++ actualizar estado de cuenta
+```
+
+Si falla cualquier escritura, se revierten también las cantidades y la numeración. Las claves de idempotencia permiten repetir una solicitud segura sin crear otra prefactura.
+
+Una anulación sin pagos conserva el documento como historial y devuelve sus cantidades al consumo disponible. Los documentos pagados o con estado avanzado no pueden anularse mediante esta operación base.
+
+La fuente financiera sigue siendo la cuenta global:
+
+```text
+una cuenta global = una venta
+varias prefacturas = varias obligaciones operativas de cobro
+```
+
+La suite automática cuenta con 47 pruebas aprobadas. La siguiente fase expondrá este dominio en `Ver pedido` mediante la emisión guiada de una subcuenta a la vez.
+

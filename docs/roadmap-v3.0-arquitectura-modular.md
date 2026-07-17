@@ -568,45 +568,78 @@ git commit -m "v3.1.1: normaliza lineas y cantidades de consumo"
 
 ## v3.1.2 · Secuencias y modelo persistente de prefacturas
 
+**Estado:** completada.
+
 ### Objetivo
 
-Crear documentos operativos persistentes y trazables.
+Crear documentos operativos persistentes y trazables sin convertirlos en ventas financieras independientes.
 
-### Entidades previstas
+### Implementación realizada
+
+- `secuencias_documentales` con numeración `PF-########`;
+- numeración y persistencia dentro de la misma transacción;
+- `prefacturas` vinculadas a la cuenta global;
+- ordinal propio dentro de cada cuenta;
+- tipos `completa` y `dividida`;
+- pagador visible separado del cliente principal;
+- estados documentales y de impresión;
+- snapshots de cuenta, mesa/banco, zona, cliente y responsables;
+- `prefactura_items` con cantidades, precios y servicio congelados;
+- `historial_prefacturas` para emisión y anulación;
+- idempotencia opcional para evitar duplicados por reintento;
+- anulación de documentos sin pagos con devolución de cantidades;
+- helpers transaccionales reutilizables en `accountService`;
+- migración e índices idempotentes.
+
+### Regla financiera
 
 ```text
-secuencias_documentales
-prefacturas
-prefactura_items
-historial_prefacturas
+prefacturas = distribución y cobro operativo
+cuenta global = única venta financiera
 ```
 
-### Datos mínimos
+La suma de documentos puede explicar cómo se liquidó la cuenta, pero no crea múltiples ventas en reportes.
 
-- número de documento;
-- cuenta global;
-- pagador visible;
-- cliente principal en snapshot;
-- mesa/banco y zona en snapshot;
-- responsables en snapshot;
-- usuario emisor;
-- ítems y cantidades;
-- subtotal, servicio y total;
-- pagado y saldo;
-- estado;
-- estado de impresión;
-- fecha de emisión/anulación.
+### Atomicidad
 
-### Regla
+Una sola transacción contiene:
 
-La emisión reserva cantidades dentro de una transacción con bloqueo de escritura. La numeración también se genera dentro de esa transacción.
+```text
+reserva de cantidades
+numeración
+prefactura
+ítems
+historial
+estado documental de la cuenta
+```
 
-### Criterios de aprobación
+Una falla revierte todos esos elementos, incluida la secuencia.
+
+### Criterios aprobados
 
 - dos dispositivos no reservan la misma cantidad;
-- una impresión fallida no duplica el documento;
-- una anulación autorizada devuelve cantidades;
-- cada documento conserva su snapshot aunque cambie Menú o la mesa.
+- números concurrentes son distintos;
+- un rollback no consume definitivamente el número;
+- una clave de idempotencia no duplica documentos;
+- una anulación sin pagos devuelve cantidades;
+- cada documento conserva snapshots aunque cambie Menú;
+- la cuenta global conserva su total completo;
+- la migración no reinicia secuencias existentes.
+
+### Validación
+
+```text
+11 pruebas específicas aprobadas
+47 pruebas totales aprobadas
+0 fallos
+PRAGMA foreign_key_check: 0 incidencias
+```
+
+Documento:
+
+```text
+docs/avance-v3.1.2-secuencias-prefacturas.md
+```
 
 ### Commit
 

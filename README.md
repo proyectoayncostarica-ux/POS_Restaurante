@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.1.1 · Líneas de consumo y cantidades disponibles
+- **Línea de trabajo actual:** v3.1.2 · Secuencias y modelo persistente de prefacturas
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -1118,4 +1118,24 @@ Documento técnico:
 Documento técnico:
 
 - `docs/avance-v3.1.1-lineas-consumo-cantidades.md`
+
+### v3.1.2 · Secuencias y modelo persistente de prefacturas
+
+- **Objetivo:** crear documentos operativos persistentes, numerados y trazables sobre la cuenta global sin duplicar ventas financieras.
+- **Secuencias:** `secuencias_documentales` genera números `PF-########` dentro de la misma transacción que guarda el documento; un rollback también revierte el número.
+- **Prefacturas:** cada documento conserva cuenta global, ordinal, pagador, estados, totales, saldo, usuario emisor, idempotencia y snapshots de cuenta, mesa/banco, zona, cliente principal y responsables.
+- **Ítems:** `prefactura_items` guarda líneas y cantidades asignadas con nombres, precios y servicio congelados.
+- **Historial:** `historial_prefacturas` registra emisión y anulación sin borrar el documento.
+- **Atomicidad:** reservar cantidades, numerar, persistir documento/ítems/historial y actualizar la cuenta ocurre en una sola transacción.
+- **Idempotencia:** un reintento con la misma clave y contenido devuelve la prefactura existente; no duplica cantidades ni numeración.
+- **Anulación:** una prefactura emitida y sin pagos puede anularse internamente, conservando historial y devolviendo cantidades al consumo activo.
+- **Fuente financiera:** las prefacturas explican la distribución operativa; `pedidos` continúa representando la única cuenta/venta global.
+- **Compatibilidad:** no se agregan todavía botones, rutas públicas, minimodal ni impresión física. La UI se implementará en `v3.1.3`.
+- **Migración:** validada dos veces sobre copia de base operativa, sin pérdida de cuentas/líneas y con cero incidencias de claves foráneas.
+- **Pruebas:** 11 casos específicos y 47 casos totales aprobados sin fallos.
+- **Versión:** visible `3.0`, package y seguimiento interno `3.1.2`.
+
+Documento técnico:
+
+- `docs/avance-v3.1.2-secuencias-prefacturas.md`
 

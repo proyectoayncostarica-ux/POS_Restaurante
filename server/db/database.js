@@ -322,6 +322,98 @@ class Database {
                 FOREIGN KEY (presentacion_id) REFERENCES presentaciones (id) ON DELETE SET NULL
             )`,
 
+            `CREATE TABLE IF NOT EXISTS secuencias_documentales (
+                tipo_documento TEXT PRIMARY KEY,
+                prefijo TEXT NOT NULL,
+                longitud INTEGER NOT NULL DEFAULT 8 CHECK(longitud > 0),
+                ultimo_numero INTEGER NOT NULL DEFAULT 0 CHECK(ultimo_numero >= 0),
+                version INTEGER NOT NULL DEFAULT 1,
+                creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )`,
+
+            `CREATE TABLE IF NOT EXISTS prefacturas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pedido_id INTEGER NOT NULL,
+                numero_documento TEXT NOT NULL UNIQUE,
+                numero_secuencia INTEGER NOT NULL UNIQUE,
+                ordinal_cuenta INTEGER NOT NULL,
+                tipo TEXT NOT NULL DEFAULT 'dividida' CHECK(tipo IN ('completa', 'dividida')),
+                pagador_nombre TEXT NOT NULL,
+                estado TEXT NOT NULL DEFAULT 'emitida' CHECK(estado IN ('emitida', 'parcial', 'pagada', 'anulada')),
+                estado_impresion TEXT NOT NULL DEFAULT 'pendiente' CHECK(estado_impresion IN ('pendiente', 'impresa', 'fallida')),
+                subtotal REAL NOT NULL DEFAULT 0,
+                servicio REAL NOT NULL DEFAULT 0,
+                total REAL NOT NULL DEFAULT 0,
+                total_pagado REAL NOT NULL DEFAULT 0,
+                saldo_pendiente REAL NOT NULL DEFAULT 0,
+                numero_cuenta_snapshot TEXT NOT NULL,
+                mesa_id_snapshot INTEGER,
+                mesa_numero_snapshot INTEGER,
+                mesa_tipo_snapshot TEXT,
+                zona_id_snapshot INTEGER,
+                zona_nombre_snapshot TEXT,
+                cliente_principal_snapshot TEXT,
+                responsables_snapshot TEXT NOT NULL DEFAULT '[]',
+                emitida_por_usuario_id INTEGER,
+                emitida_por_nombre_snapshot TEXT NOT NULL,
+                anulada_por_usuario_id INTEGER,
+                anulada_por_nombre_snapshot TEXT,
+                clave_idempotencia TEXT UNIQUE,
+                solicitud_fingerprint TEXT,
+                observacion TEXT,
+                fecha_emision TEXT NOT NULL,
+                fecha_pago TEXT,
+                fecha_anulacion TEXT,
+                motivo_anulacion TEXT,
+                version INTEGER NOT NULL DEFAULT 1,
+                creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(pedido_id, ordinal_cuenta),
+                FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE CASCADE,
+                FOREIGN KEY (emitida_por_usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL,
+                FOREIGN KEY (anulada_por_usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
+            )`,
+
+            `CREATE TABLE IF NOT EXISTS prefactura_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                prefactura_id INTEGER NOT NULL,
+                pedido_producto_id INTEGER NOT NULL,
+                producto_id INTEGER NOT NULL,
+                presentacion_id INTEGER,
+                cantidad INTEGER NOT NULL CHECK(cantidad > 0),
+                producto_nombre_snapshot TEXT NOT NULL,
+                presentacion_nombre_snapshot TEXT,
+                presentacion_cantidad_snapshot TEXT,
+                precio_unitario REAL NOT NULL,
+                subtotal REAL NOT NULL,
+                aplica_servicio INTEGER NOT NULL DEFAULT 0,
+                porcentaje_servicio REAL NOT NULL DEFAULT 0,
+                servicio_unitario REAL NOT NULL DEFAULT 0,
+                servicio_total REAL NOT NULL DEFAULT 0,
+                total_linea REAL NOT NULL,
+                creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(prefactura_id, pedido_producto_id),
+                FOREIGN KEY (prefactura_id) REFERENCES prefacturas (id) ON DELETE CASCADE,
+                FOREIGN KEY (pedido_producto_id) REFERENCES pedido_productos (id) ON DELETE RESTRICT,
+                FOREIGN KEY (producto_id) REFERENCES productos (id) ON DELETE RESTRICT,
+                FOREIGN KEY (presentacion_id) REFERENCES presentaciones (id) ON DELETE SET NULL
+            )`,
+
+            `CREATE TABLE IF NOT EXISTS historial_prefacturas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                prefactura_id INTEGER NOT NULL,
+                evento TEXT NOT NULL,
+                estado_anterior TEXT,
+                estado_nuevo TEXT,
+                usuario_id INTEGER,
+                usuario_nombre_snapshot TEXT,
+                detalle TEXT,
+                fecha TEXT NOT NULL,
+                FOREIGN KEY (prefactura_id) REFERENCES prefacturas (id) ON DELETE CASCADE,
+                FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
+            )`,
+
             `CREATE TABLE IF NOT EXISTS pagos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 pedido_id INTEGER NOT NULL,
@@ -417,6 +509,12 @@ class Database {
             'CREATE INDEX IF NOT EXISTS idx_pedidos_fecha ON pedidos(fecha)',
             'CREATE INDEX IF NOT EXISTS idx_pedidos_mesa ON pedidos(mesa_id)',
             'CREATE INDEX IF NOT EXISTS idx_pedido_productos_pedido ON pedido_productos(pedido_id)',
+            'CREATE INDEX IF NOT EXISTS idx_prefacturas_pedido ON prefacturas(pedido_id)',
+            'CREATE INDEX IF NOT EXISTS idx_prefacturas_estado ON prefacturas(estado)',
+            'CREATE INDEX IF NOT EXISTS idx_prefacturas_impresion ON prefacturas(estado_impresion)',
+            'CREATE INDEX IF NOT EXISTS idx_prefactura_items_prefactura ON prefactura_items(prefactura_id)',
+            'CREATE INDEX IF NOT EXISTS idx_prefactura_items_linea ON prefactura_items(pedido_producto_id)',
+            'CREATE INDEX IF NOT EXISTS idx_historial_prefacturas_documento ON historial_prefacturas(prefactura_id)',
             'CREATE INDEX IF NOT EXISTS idx_pagos_pedido ON pagos(pedido_id)',
             'CREATE INDEX IF NOT EXISTS idx_mesas_estado ON mesas(estado)',
             'CREATE INDEX IF NOT EXISTS idx_zonas_slug ON zonas(slug)',
@@ -525,6 +623,7 @@ class Database {
         await this.ensureConsumptionLineColumns();
         await this.migrateGlobalAccounts();
         await this.migrateConsumptionLines();
+        await this.ensurePreinvoiceSchema();
         await this.cleanupOrphanRows();
         console.log('Migraciones de esquema aplicadas/verificadas');
     }
@@ -606,6 +705,121 @@ class Database {
             await this.run(`
                 INSERT OR REPLACE INTO configuracion (clave, valor, version_app)
                 VALUES ('v3_consumption_line_backfill_done', ?, ?)
+            `, [new Date().toISOString(), APP_VERSION]);
+        }
+    }
+
+    async ensurePreinvoiceSchema() {
+        await this.run(`CREATE TABLE IF NOT EXISTS secuencias_documentales (
+            tipo_documento TEXT PRIMARY KEY,
+            prefijo TEXT NOT NULL,
+            longitud INTEGER NOT NULL DEFAULT 8 CHECK(longitud > 0),
+            ultimo_numero INTEGER NOT NULL DEFAULT 0 CHECK(ultimo_numero >= 0),
+            version INTEGER NOT NULL DEFAULT 1,
+            creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`);
+
+        await this.run(`CREATE TABLE IF NOT EXISTS prefacturas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pedido_id INTEGER NOT NULL,
+            numero_documento TEXT NOT NULL UNIQUE,
+            numero_secuencia INTEGER NOT NULL UNIQUE,
+            ordinal_cuenta INTEGER NOT NULL,
+            tipo TEXT NOT NULL DEFAULT 'dividida' CHECK(tipo IN ('completa', 'dividida')),
+            pagador_nombre TEXT NOT NULL,
+            estado TEXT NOT NULL DEFAULT 'emitida' CHECK(estado IN ('emitida', 'parcial', 'pagada', 'anulada')),
+            estado_impresion TEXT NOT NULL DEFAULT 'pendiente' CHECK(estado_impresion IN ('pendiente', 'impresa', 'fallida')),
+            subtotal REAL NOT NULL DEFAULT 0,
+            servicio REAL NOT NULL DEFAULT 0,
+            total REAL NOT NULL DEFAULT 0,
+            total_pagado REAL NOT NULL DEFAULT 0,
+            saldo_pendiente REAL NOT NULL DEFAULT 0,
+            numero_cuenta_snapshot TEXT NOT NULL,
+            mesa_id_snapshot INTEGER,
+            mesa_numero_snapshot INTEGER,
+            mesa_tipo_snapshot TEXT,
+            zona_id_snapshot INTEGER,
+            zona_nombre_snapshot TEXT,
+            cliente_principal_snapshot TEXT,
+            responsables_snapshot TEXT NOT NULL DEFAULT '[]',
+            emitida_por_usuario_id INTEGER,
+            emitida_por_nombre_snapshot TEXT NOT NULL,
+            anulada_por_usuario_id INTEGER,
+            anulada_por_nombre_snapshot TEXT,
+            clave_idempotencia TEXT UNIQUE,
+            solicitud_fingerprint TEXT,
+            observacion TEXT,
+            fecha_emision TEXT NOT NULL,
+            fecha_pago TEXT,
+            fecha_anulacion TEXT,
+            motivo_anulacion TEXT,
+            version INTEGER NOT NULL DEFAULT 1,
+            creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(pedido_id, ordinal_cuenta),
+            FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE CASCADE,
+            FOREIGN KEY (emitida_por_usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL,
+            FOREIGN KEY (anulada_por_usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
+        )`);
+
+        await this.run(`CREATE TABLE IF NOT EXISTS prefactura_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            prefactura_id INTEGER NOT NULL,
+            pedido_producto_id INTEGER NOT NULL,
+            producto_id INTEGER NOT NULL,
+            presentacion_id INTEGER,
+            cantidad INTEGER NOT NULL CHECK(cantidad > 0),
+            producto_nombre_snapshot TEXT NOT NULL,
+            presentacion_nombre_snapshot TEXT,
+            presentacion_cantidad_snapshot TEXT,
+            precio_unitario REAL NOT NULL,
+            subtotal REAL NOT NULL,
+            aplica_servicio INTEGER NOT NULL DEFAULT 0,
+            porcentaje_servicio REAL NOT NULL DEFAULT 0,
+            servicio_unitario REAL NOT NULL DEFAULT 0,
+            servicio_total REAL NOT NULL DEFAULT 0,
+            total_linea REAL NOT NULL,
+            creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(prefactura_id, pedido_producto_id),
+            FOREIGN KEY (prefactura_id) REFERENCES prefacturas (id) ON DELETE CASCADE,
+            FOREIGN KEY (pedido_producto_id) REFERENCES pedido_productos (id) ON DELETE RESTRICT,
+            FOREIGN KEY (producto_id) REFERENCES productos (id) ON DELETE RESTRICT,
+            FOREIGN KEY (presentacion_id) REFERENCES presentaciones (id) ON DELETE SET NULL
+        )`);
+
+        await this.run(`CREATE TABLE IF NOT EXISTS historial_prefacturas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            prefactura_id INTEGER NOT NULL,
+            evento TEXT NOT NULL,
+            estado_anterior TEXT,
+            estado_nuevo TEXT,
+            usuario_id INTEGER,
+            usuario_nombre_snapshot TEXT,
+            detalle TEXT,
+            fecha TEXT NOT NULL,
+            FOREIGN KEY (prefactura_id) REFERENCES prefacturas (id) ON DELETE CASCADE,
+            FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
+        )`);
+
+        await this.run(`
+            INSERT OR IGNORE INTO secuencias_documentales (
+                tipo_documento, prefijo, longitud, ultimo_numero,
+                version, creado_en, actualizado_en
+            ) VALUES ('prefactura', 'PF', 8, 0, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `);
+
+        await this.run('CREATE INDEX IF NOT EXISTS idx_prefacturas_pedido ON prefacturas(pedido_id)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_prefacturas_estado ON prefacturas(estado)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_prefacturas_impresion ON prefacturas(estado_impresion)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_prefactura_items_prefactura ON prefactura_items(prefactura_id)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_prefactura_items_linea ON prefactura_items(pedido_producto_id)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_historial_prefacturas_documento ON historial_prefacturas(prefactura_id)');
+
+        if (await this.tableExists('configuracion')) {
+            await this.run(`
+                INSERT OR REPLACE INTO configuracion (clave, valor, version_app)
+                VALUES ('v3_preinvoice_schema_ready', ?, ?)
             `, [new Date().toISOString(), APP_VERSION]);
         }
     }
@@ -1072,6 +1286,21 @@ class Database {
             await this.run(`DELETE FROM cuenta_responsables WHERE pedido_id NOT IN (SELECT id FROM pedidos)`);
             await this.run(`UPDATE cuenta_responsables SET usuario_id = NULL WHERE usuario_id IS NOT NULL AND usuario_id NOT IN (SELECT id FROM usuarios)`);
             await this.run(`UPDATE cuenta_responsables SET rol_trabajo_id = NULL WHERE rol_trabajo_id IS NOT NULL AND rol_trabajo_id NOT IN (SELECT id FROM roles_trabajo)`);
+        }
+        if (await this.tableExists('prefacturas')) {
+            await this.run(`DELETE FROM prefacturas WHERE pedido_id NOT IN (SELECT id FROM pedidos)`);
+            await this.run(`UPDATE prefacturas SET emitida_por_usuario_id = NULL WHERE emitida_por_usuario_id IS NOT NULL AND emitida_por_usuario_id NOT IN (SELECT id FROM usuarios)`);
+            await this.run(`UPDATE prefacturas SET anulada_por_usuario_id = NULL WHERE anulada_por_usuario_id IS NOT NULL AND anulada_por_usuario_id NOT IN (SELECT id FROM usuarios)`);
+        }
+        if (await this.tableExists('prefactura_items')) {
+            await this.run(`DELETE FROM prefactura_items WHERE prefactura_id NOT IN (SELECT id FROM prefacturas)`);
+            await this.run(`DELETE FROM prefactura_items WHERE pedido_producto_id NOT IN (SELECT id FROM pedido_productos)`);
+            await this.run(`DELETE FROM prefactura_items WHERE producto_id NOT IN (SELECT id FROM productos)`);
+            await this.run(`UPDATE prefactura_items SET presentacion_id = NULL WHERE presentacion_id IS NOT NULL AND presentacion_id NOT IN (SELECT id FROM presentaciones)`);
+        }
+        if (await this.tableExists('historial_prefacturas')) {
+            await this.run(`DELETE FROM historial_prefacturas WHERE prefactura_id NOT IN (SELECT id FROM prefacturas)`);
+            await this.run(`UPDATE historial_prefacturas SET usuario_id = NULL WHERE usuario_id IS NOT NULL AND usuario_id NOT IN (SELECT id FROM usuarios)`);
         }
     }
 
