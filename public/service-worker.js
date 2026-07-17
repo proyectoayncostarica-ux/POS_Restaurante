@@ -1,4 +1,4 @@
-const MUNDIPOS_SW_VERSION = 'v3.1.4-account-continuity';
+const MUNDIPOS_SW_VERSION = 'v3.1.5-financial-read';
 const APP_SHELL_CACHE = `mundipos-shell-${MUNDIPOS_SW_VERSION}`;
 const RUNTIME_CACHE = `mundipos-runtime-${MUNDIPOS_SW_VERSION}`;
 

@@ -3,6 +3,7 @@ const database = require('../db/database');
 const requireCapability = require('../middleware/requireCapability');
 const { CAPABILITIES } = require('../security/capabilities');
 const { resolveAccessContext } = require('../services/operationalAccessService');
+const financialReadService = require('../services/financialReadService');
 
 const router = express.Router();
 const COSTA_RICA_UTC_OFFSET_HOURS = 6;
@@ -403,58 +404,28 @@ router.get('/', requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, res)
             `SELECT COUNT(DISTINCT p.id) as count
              FROM pedidos p
              JOIN mesas m ON m.id = p.mesa_id
-             WHERE p.estado = ?
+             WHERE p.estado_operativo = 'abierta'
+               AND COALESCE(p.saldo_pendiente, 0) > 0
                AND COALESCE(m.activo, 1) = 1
                ${zoneWhere.clause}`,
-            ['pendiente', ...zoneWhere.params]
+            zoneWhere.params
         );
 
-        const cuentasPagadas = await database.get(
-            `SELECT COUNT(DISTINCT p.id) as count
-             FROM pedidos p
-             JOIN mesas m ON m.id = p.mesa_id
-             JOIN pagos pa ON pa.pedido_id = p.id
-             WHERE p.estado = ?
-               AND ${createDateRangeCondition('pa.fecha')}
-               AND pa.metodo_pago IN (?, ?)
-               AND COALESCE(m.activo, 1) = 1
-               ${zoneWhere.clause}`,
-            ['pagado', ...dayParams, 'efectivo', 'tarjeta', ...zoneWhere.params]
-        );
-
-        const creditosPagados = await database.get(
-            `SELECT COUNT(*) as count
-             FROM pagos_creditos
-             WHERE ${createDateRangeCondition('fecha_pago')}`,
-            dayParams
-        );
-
-        const creditosDisponibles = await database.get(
-            'SELECT COUNT(*) as count FROM cuentas_credito'
-        );
-
-        const montoTotalCreditos = await database.get(
-            'SELECT COALESCE(SUM(monto_total), 0) as total FROM cuentas_credito'
-        );
-
-        const ventasContado = await database.get(
-            `SELECT COALESCE(SUM(pa.monto), 0) as total
-             FROM pagos pa
-             JOIN pedidos p ON p.id = pa.pedido_id
-             JOIN mesas m ON m.id = p.mesa_id
-             WHERE ${createDateRangeCondition('pa.fecha')}
-               AND pa.metodo_pago IN (?, ?)
-               AND COALESCE(m.activo, 1) = 1
-               ${zoneWhere.clause}`,
-            [...dayParams, 'efectivo', 'tarjeta', ...zoneWhere.params]
-        );
-
-        const ventasCredito = await database.get(
-            `SELECT COALESCE(SUM(monto_pagado), 0) as total
-             FROM pagos_creditos
-             WHERE ${createDateRangeCondition('fecha_pago')}`,
-            dayParams
-        );
+        const [financialToday, creditosDisponibles, montoTotalCreditos, creditosPagados] = await Promise.all([
+            financialReadService.getPeriodSummary({
+                startIso: today.startIso,
+                endIso: today.endIso,
+                zoneIds: scope.restringido ? scope.zoneIds : undefined
+            }),
+            database.get('SELECT COUNT(*) as count FROM cuentas_credito'),
+            database.get('SELECT COALESCE(SUM(monto_total), 0) as total FROM cuentas_credito'),
+            database.get(
+                `SELECT COUNT(*) as count
+                 FROM pagos_creditos
+                 WHERE ${createDateRangeCondition('fecha_pago')}`,
+                dayParams
+            )
+        ]);
 
         const usuarioActual = {
             id: req.session.userId,
@@ -464,43 +435,20 @@ router.get('/', requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, res)
             roles_trabajo_activos: scope.roles_trabajo || []
         };
 
-        const mesasDetalle = await database.all(buildDashboardSeatSelect(zoneWhere, { currentUserId: req.session.userId, isAdmin: isAdminType(req.session.userType) }), zoneWhere.params);
-
-        const ultimasCuentasPagadas = await database.all(`
-            SELECT
-                p.id,
-                COALESCE(SUM(pa.monto), p.total_con_servicio, p.total + COALESCE(p.monto_servicio, 0), p.total, 0) AS total,
-                MAX(pa.fecha) AS fecha,
-                m.numero AS mesa_numero,
-                m.nombre_visible,
-                m.tipo_asiento,
-                m.zona,
-                m.zona_id,
-                m.tipo_puesto_id,
-                z.nombre AS zona_nombre,
-                z.slug AS zona_slug,
-                z.color AS zona_color,
-                tp.nombre AS tipo_puesto_nombre,
-                tp.slug AS tipo_puesto_slug,
-                COALESCE(p.cliente_nombre, 'Cliente anónimo') AS cliente_nombre
-            FROM pagos pa
-            JOIN pedidos p ON p.id = pa.pedido_id
-            JOIN mesas m ON p.mesa_id = m.id
-            LEFT JOIN zonas z ON z.id = m.zona_id
-            LEFT JOIN tipos_puesto tp ON tp.id = m.tipo_puesto_id
-            WHERE p.estado = 'pagado'
-              AND ${createDateRangeCondition('pa.fecha')}
-              AND pa.metodo_pago IN (?, ?)
-              AND COALESCE(m.activo, 1) = 1
-              ${zoneWhere.clause}
-            GROUP BY p.id, p.total, p.total_con_servicio, p.monto_servicio, m.numero, m.nombre_visible, m.tipo_asiento, m.zona, m.zona_id, m.tipo_puesto_id, z.nombre, z.slug, z.color, tp.nombre, tp.slug, p.cliente_nombre
-            ORDER BY MAX(pa.fecha) DESC
-            LIMIT 5
-        `, [...dayParams, 'efectivo', 'tarjeta', ...zoneWhere.params]);
+        const mesasDetalle = await database.all(
+            buildDashboardSeatSelect(zoneWhere, {
+                currentUserId: req.session.userId,
+                isAdmin: isAdminType(req.session.userType)
+            }),
+            zoneWhere.params
+        );
 
         const resumenOperativo = buildOperationalSummary(mesasDetalle, scope);
-        const ventasContadoTotal = Number(ventasContado.total) || 0;
-        const ventasCreditoTotal = Number(ventasCredito.total) || 0;
+        const ultimasCuentasPagadas = financialToday.ventas.slice(0, 5).map(sale => ({
+            ...sale,
+            fecha: sale.fecha_financiera,
+            total: sale.total_global
+        }));
 
         res.json({
             success: true,
@@ -534,121 +482,94 @@ router.get('/', requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, res)
                     })),
                     mensaje: scope.mensaje
                 },
-                cuentasPendientes: cuentasPendientes.count,
-                cuentasPagadas: cuentasPagadas.count,
-                creditosPagados: creditosPagados.count,
-                creditosDisponibles: creditosDisponibles.count,
-                montoTotalCreditos: montoTotalCreditos.total,
-                ventasContado: ventasContadoTotal,
-                ventasCredito: ventasCreditoTotal,
-                ventasHoy: ventasContadoTotal + ventasCreditoTotal,
+                cuentasPendientes: Number(cuentasPendientes?.count || 0),
+                cuentasPagadas: financialToday.cuentas_conciliadas,
+                creditosPagados: Number(creditosPagados?.count || 0),
+                creditosDisponibles: Number(creditosDisponibles?.count || 0),
+                montoTotalCreditos: Number(montoTotalCreditos?.total || 0),
+                ventasContado: financialToday.ventas_por_liquidacion.contado,
+                ventasCredito: financialToday.ventas_por_liquidacion.credito,
+                ventasMixtas: financialToday.ventas_por_liquidacion.mixto,
+                ventasHoy: financialToday.total_ventas_globales,
+                movimientosCajaHoy: financialToday.total_movimientos_caja,
+                cantidadMovimientosCajaHoy: financialToday.cantidad_movimientos_caja,
+                diferenciaVentasMovimientosHoy: financialToday.diferencia_periodo,
+                criterioVentas: financialToday.criterio_fecha_ventas,
+                criterioMovimientosCaja: financialToday.criterio_fecha_movimientos,
                 usuarioActual,
                 mesasDetalle,
                 ultimasCuentasPagadas,
                 actualizadoEn: new Date().toISOString()
             }
         });
-
     } catch (error) {
         console.error('Error obteniendo datos del dashboard:', error);
-        res.status(500).json({ error: 'Error interno del servidor' });
+        res.status(error.statusCode || 500).json({
+            error: error.statusCode ? error.message : 'Error interno del servidor',
+            code: error.code
+        });
     }
 });
 
-// Obtener detalle de ventas del día
+// Obtener una fila por cuenta global conciliada, nunca una fila por prefactura o pago.
 router.get('/ventas-detalle', requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, res) => {
     try {
         const today = getCostaRicaDayRange();
-        const dayParams = [today.startIso, today.endIso];
         const scope = await getDashboardScope(req);
-        const zoneWhere = buildZoneWhere(scope, 'm');
-
-        const ventasDetalle = await database.all(`
-            SELECT
-                p.id,
-                COALESCE(pa.monto, p.total_con_servicio, p.total + COALESCE(p.monto_servicio, 0), p.total, 0) AS total,
-                pa.fecha AS fecha_venta,
-                m.numero AS mesa_numero,
-                m.nombre_visible,
-                m.tipo_asiento AS tipo_asiento,
-                m.zona AS zona,
-                m.zona_id,
-                m.tipo_puesto_id,
-                z.nombre AS zona_nombre,
-                z.slug AS zona_slug,
-                tp.nombre AS tipo_puesto_nombre,
-                tp.slug AS tipo_puesto_slug,
-                COALESCE(p.cliente_nombre, 'Cliente anónimo') AS cliente_nombre,
-                u.nombre AS usuario_nombre,
-                pa.metodo_pago
-            FROM pagos pa
-            JOIN pedidos p ON p.id = pa.pedido_id
-            JOIN mesas m ON p.mesa_id = m.id
-            LEFT JOIN zonas z ON z.id = m.zona_id
-            LEFT JOIN tipos_puesto tp ON tp.id = m.tipo_puesto_id
-            JOIN usuarios u ON p.usuario_id = u.id
-            WHERE ${createDateRangeCondition('pa.fecha')}
-              AND pa.metodo_pago IN (?, ?)
-              AND COALESCE(m.activo, 1) = 1
-              ${zoneWhere.clause}
-            ORDER BY pa.fecha DESC
-        `, [...dayParams, 'efectivo', 'tarjeta', ...zoneWhere.params]);
-
-        res.json({
-            success: true,
-            data: ventasDetalle
+        const sales = await financialReadService.listConsolidatedSales({
+            startIso: today.startIso,
+            endIso: today.endIso,
+            zoneIds: scope.restringido ? scope.zoneIds : undefined,
+            limit: 500
         });
+
+        res.json({ success: true, data: sales });
     } catch (error) {
-        console.error('Error obteniendo detalle de ventas:', error);
-        res.status(500).json({ error: 'Error interno del servidor' });
+        console.error('Error obteniendo detalle consolidado de ventas:', error);
+        res.status(error.statusCode || 500).json({
+            error: error.statusCode ? error.message : 'Error interno del servidor',
+            code: error.code
+        });
     }
 });
 
-// Obtener estadísticas de ventas por período
+// Obtener estadísticas de ventas globales por período.
 router.get('/stats/:period', requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, res) => {
     try {
         const { period } = req.params;
         const scope = await getDashboardScope(req);
-        const zoneWhere = buildZoneWhere(scope, 'm');
-        let dateFilter = '';
-        let groupBy = '';
+        const now = new Date();
+        let start;
+        let end = now;
+        let bucket = 'day';
 
-        switch (period) {
-            case 'day':
-                dateFilter = "pa.fecha >= datetime('now', 'start of day')";
-                groupBy = "strftime('%H', pa.fecha)";
-                break;
-            case 'week':
-                dateFilter = "DATE(pa.fecha) >= DATE('now', '-7 days')";
-                groupBy = "DATE(pa.fecha)";
-                break;
-            case 'month':
-                dateFilter = "DATE(pa.fecha) >= DATE('now', '-30 days')";
-                groupBy = "DATE(pa.fecha)";
-                break;
-            default:
-                return res.status(400).json({ error: 'Período inválido' });
+        if (period === 'day') {
+            const today = getCostaRicaDayRange(now);
+            start = new Date(today.startIso);
+            end = new Date(today.endIso);
+            bucket = 'hour';
+        } else if (period === 'week') {
+            start = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+        } else if (period === 'month') {
+            start = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
+        } else {
+            return res.status(400).json({ error: 'Período inválido' });
         }
 
-        const stats = await database.all(`
-            SELECT ${groupBy} as periodo,
-                   COUNT(DISTINCT pa.pedido_id) as pedidos,
-                   COALESCE(SUM(pa.monto), 0) as ventas
-            FROM pagos pa
-            JOIN pedidos p ON p.id = pa.pedido_id
-            JOIN mesas m ON m.id = p.mesa_id
-            WHERE pa.metodo_pago IN ('efectivo', 'tarjeta')
-              AND ${dateFilter}
-              AND COALESCE(m.activo, 1) = 1
-              ${zoneWhere.clause}
-            GROUP BY ${groupBy}
-            ORDER BY periodo
-        `, zoneWhere.params);
+        const stats = await financialReadService.getSalesStats({
+            startIso: start.toISOString(),
+            endIso: end.toISOString(),
+            zoneIds: scope.restringido ? scope.zoneIds : undefined,
+            bucket
+        });
 
         res.json({ success: true, data: stats });
     } catch (error) {
-        console.error('Error obteniendo estadísticas:', error);
-        res.status(500).json({ error: 'Error interno del servidor' });
+        console.error('Error obteniendo estadísticas consolidadas:', error);
+        res.status(error.statusCode || 500).json({
+            error: error.statusCode ? error.message : 'Error interno del servidor',
+            code: error.code
+        });
     }
 });
 
