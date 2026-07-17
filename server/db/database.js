@@ -260,6 +260,9 @@ class Database {
                 fecha_apertura TEXT,
                 fecha_conciliacion TEXT,
                 fecha_cierre TEXT,
+                finalizada_por_usuario_id INTEGER,
+                finalizada_por_nombre_snapshot TEXT,
+                observacion_cierre TEXT,
                 actualizado_en TEXT,
                 version INTEGER NOT NULL DEFAULT 1,
                 mesa_numero_snapshot INTEGER,
@@ -1309,6 +1312,9 @@ class Database {
         await this.ensureColumn('pedidos', 'fecha_apertura', 'TEXT');
         await this.ensureColumn('pedidos', 'fecha_conciliacion', 'TEXT');
         await this.ensureColumn('pedidos', 'fecha_cierre', 'TEXT');
+        await this.ensureColumn('pedidos', 'finalizada_por_usuario_id', 'INTEGER');
+        await this.ensureColumn('pedidos', 'finalizada_por_nombre_snapshot', 'TEXT');
+        await this.ensureColumn('pedidos', 'observacion_cierre', 'TEXT');
         await this.ensureColumn('pedidos', 'actualizado_en', 'TEXT');
         await this.ensureColumn('pedidos', 'version', 'INTEGER NOT NULL DEFAULT 1');
         await this.ensureColumn('pedidos', 'mesa_numero_snapshot', 'INTEGER');

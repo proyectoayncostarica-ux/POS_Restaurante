@@ -786,3 +786,27 @@ La pantalla Créditos continúa visible, aunque ya no permite crear deudas manua
 Documento de avance: `docs/avance-v3.2.4-creditos-payments.md`.
 
 Siguiente fase: `v3.2.5 · Finalización del servicio y liberación integral`.
+
+
+## v3.2.5 · Finalización del servicio y liberación integral
+
+El saldo cero continúa siendo un estado financiero, no una orden de liberar la mesa. El mesero, salonero o bartender responsable finaliza el servicio desde **Ver pedido** cuando la atención realmente terminó.
+
+Antes de cerrar, el backend comprueba cantidades disponibles, reservas sin documento, prefacturas pendientes, pagos en proceso, créditos formalizados, saldo global y versión de cuenta. La operación es transaccional e idempotente.
+
+Al confirmar:
+
+```text
+cuenta global → cerrada
+mesa/banco → libre
+cliente operativo de la mesa → limpiado
+responsables activos → limpiados
+responsables históricos → conservados
+realtime → publicado
+```
+
+Los créditos formalizados pueden mantener saldo en cartera; esto no impide liberar el puesto porque la venta ya fue conciliada mediante el documento de crédito.
+
+Documento de avance: `docs/avance-v3.2.5-finalizacion-servicio.md`.
+
+Siguiente fase: `v3.3.0 · Dominio Kitchen / Comandas`.

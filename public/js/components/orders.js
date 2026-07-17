@@ -1124,6 +1124,7 @@ const Orders = {
         const canSplit = this.hasOperationalCapability('orders.split');
         const canIssue = this.hasOperationalCapability('orders.issue_preinvoice');
         const canCollect = this.hasOperationalCapability('cash.collect');
+        const canFinalize = this.hasOperationalCapability('orders.finalize_service');
         const canBuildSplit = canSplit && canIssue;
         const selectionEnabled = splitMode && canBuildSplit;
         const canIssueCurrent = canIssue && (!splitMode || canSplit);
@@ -1219,6 +1220,14 @@ const Orders = {
                 class: 'btn-success text-white',
                 align: 'right',
                 onclick: () => Orders.confirmarPago(order.id, seatLabel, order.mesa_numero)
+            });
+        }
+        if (serviceOpen && canFinalize) {
+            modalButtons.push({
+                text: '<i class="fas fa-door-open"></i> Finalizar servicio',
+                class: 'btn-warning',
+                align: 'right',
+                onclick: () => Orders.openServiceFinalization(order.id)
             });
         }
 
@@ -1375,6 +1384,198 @@ const Orders = {
             this.showOrderDetailModal(accountResponse.data, preinvoices);
         } catch (error) {
             Utils.showNotification(error.message || 'Error cargando detalles de la cuenta', 'error');
+        }
+    },
+
+    buildFinalizationIdempotencyKey(orderId) {
+        const random = window.crypto?.randomUUID?.()
+            || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        return `finalizar:${Number(orderId)}:${random}`;
+    },
+
+    renderFinalizationStatusItem(ok, label, detail = '') {
+        return `
+            <li class="service-finalization-check ${ok ? 'is-ok' : 'is-blocked'}">
+                <i class="fas ${ok ? 'fa-check-circle' : 'fa-exclamation-circle'}"></i>
+                <div>
+                    <strong>${this.escapeHtml(label)}</strong>
+                    ${detail ? `<small>${this.escapeHtml(detail)}</small>` : ''}
+                </div>
+            </li>
+        `;
+    },
+
+    async openServiceFinalization(orderId) {
+        try {
+            const response = await Utils.request(`/orders/${orderId}/finalization`);
+            const read = response.data || {};
+            const account = read.cuenta || {};
+            const seat = read.puesto || {};
+            const lines = read.lineas || {};
+            const documents = read.documentos || {};
+            const payments = read.pagos || {};
+            const credits = read.creditos || {};
+            const blockers = Array.isArray(read.bloqueos) ? read.bloqueos : [];
+            const warnings = Array.isArray(read.advertencias) ? read.advertencias : [];
+            const canFinalize = Boolean(read.puede_finalizar) && !read.ya_finalizada;
+
+            this.serviceFinalizationContext = {
+                orderId: Number(orderId),
+                version: Number(account.version || 1),
+                idempotencyKey: this.buildFinalizationIdempotencyKey(orderId)
+            };
+
+            const checks = [
+                this.renderFinalizationStatusItem(
+                    Number(lines.unidades_disponibles || 0) === 0 || Boolean(read.compatibilidad_legacy),
+                    'Consumo activo documentado',
+                    Number(lines.unidades_disponibles || 0) === 0
+                        ? 'No quedan unidades por prefacturar.'
+                        : `${Number(lines.unidades_disponibles || 0)} unidades liquidadas por compatibilidad legacy.`
+                ),
+                this.renderFinalizationStatusItem(
+                    Number(lines.unidades_reservadas_sin_documento || 0) === 0,
+                    'Integridad de cantidades',
+                    Number(lines.unidades_reservadas_sin_documento || 0) === 0
+                        ? 'No existen reservas huérfanas.'
+                        : `${Number(lines.unidades_reservadas_sin_documento || 0)} unidades requieren revisión.`
+                ),
+                this.renderFinalizationStatusItem(
+                    Number(documents.pendientes || 0) === 0 && Number(documents.saldo_pendiente || 0) <= 0,
+                    'Prefacturas liquidadas',
+                    Number(documents.pendientes || 0) === 0
+                        ? 'No hay documentos pendientes.'
+                        : `${Number(documents.pendientes || 0)} documentos mantienen saldo.`
+                ),
+                this.renderFinalizationStatusItem(
+                    Number(payments.en_proceso || 0) === 0,
+                    'Pagos confirmados',
+                    Number(payments.en_proceso || 0) === 0
+                        ? 'No existen pagos en proceso.'
+                        : `${Number(payments.en_proceso || 0)} pagos todavía están procesándose.`
+                ),
+                this.renderFinalizationStatusItem(
+                    Number(account.saldo_pendiente || 0) <= 0,
+                    'Cuenta global conciliada',
+                    `Saldo global: ${Utils.formatCurrency(account.saldo_pendiente || 0)}`
+                )
+            ].join('');
+
+            const blockerHtml = blockers.length ? `
+                <div class="alert alert-danger service-finalization-blockers">
+                    <strong>No se puede finalizar todavía:</strong>
+                    <ul>${blockers.map(item => `<li>${this.escapeHtml(item.message || item.code)}</li>`).join('')}</ul>
+                </div>
+            ` : '';
+            const warningHtml = warnings.length ? `
+                <div class="alert alert-warning service-finalization-warnings">
+                    <strong>Advertencias:</strong>
+                    <ul>${warnings.map(item => `<li>${this.escapeHtml(item.message || item.code)}</li>`).join('')}</ul>
+                </div>
+            ` : '';
+
+            const buttons = [
+                {
+                    text: '<i class="fas fa-arrow-left"></i> Volver a la cuenta',
+                    class: 'btn-light',
+                    onclick: () => Orders.viewOrder(orderId)
+                }
+            ];
+            if (canFinalize) {
+                buttons.push({
+                    text: '<i class="fas fa-check"></i> Finalizar y liberar',
+                    class: 'btn-danger',
+                    align: 'right',
+                    onclick: () => Orders.confirmServiceFinalization()
+                });
+            }
+
+            Utils.showModal('Finalizar servicio', `
+                <div class="service-finalization-modal">
+                    <div class="service-finalization-account">
+                        <div><small>Cuenta global</small><strong>${this.escapeHtml(account.numero_cuenta || '')}</strong></div>
+                        <div><small>${this.escapeHtml(seat.tipo || 'mesa')}</small><strong>${this.escapeHtml(seat.numero || '')}</strong></div>
+                        <div><small>Cliente principal</small><strong>${this.escapeHtml(account.cliente_principal || 'Sin nombre')}</strong></div>
+                        <div><small>Total global</small><strong>${Utils.formatCurrency(account.total || 0)}</strong></div>
+                    </div>
+                    ${read.ya_finalizada ? `
+                        <div class="alert alert-success">
+                            <strong>Este servicio ya fue finalizado.</strong>
+                            La mesa o banco se encuentra liberado.
+                        </div>
+                    ` : ''}
+                    <ul class="service-finalization-checklist">${checks}</ul>
+                    ${blockerHtml}
+                    ${warningHtml}
+                    ${canFinalize ? `
+                        <div class="form-group">
+                            <label for="service-finalization-observation">Observación de cierre (opcional)</label>
+                            <textarea id="service-finalization-observation" maxlength="500" rows="3"
+                                      placeholder="Detalle operativo del cierre"></textarea>
+                        </div>
+                        <label class="service-finalization-confirmation">
+                            <input type="checkbox" id="service-finalization-confirm">
+                            <span>Confirmo que los clientes terminaron el servicio y que la mesa o banco puede liberarse.</span>
+                        </label>
+                    ` : ''}
+                    ${Number(credits.vigentes || 0) > 0 ? `
+                        <p class="service-finalization-credit-note">
+                            <i class="fas fa-file-invoice-dollar"></i>
+                            ${Number(credits.vigentes || 0)} crédito(s) formalizado(s) continuarán en cartera por
+                            ${Utils.formatCurrency(credits.saldo_pendiente || 0)}.
+                        </p>
+                    ` : ''}
+                </div>
+            `, buttons, 'modal-service-finalization');
+        } catch (error) {
+            Utils.showNotification(error.message || 'No se pudo verificar la finalización del servicio.', 'error');
+        }
+    },
+
+    async confirmServiceFinalization() {
+        const context = this.serviceFinalizationContext;
+        if (!context || this.serviceFinalizationSubmitting) return;
+
+        const confirmation = document.getElementById('service-finalization-confirm');
+        if (!confirmation?.checked) {
+            Utils.showNotification('Confirma que el servicio terminó antes de liberar la mesa.', 'warning');
+            confirmation?.focus();
+            return;
+        }
+
+        const observation = String(document.getElementById('service-finalization-observation')?.value || '').trim();
+        const actionButton = document.querySelector('.modal-service-finalization .modal-footer .btn-danger');
+        this.serviceFinalizationSubmitting = true;
+        if (actionButton) {
+            actionButton.disabled = true;
+            actionButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Finalizando...';
+        }
+
+        try {
+            const response = await Utils.request(`/orders/${context.orderId}/finalize-service`, {
+                method: 'POST',
+                headers: { 'Idempotency-Key': context.idempotencyKey },
+                body: JSON.stringify({
+                    observacion: observation || null,
+                    version: context.version
+                })
+            });
+            const data = response.data || {};
+            Utils.showNotification(
+                `${data.cuenta?.numero_cuenta || 'Cuenta'} finalizada. ${data.puesto?.tipo || 'Mesa'} ${data.puesto?.numero || ''} liberado.`,
+                'success'
+            );
+            this.serviceFinalizationContext = null;
+            await this.load();
+            if (typeof Dashboard !== 'undefined' && typeof Dashboard.load === 'function') {
+                const dashboardRefresh = Dashboard.load();
+                if (dashboardRefresh?.catch) dashboardRefresh.catch(() => null);
+            }
+        } catch (error) {
+            Utils.showNotification(error.message || 'No se pudo finalizar el servicio.', 'error');
+            await this.openServiceFinalization(context.orderId);
+        } finally {
+            this.serviceFinalizationSubmitting = false;
         }
     },
 

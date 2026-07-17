@@ -1326,43 +1326,93 @@ git commit -m "v3.2.4: integra creditos con Payments y cuenta global"
 
 ---
 
-## v3.2.5 · Finalización del servicio y liberación integral
+## v3.2.5 · Finalización del servicio y liberación integral ✅
+
+### Estado
+
+Implementado.
 
 ### Objetivo
 
-Crear una acción explícita para cerrar la operación de la mesa.
+Cerrar la operación únicamente cuando el responsable confirma que terminó el servicio. El saldo cero por sí solo no libera la mesa.
+
+### Implementación
+
+- `serviceFinalizationService` centraliza prevalidación, cierre e idempotencia;
+- `GET /api/orders/:id/finalization` entrega checklist, bloqueos y advertencias;
+- `POST /api/orders/:id/finalize-service` ejecuta la liberación integral;
+- la acción requiere `orders.finalize_service` y responsabilidad activa o administrador;
+- la UI incorpora minimodal de confirmación desde `Ver pedido`;
+- la versión de cuenta evita cerrar sobre datos modificados por otro dispositivo;
+- realtime actualiza Cuentas, Dashboard, Zonas y Caja mediante el alcance de cuenta.
 
 ### Validaciones
 
-- no quedan cantidades sin prefacturar;
-- no quedan prefacturas pendientes;
-- no hay pagos procesándose;
-- créditos formalizados;
-- saldo consolidado válido;
-- versión de la cuenta no cambió durante la validación.
+- no quedan cantidades sin prefacturar, salvo compatibilidad legacy ya liquidada;
+- no existen reservas sin documento activo;
+- no quedan prefacturas emitidas o parciales;
+- no hay pagos en proceso;
+- los créditos pendientes están formalizados mediante Payments;
+- el saldo global es cero;
+- el estado financiero es `conciliada` o `credito`;
+- la cuenta conserva la versión presentada en la confirmación.
 
 ### Transacción de cierre
 
-- conciliar cuenta global;
-- fijar total final y fecha financiera;
-- cerrar estado operativo;
-- liberar mesa/banco;
-- limpiar responsables;
-- registrar historial;
-- emitir realtime;
-- preparar documentos finales si corresponden.
+```text
+bloquear cuenta como finalizando
+→ volver a validar integridad
+→ fijar total y estado financiero
+→ cerrar estado operativo
+→ registrar usuario y observación
+→ liberar mesa/banco
+→ limpiar responsables activos
+→ conservar snapshots históricos
+→ registrar historial
+→ guardar idempotencia
+→ commit
+```
 
-### Regla
+Si cualquier paso falla, la cuenta vuelve a `abierta` y la mesa permanece ocupada.
 
-Saldo cero no libera automáticamente la mesa.
+### Regla de crédito
+
+Un crédito formalizado puede continuar pendiente en cartera. Esto no impide cerrar el servicio porque la prefactura ya fue liquidada mediante el movimiento de apertura a crédito. Un crédito legacy o incompleto sí bloquea el cierre.
 
 ### Criterios de aprobación
 
 - no se cierra una mesa con consumo nuevo no documentado;
-- no se cierra con una prefactura pendiente;
+- no se cierra con prefacturas o pagos pendientes;
+- un usuario no responsable no puede finalizar;
+- un crédito formalizado no bloquea la liberación;
 - después del cierre no se agregan productos;
-- Dashboard, Zonas, Caja y responsable se actualizan;
-- la venta consolidada aparece una sola vez.
+- mesa, cliente operativo y responsables activos se limpian juntos;
+- cliente principal y responsables permanecen en el historial de la cuenta;
+- reintentar la misma solicitud no duplica el cierre;
+- la venta consolidada continúa apareciendo una sola vez.
+
+### Validación automática
+
+```powershell
+npm run test:finalization
+npm test
+```
+
+Resultado funcional del entorno de construcción:
+
+```text
+6 pruebas específicas aprobadas
+105 pruebas funcionales aprobadas
+0 fallos funcionales
+```
+
+La prueba nativa de `sqlite3@6.0.1` debe ejecutarse en Windows después de `npm ci`.
+
+### Documento
+
+```text
+docs/avance-v3.2.5-finalizacion-servicio.md
+```
 
 ### Commit
 

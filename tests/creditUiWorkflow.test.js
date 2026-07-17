@@ -43,10 +43,10 @@ test('Orders bloquea el crédito legacy que liberaba la mesa', () => {
     assert.doesNotMatch(orders, /UPDATE mesas SET estado = \?, cliente_nombre = NULL[\s\S]{0,120}metodo_pago === 'credito'/);
 });
 
-test('PWA publica la versión de créditos integrados', () => {
+test('PWA publica la versión de finalización integral', () => {
     const sw = read('public/service-worker.js');
     const index = read('public/index.html');
-    assert.match(sw, /v3\.2\.4-credit-payments/);
-    assert.match(index, /accounts\.js\?v=3\.2\.4-credit-payments/);
-    assert.match(index, /cash\.js\?v=3\.2\.4-credit-payments/);
+    assert.match(sw, /v3\.2\.5-service-finalization/);
+    assert.match(index, /accounts\.js\?v=3\.2\.5-service-finalization/);
+    assert.match(index, /cash\.js\?v=3\.2\.5-service-finalization/);
 });

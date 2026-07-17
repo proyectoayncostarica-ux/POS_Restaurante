@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.2.4 · Créditos integrados con Payments
+- **Línea de trabajo actual:** v3.2.5 · Finalización del servicio y liberación integral
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -1348,3 +1348,27 @@ Documento técnico:
 - `docs/avance-v3.2.4-creditos-payments.md`
 
 La siguiente fase es `v3.2.5 · Finalización del servicio y liberación integral`.
+
+
+## 29. Finalización del servicio y liberación integral · v3.2.5
+
+La mesa o banco ya no se libera por alcanzar saldo cero. El responsable operativo debe abrir **Ver pedido**, seleccionar **Finalizar servicio**, revisar las condiciones y confirmar explícitamente que los clientes terminaron la atención.
+
+El cierre se ejecuta mediante `serviceFinalizationService` dentro de una sola transacción. Se valida que no existan consumos sin documentar, prefacturas pendientes, reservas huérfanas, pagos en proceso, créditos sin formalizar ni saldo global pendiente. Un crédito correctamente formalizado puede continuar en cartera después de liberar la mesa.
+
+La operación fija el estado global, conserva cliente y responsables como snapshots históricos, registra quién finalizó y la observación de cierre, libera la mesa/banco, limpia los responsables operativos actuales y publica realtime. Después del cierre no se pueden agregar productos.
+
+Endpoints:
+
+```text
+GET  /api/orders/:id/finalization
+POST /api/orders/:id/finalize-service
+```
+
+La mutación requiere `orders.finalize_service`, responsabilidad activa sobre la mesa o privilegio administrativo, versión vigente de la cuenta e `Idempotency-Key`.
+
+Documento técnico:
+
+- `docs/avance-v3.2.5-finalizacion-servicio.md`
+
+La siguiente fase es `v3.3.0 · Dominio Kitchen / Comandas`.

@@ -11514,3 +11514,124 @@ body {
     .credit-table td { border: 0; padding: .35rem 0; }
     .credit-table td:last-child .d-flex { flex-direction: column; }
 }
+
+/* v3.2.5 · Finalización del servicio y liberación integral */
+.service-finalization-account {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: .75rem;
+    margin-bottom: 1rem;
+}
+
+.service-finalization-account > div {
+    display: flex;
+    flex-direction: column;
+    gap: .2rem;
+    padding: .75rem;
+    border: 1px solid var(--border-color, #d9dee7);
+    border-radius: 12px;
+    background: var(--card-bg, #fff);
+}
+
+.service-finalization-account small {
+    opacity: .68;
+}
+
+.service-finalization-checklist {
+    display: grid;
+    gap: .55rem;
+    margin: 0 0 1rem;
+    padding: 0;
+    list-style: none;
+}
+
+.service-finalization-check {
+    display: flex;
+    align-items: flex-start;
+    gap: .7rem;
+    padding: .72rem .8rem;
+    border: 1px solid var(--border-color, #d9dee7);
+    border-radius: 10px;
+}
+
+.service-finalization-check i {
+    margin-top: .15rem;
+    font-size: 1.05rem;
+}
+
+.service-finalization-check > div {
+    display: flex;
+    flex-direction: column;
+    gap: .15rem;
+}
+
+.service-finalization-check small {
+    opacity: .72;
+}
+
+.service-finalization-check.is-ok {
+    color: #17643a;
+    background: #effaf3;
+    border-color: #b8e0c7;
+}
+
+.service-finalization-check.is-blocked {
+    color: #8a2d2d;
+    background: #fff2f2;
+    border-color: #efc1c1;
+}
+
+.service-finalization-blockers ul,
+.service-finalization-warnings ul {
+    margin: .5rem 0 0 1rem;
+}
+
+.service-finalization-confirmation {
+    display: flex;
+    align-items: flex-start;
+    gap: .6rem;
+    margin-top: .85rem;
+    padding: .8rem;
+    border-radius: 10px;
+    background: #fff8e5;
+    cursor: pointer;
+}
+
+.service-finalization-confirmation input {
+    margin-top: .2rem;
+}
+
+.service-finalization-credit-note {
+    display: flex;
+    gap: .55rem;
+    align-items: flex-start;
+    margin: .9rem 0 0;
+    padding: .75rem;
+    border-radius: 10px;
+    color: #315b78;
+    background: #eaf6ff;
+}
+
+.modal-content.modal-service-finalization textarea {
+    width: 100%;
+    resize: vertical;
+}
+
+@media (max-width: 720px) {
+    .service-finalization-account {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .modal-content.modal-service-finalization .modal-footer,
+    .modal-content.modal-service-finalization .modal-footer .left-buttons,
+    .modal-content.modal-service-finalization .modal-footer .right-buttons,
+    .modal-content.modal-service-finalization .modal-footer .btn {
+        width: 100%;
+    }
+}
+
+@media (max-width: 420px) {
+    .service-finalization-account {
+        grid-template-columns: 1fr;
+    }
+}

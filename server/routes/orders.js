@@ -9,6 +9,7 @@ const {
 
 const accountService = require('../services/accountService');
 const preinvoiceService = require('../services/preinvoiceService');
+const serviceFinalizationService = require('../services/serviceFinalizationService');
 const { DomainError } = require('../errors/domainError');
 
 const router = express.Router();
@@ -76,6 +77,86 @@ router.get('/:id', requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, r
         return sendRouteError(res, error, 'Error obteniendo la cuenta');
     }
 });
+
+// Consultar las condiciones de cierre antes de liberar la mesa o banco.
+router.get(
+    '/:id/finalization',
+    requireCapability(CAPABILITIES.ORDERS_OPERATE),
+    requireCapability(CAPABILITIES.ORDERS_FINALIZE_SERVICE),
+    async (req, res) => {
+        try {
+            const account = await accountService.getAccount(req.params.id);
+            const access = await resolveAccessContext(req);
+            const mesaAccess = await evaluateMesaAccess(access, {
+                id: account.mesa_id,
+                zona_id: account.zona_id,
+                estado: account.estado_operativo === 'abierta' ? 'ocupada' : 'libre'
+            });
+
+            if (!mesaAccess.operable && account.estado_operativo === 'abierta') {
+                return res.status(403).json({
+                    error: mesaAccess.visible
+                        ? 'Solo un responsable asignado puede finalizar esta cuenta.'
+                        : 'No tienes acceso operativo a esta zona.',
+                    code: mesaAccess.visible ? 'MESA_RESPONSIBILITY_REQUIRED' : 'ZONE_NOT_ALLOWED'
+                });
+            }
+
+            const read = await serviceFinalizationService.getFinalizationRead(account.id);
+            return res.json({ success: true, data: read });
+        } catch (error) {
+            return sendRouteError(res, error, 'Error verificando la finalización del servicio');
+        }
+    }
+);
+
+// Finalizar explícitamente el servicio y liberar la mesa/banco en una sola transacción.
+router.post(
+    '/:id/finalize-service',
+    requireCapability(CAPABILITIES.ORDERS_OPERATE),
+    requireCapability(CAPABILITIES.ORDERS_FINALIZE_SERVICE),
+    async (req, res) => {
+        try {
+            const account = await accountService.getAccount(req.params.id);
+            const access = await resolveAccessContext(req);
+            const mesaAccess = await evaluateMesaAccess(access, {
+                id: account.mesa_id,
+                zona_id: account.zona_id,
+                estado: account.estado_operativo === 'abierta' ? 'ocupada' : 'libre'
+            });
+
+            if (!mesaAccess.operable && account.estado_operativo === 'abierta') {
+                return res.status(403).json({
+                    error: mesaAccess.visible
+                        ? 'Solo un responsable asignado puede finalizar esta cuenta.'
+                        : 'No tienes acceso operativo a esta zona.',
+                    code: mesaAccess.visible ? 'MESA_RESPONSIBILITY_REQUIRED' : 'ZONE_NOT_ALLOWED'
+                });
+            }
+
+            const result = await serviceFinalizationService.finalizeService({
+                accountId: account.id,
+                userId: req.session?.userId,
+                observation: req.body?.observacion ?? req.body?.observation,
+                expectedVersion: req.body?.version ?? req.body?.expectedVersion,
+                idempotencyKey: req.get('Idempotency-Key')
+                    || req.body?.clave_idempotencia
+                    || req.body?.idempotencyKey
+            });
+
+            res.locals.realtime = {
+                scope: 'cuentas',
+                orderIds: [Number(account.id)],
+                mesaIds: [Number(account.mesa_id)],
+                zoneIds: [Number(account.zona_id)].filter(Boolean)
+            };
+
+            return res.json({ success: true, data: result });
+        } catch (error) {
+            return sendRouteError(res, error, 'Error finalizando el servicio');
+        }
+    }
+);
 
 // Listar documentos operativos emitidos para una cuenta global.
 router.get('/:id/preinvoices', requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, res) => {
