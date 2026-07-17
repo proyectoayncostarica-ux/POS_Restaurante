@@ -1,132 +1,367 @@
-# Prompt de continuidad · MundiPOS 3.0
+# Prompt de continuidad canónico · MundiPOS 3.0
 
-> **Uso:** adjunta este archivo al nuevo chat junto con un ZIP actualizado del repositorio y pega el bloque **“Prompt listo para usar”** como primer mensaje. Este documento es el traspaso canónico del trabajo realizado y evita reconstrucciones, suposiciones o desviaciones.
+**Actualizado:** 17 de julio de 2026  
+**Estado funcional recuperado:** `v3.2.5`  
+**Próxima fase funcional:** `v3.3.0 · Dominio Kitchen / Comandas`  
+**Repositorio local activo:** `C:\Repos\POS_Restaurante`
+
+> **Uso en un nuevo chat:** adjunta este archivo junto con un ZIP nuevo del repositorio actual y pega la sección **“Prompt listo para usar”** como primer mensaje. Este documento reemplaza el prompt de continuidad anterior. Conserva sus contratos útiles, corrige su estado obsoleto e incorpora la recuperación, normalización y limpieza realizadas el 17 de julio de 2026.
 
 ---
 
 # Prompt listo para usar
 
-Estás continuando el desarrollo del proyecto **MundiPOS / POS Restaurante**. Debes trabajar de forma incremental, auditable y compatible con la operación real de restaurantes y bares.
+Estás continuando el desarrollo de **MundiPOS / POS Restaurante**, una aplicación Node.js, Express, SQLite, JavaScript vanilla y PWA para restaurantes y bares.
 
-Antes de proponer o modificar código:
+Debes trabajar de forma incremental, auditable y compatible con la operación real. No programes a partir de recuerdos, nombres de fases o ZIP antiguos: primero confirma el estado real del ZIP más reciente y de la salida Git que proporcionaré.
+
+## Orden obligatorio antes de modificar código
 
 1. Lee por completo este archivo.
-2. Inspecciona el ZIP más reciente del repositorio que adjuntaré.
-3. Dentro del repositorio, lee primero los documentos canónicos indicados en la sección **Documentos obligatorios**.
-4. Verifica el estado real con `package.json`, `git log`, `git status`, pruebas y código actual. No supongas que una fase está aplicada solo porque aparece descrita aquí.
-5. Si no se adjuntó un ZIP actualizado del repositorio, solicítalo antes de crear una implementación. No reconstruyas el proyecto combinando ZIP antiguos.
-6. La próxima fase funcional prevista es `v3.3.0 · Dominio Kitchen / Comandas`, pero antes debes confirmar que `v3.2.5 · Finalización del servicio y liberación integral` fue aplicada, probada, confirmada operativamente y comprometida en Git.
+2. Inspecciona el ZIP más reciente del repositorio.
+3. Lee los documentos canónicos indicados aquí, en el orden establecido.
+4. Verifica `git status`, rama, commits, versión, dependencias, esquema, pruebas y código actual.
+5. Audita expresamente el commit `a39555a Pwndiente`; su contenido no quedó identificado durante el traspaso y no debe asumirse inocuo.
+6. Confirma que `main` y `origin/main` están sincronizados y que el árbol está limpio.
+7. Atiende primero la higiene Git pendiente de los respaldos SQLite rastreados. No borres las copias locales y no reescribas el historial remoto ni uses force-push sin aprobación explícita.
+8. Ejecuta la suite completa sobre el `HEAD` real. Las 107 pruebas fueron confirmadas en el árbol funcional recuperado, pero deben revalidarse después de inspeccionar el commit intermedio y cualquier saneamiento Git.
+9. Solo después inicia la auditoría de `v3.3.0 · Dominio Kitchen / Comandas`.
+10. No generes código de Kitchen hasta presentar el diagnóstico del dominio actual, alcance, riesgos, migración y criterios de aceptación.
 
-Trabaja con las reglas, contratos de negocio, arquitectura, restricciones, validaciones y formato de entrega establecidos en este documento. No alteres el flujo acordado, no adelantes fases y no sustituyas la fuente financiera global por documentos parciales.
+Mantén sin cambios los contratos de cuenta global, división, Caja, Payments, créditos, finalización de servicio, impresión posterior al commit, autorización backend e idempotencia. No adelantes Printing, reportes o limpieza legacy.
+
+Trabaja en español. En tareas de PowerShell entrega un solo bloque por turno y espera la salida completa. Nunca uses `git add .`, `git add -A`, `git clean`, `git reset --hard`, `git commit -a`, `stash pop`, `stash apply`, `stash drop`, `npm audit fix --force` ni force-push sin autorización expresa.
 
 ---
 
-# 1. Identidad y propósito del proyecto
+# 1. Identidad, propósito y repositorios
 
 **Proyecto:** MundiPOS / POS Restaurante  
 **Stack:** Node.js, Express, SQLite, frontend JavaScript vanilla y PWA.  
-**Repositorio local vigente del usuario:**
+**Objetivo de MundiPOS 3.0:** separar dominios operativos y financieros sin romper innecesariamente la experiencia existente.
+
+Repositorio activo:
 
 ```text
 C:\Repos\POS_Restaurante
 ```
 
-El repositorio fue movido fuera de OneDrive porque OneDrive bloqueaba `.git/objects` durante los commits. La copia anterior fue renombrada como respaldo y no debe utilizarse para desarrollar:
+Repositorio anterior dentro de OneDrive, solo como respaldo histórico y no apto para desarrollo:
 
 ```text
 C:\Users\andre\OneDrive\Documentos\Proyecto\POSRestaurante\POS_Restaurante_RESPALDO_NO_USAR
 ```
 
-**Objetivo de MundiPOS 3.0:** modularizar la arquitectura y representar correctamente el flujo real de atención, división de cuentas, prefacturas, Caja, pagos, créditos, comandas, impresión, reportes y cierre de mesas sin provocar una ruptura innecesaria de la experiencia visible.
+No regreses `.git` a OneDrive. No uses el repositorio antiguo como fuente de implementación ni mezcles sus archivos con el actual.
+
+## Entorno auxiliar conservado fuera del repositorio
+
+Después de limpiar los artefactos de recuperación, `C:\Repos` quedó reducido esencialmente a:
+
+```text
+C:\Repos\POS_Restaurante
+C:\Repos\SQLiteTools
+C:\Repos\RECOVERY_KEEP_20260717.zip
+```
+
+Herramienta genérica de integridad SQLite:
+
+```text
+C:\Repos\SQLiteTools\verificar-integridad-sqlite.cjs
+SHA256: EA9B9ECB789EBC415FEC714C5B3FBEA9178AA582E801B54A352DF8CFF1B0F43B
+```
+
+Uso previsto, solo lectura:
+
+```powershell
+node C:\Repos\SQLiteTools\verificar-integridad-sqlite.cjs `
+  C:\Repos\POS_Restaurante\data\restaurant.db `
+  C:\Repos\POS_Restaurante
+```
+
+Paquete privado de preservación de recuperación:
+
+```text
+C:\Repos\RECOVERY_KEEP_20260717.zip
+SHA256: D92610D5DF3C490E4FA29ECF0BDFE172695510BD35B19040E3F66C27B9B55B5D
+```
+
+Ese ZIP contiene bases y evidencia de recuperación. Debe permanecer privado, fuera del repositorio y fuera de GitHub. No solicitar su contenido salvo que exista una nueva emergencia de recuperación de datos.
 
 ---
 
-# 2. Estado exacto de continuidad
+# 2. Estado Git exacto al cerrar este chat
 
-## 2.1 Último estado confirmado antes del traspaso
-
-Las fases hasta `v3.2.4 · Créditos integrados con Payments` fueron reportadas por el usuario como funcionales antes de solicitar continuar.
-
-La implementación de:
+Último estado observado:
 
 ```text
-v3.2.5 · Finalización del servicio y liberación integral
+Rama activa: main
+main:        75a5a44
+origin/main: 75a5a44
+Árbol:       limpio
+Divergencia: 0 0
 ```
 
-fue entregada en el chat anterior mediante:
+Últimos commits observados:
 
 ```text
-v3.2.5-finalizacion-servicio.zip
+75a5a44 docs: documenta recuperacion y normalizacion Git v3.2.5
+a39555a Pwndiente
+d5edf05 merge: integra historial de main preservando v3.2.5 reconstruida
 ```
 
-pero el usuario todavía **no confirmó explícitamente** en el chat anterior que:
+## Advertencia sobre `a39555a`
 
-- la extrajo sobre el repositorio;
-- ejecutó las pruebas;
-- la validó operativamente;
-- realizó commit y push.
-
-Por tanto, el nuevo chat debe iniciar verificando `v3.2.5` y no asumir que ya está cerrada.
-
-## 2.2 Verificación inicial obligatoria
-
-Solicita al usuario ejecutar o proporcionar:
+El commit `a39555a` aparece con el mensaje `Pwndiente`. Su contenido no fue identificado durante este traspaso. Antes de afirmar que el `HEAD` actual mantiene exactamente el árbol funcional validado, inspecciona:
 
 ```powershell
-Set-Location C:\Repos\POS_Restaurante
-
-git status --short
-git log -5 --oneline
-node -v
-npm -v
-npm ls sqlite3 --depth=0
-npm test
+git show --stat --summary a39555a
+git show --name-status --format=fuller a39555a
+git diff d5edf05..a39555a --
 ```
 
-Revisa además:
+Clasifica cada archivo como funcional, documental, sensible o accidental. Si el commit es accidental, no lo reviertas ni reescribas automáticamente: presenta evidencia y propone la acción segura.
 
-```powershell
-Select-String -Path .\package.json -Pattern '"version"'
-Test-Path .\server\services\serviceFinalizationService.js
-Test-Path .\docs\avance-v3.2.5-finalizacion-servicio.md
-```
-
-La fase `v3.2.5` solo puede marcarse cerrada cuando exista el commit esperado o uno equivalente, las pruebas pasen y el usuario confirme la operación.
-
-Commit canónico de esa fase:
-
-```powershell
-git commit -m "v3.2.5: finaliza servicio y libera mesas integralmente"
-```
-
-## 2.3 Próxima fase después de cerrar v3.2.5
+## Referencias de seguridad conservadas
 
 ```text
-v3.3.0 · Dominio Kitchen / Comandas
+backup/main-antes-reconstruccion         → 141735c
+backup/recovery-v3.2.5-antes-integracion → b317d52
+recovery/v3.1.3-a-v3.2.5                 → d5edf05
 ```
 
-No avances a `v3.3.1`, Printing o reportes hasta cerrar y validar `v3.3.0`.
+Stash conservado:
+
+```text
+stash@{0}: On main: RECOVERY v3.2.1 a v3.2.5 antes de reconstruir 20260717-111223
+```
+
+No apliques ni elimines el stash automáticamente. No borres las ramas de respaldo durante el inicio del nuevo chat. Ocupan poco espacio y conservan puntos de comparación útiles.
 
 ---
 
-# 3. Documentos obligatorios que debes leer
+# 3. Recuperación y normalización realizadas
 
-Dentro del ZIP/repositorio actualizado, localiza y lee en este orden:
+La recuperación fue necesaria porque el código de `v3.2.1` a `v3.2.5` existía en ZIP y cambios locales, mientras `main` y `origin/main` permanecían en `v3.2.0 fix2` (`141735c`).
+
+Se trabajó en:
+
+```text
+recovery/v3.1.3-a-v3.2.5
+```
+
+Cada fase fue inspeccionada, importada de forma explícita, validada, comprometida y comparada antes de avanzar.
+
+## Commits funcionales reconstruidos
+
+```text
+4107e50 v3.2.1: agrega API y read model operativo de Caja
+a09e7b6 v3.2.2: agrega interfaz de Caja y modal operativo de cobro
+417258d v3.2.3: agrega efectivo tarjeta vuelto y pagos mixtos
+9598fff v3.2.4: integra creditos con Payments y cuenta global
+b317d52 v3.2.5: finaliza servicio y libera mesas integralmente
+```
+
+Cadena funcional recuperada completa:
+
+```text
+fde48ee v3.1.3 · Emisión guiada de prefacturas divididas
+b686b82 v3.1.4 · Continuidad de cuentas después de pagos
+20e079e v3.1.5 · Read model financiero consolidado
+6973218 v3.2.0 · Payments por prefactura
+0721a08 v3.2.0 fix1 · Dependencias compatibles
+ba0636b v3.2.0 fix2 · Exclusión de SQLite operativo
+da5deaa v3.2.0 fix3 · Driver SQLite y script PowerShell
+4107e50 v3.2.1 · API y read model de Caja
+a09e7b6 v3.2.2 · Caja visual y modal de cobro
+417258d v3.2.3 · Medios de pago
+9598fff v3.2.4 · Créditos integrados
+b317d52 v3.2.5 · Finalización del servicio
+d5edf05 Integración normalizada en main
+```
+
+## Validación confirmada sobre el árbol funcional recuperado
+
+```text
+serviceFinalization: 6/6
+creditService:       10/10
+cashUiWorkflow:       7/7
+sqlite driver:        2/2
+suite completa:     107/107
+npm audit producción: 0 vulnerabilidades
+```
+
+Versiones confirmadas durante la recuperación:
+
+```text
+package.json: 3.2.5
+sqlite3:      6.0.1
+Node engine:  >=20.17.0
+```
+
+La recuperación funcional fue confirmada antes de la integración. El nuevo chat debe volver a ejecutar las pruebas en el `HEAD` actual debido al commit `a39555a` y a cualquier saneamiento posterior.
+
+## Normalización del historial
+
+Las ramas tenían commits equivalentes con hashes distintos. Se compararon árboles y parches:
+
+```text
+cfd4c4e ↔ b686b82  árboles idénticos
+d57b3be ↔ 6973218  árboles idénticos
+141735c ↔ ba0636b  árboles idénticos
+e6bc0af ↔ 20e079e  solo diferencias de líneas en blanco documentales
+```
+
+Se creó el respaldo:
+
+```text
+backup/recovery-v3.2.5-antes-integracion → b317d52
+```
+
+Luego se conectó el historial de `main` preservando exactamente el árbol recuperado:
+
+```powershell
+git merge --strategy=ours main -m "merge: integra historial de main preservando v3.2.5 reconstruida"
+```
+
+Commit:
+
+```text
+d5edf05
+```
+
+Árbol antes y después:
+
+```text
+36588e6a0108dc93568dbf9ae686a9ce53dea919
+```
+
+Después `main` avanzó mediante `git merge --ff-only` y fue publicado sin force-push.
+
+## Documentación de la recuperación
+
+Documento canónico ya comprometido:
+
+```text
+docs/README-recuperacion-normalizacion-git-v3.2.5.md
+```
+
+Commit observado:
+
+```text
+75a5a44 docs: documenta recuperacion y normalizacion Git v3.2.5
+```
+
+---
+
+# 4. Recuperación SQLite y limpieza local realizada
+
+Durante la normalización de `sqlite3@6.0.1` se detectó un conjunto SQLite/WAL que requirió una recuperación controlada. Se preservaron el conjunto origen, el conjunto activo problemático y una instantánea consistente.
+
+La base activa vigente es:
+
+```text
+C:\Repos\POS_Restaurante\data\restaurant.db
+```
+
+Debe estar ignorada y no rastreada:
+
+```powershell
+git ls-files -- data/restaurant.db
+git check-ignore -v data/restaurant.db
+```
+
+`git ls-files` debe quedar vacío. `git check-ignore` debe indicar la regla correspondiente.
+
+Se eliminaron del directorio `C:\Repos` los artefactos temporales ya preservados:
+
+```text
+_recovery\
+phase-zips\
+carpetas de inspección v3.2.1 a v3.2.5
+scripts de restauración específicos
+scripts de staging específicos
+inventarios temporales
+copias sueltas duplicadas
+```
+
+No intentes reconstruir esas carpetas ni volver a ejecutar los scripts antiguos. Algunos podían reemplazar la base activa o dependían de ramas y ZIP que ya no existen.
+
+---
+
+# 5. Higiene Git pendiente y prioritaria
+
+El `git archive` del repositorio mostró tres bases históricas todavía rastreadas, aunque `.gitignore` contenga `data/backups/`:
+
+```text
+data/backups/backup-2025-07-06T07-14-23-209Z.db
+data/backups/backup-before-reset-2025-07-10T00-07-14-393Z.db
+data/backups/backup-before-reset-2025-07-14T14-59-31-972Z.db
+```
+
+También se observó un archivo rastreado bajo:
+
+```text
+.vscode/settings.json
+```
+
+## Regla clave
+
+`.gitignore` no deja de rastrear archivos agregados previamente. Por ello esos `.db`:
+
+- existen en el árbol publicado;
+- son incluidos por `git archive`;
+- pueden estar presentes en el historial remoto;
+- no deben incluirse en futuros ZIP de implementación;
+- no deben borrarse del disco local durante el saneamiento sin una copia verificada.
+
+## Procedimiento esperado
+
+Antes de Kitchen:
+
+1. Confirma que los tres archivos continúan rastreados.
+2. No abras ni expongas datos personales en el chat.
+3. Verifica que exista una copia privada fuera del repositorio.
+4. Propón retirar del índice únicamente las rutas explícitas, preservando archivos locales si todavía se necesitan.
+5. Revisa `.gitignore` y corrige reglas solo si hace falta.
+6. Comprueba el staging con filtro de seguridad.
+7. Crea un commit de higiene separado.
+8. Explica que retirar del índice no purga el historial antiguo.
+9. Si el contenido es sensible, presenta una estrategia separada de remediación histórica; no ejecutes `filter-repo`, BFG, force-push ni rotación de referencias sin aprobación explícita.
+10. Repite `git archive` o inspección equivalente y confirma que los nuevos ZIP no incluyen bases.
+
+No mezcles esta higiene con el commit funcional de Kitchen.
+
+---
+
+# 6. Documentos obligatorios
+
+Dentro del ZIP/repositorio actualizado, lee en este orden:
 
 ```text
 README.md
 docs/README-v3.0.md
 docs/roadmap-v3.0-arquitectura-modular.md
+docs/PROMPT-CONTINUIDAD-MUNDIPOS-3.0.md
+docs/README-recuperacion-normalizacion-git-v3.2.5.md
+```
 
+Contratos:
+
+```text
 docs/contrato-v3.0-compatibilidad-ui.md
 docs/contrato-v3.0-operacion-caja-prefacturas.md
 docs/contrato-v3.0-cuenta-global-fuente-financiera.md
+```
 
+Auditorías:
+
+```text
 docs/auditoria-v3.0.0-arquitectura-modular.md
 docs/auditoria-v3.0.0-fix1-caja-prefacturas-subcuentas.md
 ```
 
-Luego lee los avances existentes, especialmente:
+Avances principales:
 
 ```text
 docs/avance-v3.0.1-infraestructura-transaccional-pruebas.md
@@ -142,6 +377,7 @@ docs/avance-v3.1.5-read-model-financiero.md
 
 docs/avance-v3.2.0-payments-prefactura.md
 docs/avance-v3.2.0-fix2-sqlite3.md
+docs/avance-v3.2.0-fix2-hotfix-script-sqlite3.md
 docs/avance-v3.2.1-api-read-model-caja.md
 docs/avance-v3.2.2-caja-visual-modal-cobro.md
 docs/avance-v3.2.3-medios-pago.md
@@ -149,17 +385,28 @@ docs/avance-v3.2.4-creditos-payments.md
 docs/avance-v3.2.5-finalizacion-servicio.md
 ```
 
-Algunos nombres pueden variar ligeramente. Usa el contenido y el roadmap para resolverlos. No inventes archivos faltantes ni afirmes haberlos leído si no están dentro del material adjunto.
+Menú v2.2.5M también está cerrado y no debe revertirse. Revisa sus documentos solo cuando Kitchen dependa de destino, producto, categoría, subcategoría o presentación.
 
-También inspecciona directamente:
+No inventes archivos faltantes. Algunos nombres pueden variar ligeramente; resuélvelos mediante el contenido real.
+
+---
+
+# 7. Código que debe inspeccionarse antes de Kitchen
+
+Archivos generales:
 
 ```text
 package.json
 package-lock.json
+.gitignore
 server/config/appInfo.js
 server/db/database.js
 server/app.js
+```
 
+Servicios ya implementados:
+
+```text
 server/services/transactionService.js
 server/services/capabilityService.js
 server/services/operationalAccessService.js
@@ -171,51 +418,66 @@ server/services/creditService.js
 server/services/cashReadService.js
 server/services/financialReadService.js
 server/services/serviceFinalizationService.js
+```
 
+Rutas:
+
+```text
 server/routes/orders.js
 server/routes/cash.js
 server/routes/accounts.js
 server/routes/credits.js
 server/routes/dashboard.js
 server/utils/realtime.js
+```
 
+Frontend/PWA:
+
+```text
 public/js/components/orders.js
 public/js/components/cash.js
 public/js/components/accounts.js
 public/js/components/dashboard.js
 public/service-worker.js
 public/index.html
+public/css/style.css
 ```
 
-Para Kitchen, debes auditar el código actual relacionado con:
+Para Kitchen, busca en todo el código vigente:
 
 ```text
 comandas
+comanda
 cocina
 bar
-preparación
-envío o reenvío
-anulación de productos
-Orders.printComanda o placeholders equivalentes
-estado de impresión mezclado con estado operativo
+preparacion / preparación
+enviar / reenviar
+anulacion / anulación
+fecha_impresion
+estado_impresion
+estado_operativo
+printComanda
+Orders.printComanda
+productos_comanda
+requiere_cocina
+requiere_bar
+destino
 ```
 
-No reutilices hallazgos antiguos sin verificar que todavía existan en el código vigente.
+No reutilices hallazgos de auditorías antiguas sin comprobar que siguen presentes.
 
 ---
 
-# 4. Contrato de negocio inmutable
+# 8. Contrato de negocio inmutable
 
-Estas reglas fueron acordadas con el usuario y no pueden cambiarse sin una conversación explícita.
-
-## 4.1 Cuenta global como única fuente financiera
+## 8.1 Cuenta global como única fuente financiera
 
 La cuenta global de la mesa o banco es la única venta financiera real.
 
 ```text
 Cuenta global
 ├── cliente principal
-├── mesa/banco
+├── mesa o banco
 ├── zona
 ├── mesero/salonero/bartender responsable
 ├── consumo completo
@@ -239,7 +501,7 @@ Prefactura Pedro: ₡3.000
 Prefactura Juan:  ₡2.000
 ```
 
-Contablemente significa:
+Contabilidad:
 
 ```text
 1 venta global de ₡5.000
@@ -247,38 +509,27 @@ Contablemente significa:
 2 movimientos de Caja que suman ₡5.000
 ```
 
-Nunca deben registrarse dos ventas independientes de ₡3.000 y ₡2.000.
+Nunca contabilices dos ventas independientes de ₡3.000 y ₡2.000.
 
-Los pagadores parciales no reemplazan:
+Los pagadores parciales no reemplazan al cliente principal, responsable, mesa, zona ni número de cuenta global.
 
-- al cliente principal;
-- al responsable de atención;
-- a la mesa o banco;
-- a la zona;
-- al número de cuenta global.
+## 8.2 División una subcuenta a la vez
 
-## 4.2 División una subcuenta a la vez
+La división se realiza desde `Ver pedido` por el personal de atención:
 
-La división la realiza el mesero, salonero o bartender en `Ver pedido`.
+1. activar `Cuenta dividida`;
+2. seleccionar ítems de un cliente;
+3. elegir cantidad cuando una línea tenga más de una unidad;
+4. revisar subtotal, servicio y total parcial;
+5. pulsar `Emitir prefactura`;
+6. abrir minimodal;
+7. escribir nombre del pagador;
+8. mostrar ítems, cantidades y total;
+9. `Volver` no escribe ni consume numeración;
+10. `Imprimir y emitir` persiste una sola prefactura;
+11. repetir con el consumo restante.
 
-Flujo obligatorio:
-
-1. Activar `Cuenta dividida`.
-2. Seleccionar ítems de un solo cliente mediante checkboxes.
-3. Cuando una línea tenga cantidad mayor a uno, elegir la cantidad para ese cliente.
-4. Revisar el subtotal/servicio/total parcial.
-5. Pulsar `Emitir prefactura`.
-6. Abrir un minimodal.
-7. Escribir el nombre del cliente/pagador.
-8. Mostrar ítems, cantidades y total.
-9. Permitir `Volver` sin escribir en la base ni consumir numeración.
-10. Confirmar `Imprimir y emitir`.
-11. Persistir una sola prefactura.
-12. Volver al consumo restante y repetir para el siguiente cliente.
-
-No se preparan dos prefacturas simultáneamente.
-
-Regla de cantidad:
+No prepares varias subcuentas simultáneamente.
 
 ```text
 cantidad_disponible
@@ -286,29 +537,15 @@ cantidad_disponible
 - cantidad_asignada_a_prefacturas_activas
 ```
 
-Una misma unidad no puede pertenecer a dos prefacturas válidas.
+Una unidad no puede pertenecer a dos prefacturas válidas.
 
-## 4.3 Continuidad después de un pago
+## 8.3 Continuidad después del pago
 
 Pagar una prefactura no cierra la mesa.
 
-Ejemplo:
+El sistema debe ocultar del consumo activo las cantidades documentadas/pagadas, conservar historial, mantener cuenta abierta y permitir consumo posterior.
 
-```text
-Juan paga y se retira.
-Los demás clientes continúan consumiendo.
-```
-
-El sistema debe:
-
-- ocultar del consumo activo las cantidades ya documentadas/pagadas;
-- conservarlas en el historial;
-- mantener la cuenta global abierta;
-- mantener mesa, cliente principal y responsables;
-- permitir agregar productos nuevos;
-- generar saldo nuevo solamente por el consumo posterior.
-
-La cuenta puede estar temporalmente en:
+Puede existir:
 
 ```text
 estado_operativo = abierta
@@ -316,83 +553,76 @@ estado_financiero = conciliada
 saldo = 0
 ```
 
-## 4.4 Cierre explícito del servicio
+## 8.4 Finalización explícita
 
-Saldo cero no significa mesa libre.
-
-La liberación ocurre solamente cuando el responsable pulsa:
+Saldo cero no significa mesa libre. La liberación ocurre únicamente con:
 
 ```text
 Finalizar servicio
 ```
 
-El backend debe validar, de forma transaccional, que no existan:
+El backend valida transaccionalmente:
 
 - consumos disponibles sin prefacturar;
 - cantidades reservadas sin documento;
 - prefacturas emitidas o parciales;
 - pagos pendientes;
-- saldo global pendiente;
+- saldo global;
 - créditos incompletos o no formalizados;
 - conflicto de versión o concurrencia.
 
-Un crédito formalizado puede permitir liberar la mesa, aunque la deuda continúe en cartera.
+Un crédito formalizado puede permitir liberar la mesa aunque la deuda continúe en cartera.
 
-## 4.5 Separación de responsabilidades
+## 8.5 Separación de dominios
 
 ```text
 Orders / Cuentas
-- atención;
+- atención y consumo;
 - cuenta global;
-- consumo;
-- productos y cantidades;
-- envío de solicitudes a Kitchen;
+- líneas y cantidades;
+- solicitud de envío a Kitchen;
 - emisión de prefacturas;
 - finalización del servicio.
 
 Caja
-- interfaz visible del cajero;
+- interfaz del cajero;
 - búsqueda de prefacturas;
 - cobro;
-- efectivo, vuelto, tarjeta, mixtos;
+- efectivo, vuelto, tarjeta y mixtos;
 - reimpresión autorizada;
 - formalización de crédito.
 
 Payments
 - servicio interno;
 - idempotencia;
-- transacciones monetarias;
-- pagos y reversos;
+- mutaciones monetarias;
 - componentes de pago;
 - saldos por prefactura;
-- consolidación en cuenta global;
-- nunca libera la mesa por sí solo.
+- consolidación global;
+- nunca libera mesa.
 
 Kitchen
-- preparación;
 - contenido y estado operativo de comandas;
 - destinos cocina/bar;
-- cambios y anulaciones;
+- preparación;
+- altas, ajustes y anulaciones;
 - tiempos y responsables.
 
 Printing
-- servicio interno;
-- plantillas;
-- trabajos persistentes;
+- servicio interno futuro;
+- plantillas y trabajos persistentes;
 - intentos, errores y reintentos;
-- dispositivos;
-- no decide reglas de negocio de Orders, Payments o Kitchen.
+- no decide reglas de Orders, Payments o Kitchen.
 
 Settings
-- pestaña Impresoras;
-- configuración de dispositivos y plantillas.
+- configuración de impresoras dentro de Configuración.
 ```
 
-Payments y Printing no deben aparecer como módulos técnicos en la navegación. Caja sí es visible desde el header para usuarios autorizados.
+Payments y Printing no aparecen como módulos técnicos en navegación. Caja sí es visible para usuarios autorizados.
 
-## 4.6 Roles y capacidades
+## 8.6 Roles y capacidades
 
-`usuarios.tipo` permanece limitado a conceptos generales como básico/administrador. Cajero es un rol o capacidad operativa, no un tercer tipo rígido.
+`usuarios.tipo` mantiene conceptos generales; Cajero es rol/capacidad operativa.
 
 Combinaciones válidas:
 
@@ -421,11 +651,11 @@ printing.configure
 printing.retry
 ```
 
-El backend autoriza. Ocultar botones no es seguridad suficiente.
+Ocultar botones no sustituye autorización backend.
 
-## 4.7 Impresión
+## 8.7 Impresión
 
-Regla obligatoria:
+Orden obligatorio:
 
 ```text
 persistir documento
@@ -434,20 +664,15 @@ persistir documento
 → intentar imprimir
 ```
 
-Una falla de impresión:
-
-- no revierte un pago confirmado;
-- no duplica una prefactura;
-- no consume otro número documental;
-- debe ser reintentable y auditable.
+Una falla de impresión no revierte un pago, no duplica prefactura, no consume nueva numeración y debe ser reintentable/auditable.
 
 ---
 
-# 5. Arquitectura ya implementada
+# 9. Arquitectura ya implementada
 
-Las siguientes bases se consideran parte del diseño aprobado; verifica su existencia y funcionamiento en el código actual antes de usarlas.
+Verifica su existencia antes de reutilizarla.
 
-## 5.1 Infraestructura
+## Infraestructura
 
 - transacciones SQLite reutilizables;
 - `BEGIN IMMEDIATE` para mutaciones críticas;
@@ -459,55 +684,49 @@ Las siguientes bases se consideran parte del diseño aprobado; verifica su exist
 - pruebas con SQLite temporal;
 - control de concurrencia.
 
-## 5.2 Acceso operativo
+## Acceso operativo
 
 - capacidades persistentes;
-- rol Cajero sin zona obligatoria;
+- Cajero sin zona obligatoria;
 - navegación autorizada;
 - destino inicial Caja;
-- acceso compartido por múltiples roles activos;
+- roles combinables;
 - filtros por zona y responsabilidad;
-- realtime filtrado por capacidades y alcance.
+- realtime filtrado.
 
-## 5.3 Cuenta global y documentos
+## Cuenta global y documentos
 
-- cuenta global persistente;
-- número `CTA-########`;
+- cuenta `CTA-########`;
 - estados operativo y financiero separados;
 - snapshots de cliente, mesa, zona y responsables;
-- líneas de consumo con identidad estable;
-- cantidades consumidas, asignadas y disponibles;
+- líneas estables y cantidades;
 - snapshots de producto, presentación, precio y servicio;
 - prefacturas `PF-########`;
-- ítems persistentes;
-- historial;
+- ítems persistentes e historial;
 - anulación interna;
 - emisión idempotente.
 
-## 5.4 Caja y Payments
+## Caja y Payments
 
 - pagos `PG-########`;
 - pagos parciales/completos por prefactura;
 - efectivo, vuelto, tarjeta y mixtos;
-- tabla de medios de pago;
+- medios persistentes;
 - reversos auditables;
-- API y read model de Caja;
-- UI de Caja y modal de cobro;
-- movimientos de Caja separados de ventas globales.
+- API/read model/UI de Caja;
+- movimientos separados de ventas globales.
 
-## 5.5 Créditos
+## Créditos
 
 - créditos `CR-########`;
-- formalización desde una prefactura;
+- formalización desde prefactura;
 - autorización administrativa;
-- pago de apertura con naturaleza de liquidación de venta;
-- abonos posteriores como cobro de crédito;
+- apertura como liquidación de venta;
+- abonos como cobro de crédito;
 - cartera e historial;
-- sin doble contabilización de la venta.
+- sin doble contabilización.
 
-## 5.6 Finalización
-
-La fase `v3.2.5` introduce o debe introducir:
+## Finalización
 
 ```text
 server/services/serviceFinalizationService.js
@@ -515,30 +734,32 @@ GET  /api/orders/:id/finalization
 POST /api/orders/:id/finalize-service
 ```
 
-Debe cerrar cuenta y liberar mesa de forma atómica, conservando todo el historial.
+Debe cerrar cuenta y liberar mesa de forma atómica, conservando historial.
 
 ---
 
-# 6. Historial de fases
+# 10. Historial de fases
 
-## Menú v2.2.5M completado
+## Menú v2.2.5M cerrado
 
-El módulo Menú fue normalizado antes de iniciar MundiPOS 3.0:
+Incluye:
 
 - productos operativos;
 - presentaciones y precios;
 - estados activo/inactivo;
 - protección administrativa;
-- tipos y grupos de presentación;
+- tipos y grupos;
+- correcciones de modales;
+- resumen móvil compacto;
 - normalización visual;
 - integración Menu → Orders;
 - pruebas y limpieza legacy;
-- generación/importación de plantillas Excel;
+- plantillas Excel;
 - imágenes por presentación.
 
-No reviertas ni rediseñes este contrato salvo que una fase futura detecte un defecto comprobado.
+No lo rediseñes durante Kitchen salvo defecto demostrado.
 
-## MundiPOS 3.0 completado o entregado
+## MundiPOS 3.0 realizado
 
 ```text
 v3.0.0       Auditoría y contrato arquitectónico
@@ -557,67 +778,54 @@ v3.1.5       Read model financiero consolidado
 
 v3.2.0       Payments por prefactura
 v3.2.0 fix1  Dependencias compatibles de seguridad
-v3.2.0 fix2  Driver sqlite3 actualizado de forma controlada
+v3.2.0 fix2  Exclusión de SQLite operativo
+v3.2.0 fix3  sqlite3 6.0.1 y compatibilidad Node
 v3.2.1       API y read model de Caja
 v3.2.2       Caja visual y modal de cobro
 v3.2.3       Efectivo, vuelto, tarjeta y mixtos
 v3.2.4       Créditos integrados con Payments
-v3.2.5       Finalización y liberación integral — verificar cierre
+v3.2.5       Finalización y liberación integral
 ```
 
 ---
 
-# 7. Entorno local y restricciones de infraestructura
+# 11. Entorno local, HTTPS y PWA
 
-## 7.1 Node y SQLite
-
-Último entorno reportado por el usuario:
+Último Node reportado previamente:
 
 ```text
 Node.js v24.16.0
 ```
 
-La actualización controlada tenía como objetivo:
+No lo asumas: verifica.
+
+Objetivos vigentes:
 
 ```text
-sqlite3@6.0.1
-Node >= 20.17.0
+sqlite3 6.0.1
+Node >=20.17.0
 ```
 
-No asumas el resultado: verifica con:
+Comandos:
 
 ```powershell
+node -v
+npm -v
 npm ls sqlite3 --depth=0
 npm run test:sqlite-driver
 npm audit --omit=dev
 ```
 
-No ejecutes automáticamente:
+No ejecutes `npm audit fix --force`.
 
-```powershell
-npm audit fix --force
-```
-
-Cualquier actualización mayor debe tratarse como una subfase controlada, con lockfile reproducible, `npm ci`, pruebas y rollback.
-
-## 7.2 HTTPS y PWA
-
-La aplicación debe funcionar por HTTPS tanto en localhost como en la IP local para permitir PWA móvil.
-
-IP local acordada:
-
-```text
-192.168.0.2
-```
-
-URLs esperadas:
+HTTPS/PWA:
 
 ```text
 https://localhost:3000/POS/
 https://192.168.0.2:3000/POS/
 ```
 
-Los certificados son locales y están ignorados por Git:
+Certificados locales ignorados:
 
 ```text
 .env
@@ -627,208 +835,95 @@ certs/
 public/mundipos-rootCA.crt
 ```
 
-No los sobrescribas, elimines, empaquetes ni solicites su contenido privado. Los ZIP de implementación no deben contenerlos.
+No los sobrescribas, elimines, empaquetes ni solicites.
 
-Cada cambio de `public/service-worker.js` o assets frontend relevantes debe actualizar el nombre del caché PWA para evitar que móviles conserven código antiguo.
+Cuando cambien assets frontend o `public/service-worker.js`, actualiza el caché PWA para evitar clientes móviles con código obsoleto.
 
-## 7.3 Puerto 3000
-
-Si aparece `EADDRINUSE`, identifica y detén la instancia anterior. No cambies el puerto por conveniencia sin revisar certificados, PWA, configuración y documentación.
-
-## 7.4 Base operativa
-
-La base local es:
-
-```text
-data/restaurant.db
-```
-
-Debe estar ignorada y no rastreada por Git. Antes de migraciones importantes se crea un respaldo local en:
-
-```text
-data/backups/
-```
-
-Nunca incluyas en un ZIP o commit:
-
-```text
-data/*.db
-data/*.sqlite
-data/*.db-shm
-data/*.db-wal
-data/backups/
-```
-
-Al inicio del nuevo chat verifica:
-
-```powershell
-git ls-files -- data/restaurant.db
-git check-ignore -v data/restaurant.db
-git status --short
-```
-
-`git ls-files` no debe listar la base. Si la lista, detén el desarrollo y corrige el seguimiento sin borrar el archivo local.
+Si aparece `EADDRINUSE`, identifica y detén la instancia anterior. No cambies puerto/IP por conveniencia.
 
 ---
 
-# 8. Repositorio, Git y seguridad
-
-## 8.1 No usar OneDrive para el repositorio activo
-
-El código activo está en:
-
-```text
-C:\Repos\POS_Restaurante
-```
-
-No regreses `.git` a OneDrive. GitHub es el respaldo del código.
-
-## 8.2 Mantenimiento Git
-
-En el antiguo repositorio se deshabilitó el mantenimiento automático para evitar bloqueos. En el nuevo repositorio fuera de OneDrive, `git fsck --full` y `git gc` funcionaron correctamente.
-
-No borres manualmente:
-
-```text
-.git/
-.git/objects/
-```
-
-## 8.3 Staging seguro
-
-Nunca uses:
-
-```powershell
-git add .
-git add -A
-git commit -a
-```
-
-Agrega archivos explícitos.
-
-Antes de cada commit:
-
-```powershell
-Stop-Process -Name node -Force -ErrorAction SilentlyContinue
-
-git status --short
-git diff --cached --name-only
-git diff --cached --check
-```
-
-Filtro obligatorio:
-
-```powershell
-git diff --cached --name-only |
-Select-String -Pattern "\.env$|certs/|cookies\.txt|data/.*\.db|data/.*\.sqlite|data/.*\.db-shm|data/.*\.db-wal|data/backups|mundipos-rootCA|\.pem$|\.key$|node_modules"
-```
-
-Debe quedar vacío.
-
-Después:
-
-```powershell
-git commit -m "MENSAJE_CANONICO_DE_LA_FASE"
-git push origin main
-git status --short
-```
-
-No declares una fase cerrada si el estado no queda limpio o si el usuario no confirmó la operación.
-
----
-
-# 9. Método obligatorio de trabajo para cada fase
-
-Sigue este procedimiento en todas las fases futuras.
+# 12. Método obligatorio por fase
 
 ## Paso 1 · Confirmar punto de partida
 
-- leer documentos canónicos;
-- inspeccionar el código real;
-- confirmar versión y último commit;
-- revisar cambios sin commit;
-- comprobar pruebas existentes;
-- revisar migraciones y esquema actuales;
-- identificar adaptadores legacy relacionados.
+- leer documentación;
+- inspeccionar commit `a39555a`;
+- confirmar rama, versión y estado;
+- revisar cambios no comprometidos;
+- verificar DB ignorada;
+- revisar dependencias y pruebas;
+- identificar adaptadores legacy.
 
-No programes sobre una copia antigua.
+## Paso 2 · Resolver higiene Git pendiente
 
-## Paso 2 · Auditar el dominio de la fase
+- retirar respaldos del índice de forma controlada;
+- preservar copias privadas;
+- no mezclar con Kitchen;
+- no reescribir historial sin aprobación;
+- verificar que un ZIP nuevo no incluya bases.
 
-Antes de editar, documenta:
+## Paso 3 · Auditar dominio
+
+Documentar:
 
 - comportamiento actual;
 - responsabilidades mezcladas;
-- tablas y columnas relacionadas;
-- rutas y componentes consumidores;
+- tablas/columnas;
+- rutas/componentes;
 - riesgos de migración;
-- compatibilidad visible;
-- permisos requeridos;
-- eventos realtime;
-- impresión, si aplica;
-- pruebas existentes y faltantes.
+- permisos;
+- realtime;
+- impresión;
+- pruebas existentes/faltantes.
 
-## Paso 3 · Definir alcance y no alcance
+## Paso 4 · Definir alcance y no alcance
 
-Cada implementación debe especificar:
+Especificar:
 
 - objetivo;
-- cambios incluidos;
-- cambios expresamente excluidos;
-- dependencias con fases previas;
-- invariantes que no pueden romperse;
+- cambios incluidos/excluidos;
+- dependencias;
+- invariantes;
 - criterios de aceptación;
-- estrategia de rollback.
+- rollback.
 
-No adelantes lógica de una fase posterior salvo infraestructura mínima indispensable y documentada.
+## Paso 5 · Diseñar migración segura
 
-## Paso 4 · Diseñar migración segura
-
-Para cambios de base:
-
-- migración idempotente;
-- columnas/tablas sin perder datos;
+- idempotencia;
+- sin pérdida de datos;
 - backfill controlado;
-- índices necesarios;
-- claves foráneas;
-- compatibilidad con datos legacy;
-- prueba sobre copia de base operativa;
-- respaldo previo;
-- `PRAGMA integrity_check` o equivalente;
-- rollback de código y restauración de respaldo documentados.
+- índices y claves;
+- compatibilidad legacy;
+- copia de base operativa;
+- `PRAGMA integrity_check`;
+- rollback documentado.
 
-No elimines tablas ni datos históricos en una fase de transición.
+No elimines tablas históricas en transición.
 
-## Paso 5 · Implementar por servicios
-
-Reglas:
+## Paso 6 · Implementar por servicios
 
 - routers delgados;
-- lógica de negocio en servicios;
-- transacciones en servicios de dominio;
-- backend recalcula precios, totales, saldos y estados;
+- lógica en servicios;
+- transacciones en dominio;
+- backend recalcula;
 - frontend no es fuente de verdad;
-- mutaciones idempotentes cuando exista riesgo de reintento;
-- control de versión/concurrencia;
-- efectos externos después del commit;
-- códigos de error de dominio estables;
-- autorización backend por capacidad.
+- idempotencia;
+- concurrencia/versionado;
+- efectos después del commit;
+- errores estables;
+- autorización backend.
 
-Las rutas legacy solo pueden permanecer como adaptadores temporales hacia servicios v3.
+## Paso 7 · Compatibilidad visible
 
-## Paso 6 · Mantener compatibilidad visible
-
-- conservar etiquetas y puntos de entrada cuando sigan siendo correctos;
+- conservar etiquetas/puntos de entrada válidos;
 - adaptar PC y móvil;
-- no crear módulos técnicos visibles para Payments o Printing;
-- Caja permanece en el header;
-- Impresoras permanece dentro de Configuración;
-- cambiar UI solo cuando el nuevo flujo operativo lo exija;
-- actualizar PWA y caché cuando cambie frontend.
+- no exponer Payments/Printing como módulos;
+- Caja en header;
+- Impresoras futura en Configuración;
+- actualizar caché PWA cuando aplique.
 
-## Paso 7 · Crear pruebas
-
-Toda fase debe agregar pruebas específicas y ejecutar la suite completa.
+## Paso 8 · Pruebas
 
 Cobertura mínima:
 
@@ -838,11 +933,10 @@ Cobertura mínima:
 - rollback;
 - idempotencia;
 - concurrencia;
-- datos legacy;
-- lectura sin efectos secundarios;
-- integridad financiera;
-- contrato visual cuando aplique;
-- PC/móvil mediante validación operativa.
+- legacy;
+- lectura sin efectos;
+- integridad financiera/operativa;
+- UI PC/móvil cuando aplique.
 
 Comandos base:
 
@@ -850,23 +944,21 @@ Comandos base:
 npm ci
 npm run test:sqlite-driver
 npm test
+npm audit --omit=dev
 ```
 
-Ejecuta además el script específico de la fase cuando exista.
-
-## Paso 8 · Validar sintaxis y arranque
+## Paso 9 · Sintaxis y arranque
 
 ```powershell
-node --check <archivos-backend-modificados>
-node --check <archivos-frontend-modificados>
+node --check <archivo>
 npm start
 ```
 
-Validar por HTTPS, no solo por HTTP.
+Validar HTTPS local e IP de red.
 
-## Paso 9 · Documentar
+## Paso 10 · Documentación
 
-Cada fase debe actualizar:
+Actualizar cuando corresponda:
 
 ```text
 README.md
@@ -875,114 +967,166 @@ docs/roadmap-v3.0-arquitectura-modular.md
 docs/avance-vX.Y.Z-....md
 package.json
 server/config/appInfo.js
-```
-
-Cuando cambie frontend/PWA, revisar:
-
-```text
 public/index.html
 public/service-worker.js
 ```
 
-El avance debe indicar:
+## Paso 11 · ZIP autocontenido y mínimo
 
-- objetivo;
-- diseño;
-- archivos;
-- esquema/migración;
-- API;
-- UI;
-- capacidades;
-- realtime;
-- compatibilidad;
-- pruebas;
-- limitaciones;
-- validación operativa;
-- commit exacto.
+El ZIP de entrega debe contener únicamente archivos creados o modificados para la fase, preservando rutas desde la raíz.
 
-## Paso 10 · Entregar un ZIP autocontenido
-
-El ZIP debe:
-
-- contener solo archivos que deben copiarse sobre la raíz;
-- preservar estructura de carpetas;
-- no incluir la base;
-- no incluir `.env`;
-- no incluir certificados;
-- no incluir claves;
-- no incluir `.git`;
-- no incluir `node_modules`;
-- no incluir respaldos;
-- no incluir archivos temporales;
-- indicar claramente la versión.
-
-Antes de afirmar que un ZIP existe, créalo y verifica su contenido.
-
-## Paso 11 · Dar instrucciones de validación y Git
-
-La respuesta de entrega debe incluir:
-
-1. enlace al ZIP;
-2. resumen de lo implementado;
-3. migraciones;
-4. pruebas ejecutadas y límites reales;
-5. pruebas que el usuario debe correr;
-6. validación operativa paso a paso;
-7. lista explícita de archivos para `git add`;
-8. filtro de seguridad;
-9. commit canónico;
-10. próxima fase.
-
-No digas que una prueba nativa pasó si no se pudo ejecutar en el entorno de construcción.
-
-## Paso 12 · Esperar confirmación
-
-Después de entregar una fase, espera que el usuario confirme:
+Nunca incluir:
 
 ```text
-Funcionando
-Git completos
+.git
+.env
+certs
+*.pem
+*.key
+node_modules
+data/*.db
+data/*.sqlite
+data/*.db-shm
+data/*.db-wal
+data/backups
+respaldos
+cookies
+archivos temporales
 ```
 
-Solo entonces continúa con la siguiente fase.
+No uses `git archive` ciegamente mientras existan respaldos rastreados. Verifica el contenido real del ZIP antes de ofrecerlo.
+
+## Paso 12 · Git seguro
+
+Nunca:
+
+```powershell
+git add .
+git add -A
+git commit -a
+git clean
+git reset --hard
+```
+
+Antes de commit:
+
+```powershell
+Stop-Process -Name node -Force -ErrorAction SilentlyContinue
+git status --short
+git diff --cached --name-only
+git diff --cached --check
+```
+
+Filtro:
+
+```powershell
+git diff --cached --name-only |
+Select-String -Pattern "\.env$|certs/|cookies\.txt|data/.*\.db|data/.*\.sqlite|data/.*\.db-shm|data/.*\.db-wal|data/backups|mundipos-rootCA|\.pem$|\.key$|node_modules"
+```
+
+Debe quedar vacío.
+
+Agrega archivos explícitos. No publiques hasta que el usuario confirme validación operativa y Git.
+
+## Paso 13 · Confirmación
+
+Después de entregar una fase, espera confirmación operativa y Git antes de avanzar.
 
 ---
 
-# 10. Próxima fase: v3.3.0 · Dominio Kitchen / Comandas
+# 13. Verificación inicial recomendada en el nuevo chat
 
-## 10.1 Objetivo
+Solicita o ejecuta en bloques controlados:
 
-Separar de Orders la lógica de preparación y establecer Kitchen como propietario del contenido y estado operativo de las comandas.
+```powershell
+Set-Location C:\Repos\POS_Restaurante
+
+git status --short
+git branch --show-current
+git branch -vv
+git rev-list --left-right --count origin/main...main
+git log -8 --oneline --decorate --graph
+git stash list
+```
+
+Luego:
+
+```powershell
+git show --stat --summary a39555a
+git show --name-status --format=fuller a39555a
+git diff d5edf05..a39555a --
+```
+
+Luego:
+
+```powershell
+node -v
+npm -v
+node -p "require('./package.json').version"
+node -p "require('./package.json').dependencies.sqlite3"
+node -p "require('./package.json').engines.node"
+npm ls sqlite3 --depth=0
+```
+
+Bases y seguridad:
+
+```powershell
+git ls-files -- data/restaurant.db
+git check-ignore -v data/restaurant.db
+git ls-files -- data/backups
+git ls-files -- .vscode/settings.json
+```
+
+Pruebas:
+
+```powershell
+npm run test:sqlite-driver
+npm test
+npm audit --omit=dev
+```
+
+No pidas todos los bloques a la vez si el usuario está trabajando de forma interactiva. El patrón acordado es un bloque de PowerShell por turno y revisión de salida antes del siguiente.
+
+---
+
+# 14. Próxima fase · v3.3.0 Dominio Kitchen / Comandas
+
+## Objetivo
+
+Separar de Orders la lógica de preparación y establecer Kitchen como propietario del contenido y estado operativo de comandas.
 
 ```text
 Orders registra consumo y solicita envío.
-Kitchen determina qué líneas nuevas o cambiadas deben prepararse.
-Printing imprime el documento, pero no decide qué contiene ni su estado operativo.
+Kitchen calcula cambios no enviados y crea comandas.
+Printing imprime posteriormente, pero no decide contenido ni preparación.
 ```
 
-## 10.2 Auditoría obligatoria previa
+## Auditoría obligatoria previa
 
-Antes de implementar, localiza:
+Localiza y documenta:
 
-- tabla actual `comandas` y tablas relacionadas;
-- columnas que mezclen impresión y preparación;
+- tabla `comandas` y relacionadas;
+- almacenamiento actual de ítems, texto o JSON;
+- relación con `pedidos`, `pedido_productos` o equivalentes;
+- columnas mezclando impresión/preparación;
 - rutas de creación, pendientes, envío, reenvío y actualización;
 - llamadas desde Orders;
 - placeholders de impresión;
-- lógica de productos que requieren cocina/bar;
+- productos que requieren cocina/bar;
 - destino por categoría, subcategoría, producto o presentación;
-- tratamiento de cantidades;
-- modificaciones/anulaciones después del primer envío;
-- realtime de cocina;
-- permisos `kitchen.operate`;
-- UI actual de comandas;
-- comportamiento tras reinicio.
+- cantidades enviadas, pendientes y anuladas;
+- modificaciones/anulaciones posteriores;
+- realtime;
+- capacidad `kitchen.operate`;
+- UI actual;
+- comportamiento tras reinicio;
+- condiciones de carrera en dos dispositivos.
 
-No asumas que la auditoría v3.0 sigue describiendo exactamente el código actual.
+Presenta la auditoría antes de editar.
 
-## 10.3 Alcance previsto
+## Alcance previsto
 
-Implementar, según confirme el código actual:
+Según el código real, implementar un servicio de dominio como:
 
 ```text
 server/services/kitchenService.js
@@ -990,21 +1134,21 @@ server/services/kitchenService.js
 
 Responsabilidades:
 
-- crear comandas a partir de cambios no enviados;
-- identificar líneas por `pedido_producto_id` y cantidad;
+- crear comandas desde cambios no enviados;
+- identificar líneas por identidad estable y cantidad;
 - no reenviar unidades ya comandadas;
-- enviar solo productos que requieren preparación;
-- resolver destino cocina/bar de forma canónica;
-- conservar presentación y descripción snapshot;
-- registrar responsable y timestamps;
-- manejar adiciones posteriores;
-- manejar modificaciones y anulaciones mediante eventos/ajustes auditables;
+- incluir solo productos con preparación;
+- resolver destino cocina/bar canónicamente;
+- conservar snapshots de producto/presentación/observaciones;
+- registrar solicitante, responsable y timestamps;
+- soportar adiciones posteriores;
+- representar ajustes/anulaciones sin borrar historia;
 - mantener idempotencia y concurrencia;
 - publicar realtime después del commit.
 
-## 10.4 Modelo sugerido, sujeto a auditoría
+## Modelo conceptual sugerido
 
-No impongas este modelo si el código actual ofrece una migración mejor, pero conserva los conceptos:
+Sujeto a auditoría:
 
 ```text
 comandas
@@ -1020,7 +1164,7 @@ comandas
 
 comanda_items
 - comanda_id
-- pedido_producto_id
+- pedido_producto_id / linea_consumo_id
 - cantidad
 - producto_snapshot
 - presentacion_snapshot
@@ -1038,62 +1182,73 @@ historial_comandas
 - metadata
 ```
 
-Printing no debe ser el dueño de `estado_operativo`.
+No impongas nombres si el esquema vigente ofrece una migración mejor; conserva los conceptos.
 
-## 10.5 Casos obligatorios
+## Casos obligatorios
 
-1. Agregar `Hamburguesa ×2` y enviar: Kitchen recibe exactamente dos unidades.
-2. Volver a pulsar enviar sin cambios: no genera otra comanda equivalente.
-3. Agregar una unidad adicional después: envía solo la nueva unidad.
-4. Producto que no requiere preparación: no aparece.
-5. Producto con presentación: conserva descripción exacta.
-6. Cocina y bar: cada destino recibe únicamente sus ítems.
-7. Modificación o anulación: queda registrada sin borrar historia.
-8. Doble dispositivo: no duplica cantidades enviadas.
-9. Falla de impresión futura: la comanda operativa sigue existiendo.
-10. Reinicio del servidor: las comandas pendientes se recuperan.
-11. Usuario sin `kitchen.operate`: no puede operar Kitchen.
-12. Realtime: solo llega a usuarios y zonas/destinos autorizados.
+1. `Hamburguesa ×2`: envía exactamente dos unidades.
+2. Repetir envío sin cambios: no crea duplicado.
+3. Agregar una unidad: envía solo la nueva.
+4. Producto sin preparación: queda fuera.
+5. Presentación: conserva descripción exacta.
+6. Cocina/bar: separa destinos.
+7. Modificación/anulación: conserva historia.
+8. Dos dispositivos: no duplican cantidades.
+9. Falla futura de impresión: comanda operativa persiste.
+10. Reinicio: pendientes recuperables.
+11. Sin `kitchen.operate`: operación rechazada en backend.
+12. Realtime: filtrado por autorización y destino/zona.
 
-## 10.6 No alcance de v3.3.0
+## No alcance
 
 No implementar todavía:
 
 - cola definitiva de Printing;
 - drivers térmicos;
 - configuración de impresoras;
-- todos los estados avanzados de preparación de `v3.3.1`;
+- todos los estados avanzados de `v3.3.1`;
 - reportes finales de Kitchen;
 - limpieza completa de legacy.
 
-Puede incluir el estado mínimo necesario para compatibilidad, pero la trazabilidad completa corresponde a `v3.3.1`.
+## Criterios de aprobación
 
-## 10.7 Criterios de aprobación
-
-- Orders ya no decide directamente el contenido de una comanda;
-- Kitchen genera únicamente cambios nuevos;
-- no hay duplicación por reintento;
+- Orders no decide directamente el contenido de la comanda;
+- Kitchen genera solo cambios nuevos;
+- reintentos no duplican;
 - productos sin preparación quedan fuera;
-- destinos se separan correctamente;
-- datos históricos se preservan;
-- impresión no controla preparación;
+- destinos correctos;
+- historial preservado;
+- impresión desacoplada;
 - pruebas específicas y suite completa pasan;
 - operación actual no se rompe;
-- documentación y Git quedan completos.
+- documentación y Git completos.
 
-Commit canónico:
+Commit canónico sugerido:
 
 ```powershell
 git commit -m "v3.3.0: separa dominio de Kitchen y comandas"
 ```
 
+No prepares este commit hasta que la higiene Git esté cerrada y el usuario confirme la validación funcional.
+
 ---
 
-# 11. Alcance ampliado de las fases restantes
+# 15. Fases posteriores
 
-## v3.3.1 · Trazabilidad operativa de comandas
+```text
+v3.3.1 · Trazabilidad operativa de comandas
+v3.4.0 · Núcleo y cola de Printing
+v3.4.1 · Integración transversal de documentos
+v3.4.2 · Configuración → Impresoras
+v3.5.0 · Dashboard y reportes financieros consolidados
+v3.5.1 · Realtime y recuperación operativa
+v3.6.0 · Limpieza legacy y orden estructural
+v3.7.0 · Pruebas cruzadas y cierre MundiPOS 3.0
+```
 
-Estados canónicos previstos:
+No adelantes fases.
+
+Estados previstos para `v3.3.1`:
 
 ```text
 pendiente
@@ -1104,323 +1259,78 @@ entregada
 anulada
 ```
 
-Debe implementar:
+Printing debe ser posterior al commit de negocio y no controlar el estado de preparación.
 
-- historial por comanda e ítem;
-- usuario que cambia estado;
-- timestamps por transición;
-- tiempos de espera y preparación;
-- ajustes/anulaciones;
-- read model para cocina/bar;
-- recuperación tras reinicio;
-- realtime de estados;
-- protección de transiciones inválidas;
-- idempotencia y versión.
-
-No debe mezclar “impresa” con “enviada” o “en preparación”.
-
-Commit:
-
-```powershell
-git commit -m "v3.3.1: agrega trazabilidad operativa de comandas"
-```
-
-## v3.4.0 · Núcleo y cola de Printing
-
-Debe crear una infraestructura transversal persistente:
-
-```text
-trabajos_impresion
-intentos_impresion
-plantillas_documento
-```
-
-Estados sugeridos:
-
-```text
-pendiente
-procesando
-completado
-fallido
-cancelado
-```
-
-Debe incluir:
-
-- `printingService`;
-- identidad/idempotencia por documento, tipo y copia;
-- vista previa;
-- adaptador inicial navegador/PDF;
-- base para drivers térmicos;
-- intentos, errores y reintentos;
-- recuperación después de reinicio;
-- efectos posteriores al commit de negocio.
-
-No debe recalcular importes ni contenido de negocio.
-
-Commit:
-
-```powershell
-git commit -m "v3.4.0: crea nucleo y cola de Printing"
-```
-
-## v3.4.1 · Integración transversal de documentos
-
-Integrar Printing con:
-
-- prefactura normal;
-- prefactura parcial;
-- recibo/factura de pago;
-- comprobante de crédito;
-- abono;
-- comanda cocina/bar;
-- cierre diario;
-- reimpresión autorizada.
-
-Reglas:
-
-- cada dominio entrega un read model canónico;
-- reimpresión conserva el mismo número;
-- cada copia e intento queda auditado;
-- fallos no duplican operaciones;
-- eliminar plantillas duplicadas en Orders/Caja/Créditos solo cuando todos los consumidores usen Printing.
-
-Commit:
-
-```powershell
-git commit -m "v3.4.1: integra documentos operativos con Printing"
-```
-
-## v3.4.2 · Configuración → Impresoras
-
-Crear una pestaña dentro de Configuración, no un módulo Printing visible.
-
-Parámetros:
-
-- impresora de Caja;
-- impresora de cocina;
-- impresora de bar;
-- tamaño de papel;
-- copias;
-- autoimpresión;
-- plantilla;
-- prueba de impresión;
-- estado del dispositivo.
-
-Settings guarda configuración; Printing ejecuta.
-
-Commit:
-
-```powershell
-git commit -m "v3.4.2: agrega configuracion central de impresoras"
-```
-
-## v3.5.0 · Dashboard y reportes financieros consolidados
-
-Alinear definitivamente los indicadores con la cuenta global.
-
-Debe revisar:
-
-- ventas por cuenta global;
-- movimientos de Caja por pago;
-- créditos y abonos sin doble venta;
-- consumo activo;
-- documentos pendientes;
-- filtros por cajero, método, zona y responsable;
-- observación de cuenta dividida;
-- fechas de venta versus fechas de movimiento;
-- conciliación por período;
-- ausencia total de cobro directo desde Dashboard.
-
-Criterios:
-
-- una cuenta dividida aparece como una venta;
-- cada pago aparece como movimiento;
-- pagadores parciales solo aparecen en detalle;
-- responsable proviene de la cuenta global;
-- no se duplica efectivo recibido con monto aplicado.
-
-Commit:
-
-```powershell
-git commit -m "v3.5.0: consolida Dashboard reportes y movimientos de Caja"
-```
-
-## v3.5.1 · Realtime y recuperación operativa
-
-Coordinar:
-
-- Cuentas;
-- Caja;
-- Dashboard;
-- Zonas;
-- Kitchen;
-- Printing.
-
-Eventos mínimos:
-
-```text
-cuenta actualizada
-prefactura emitida/anulada
-pago confirmado/reversado
-saldo actualizado
-crédito formalizado/abonado
-servicio finalizado
-mesa liberada
-comanda actualizada
-impresión pendiente/fallida/completada
-```
-
-Debe incluir:
-
-- filtrado por capacidades y zonas;
-- recuperación de conexiones;
-- recarga consistente de Caja;
-- versión obsoleta/concurrencia;
-- recuperación de trabajos pendientes;
-- reintento idempotente;
-- evitar polling agresivo.
-
-Commit:
-
-```powershell
-git commit -m "v3.5.1: sincroniza Cuentas Caja Kitchen y Printing"
-```
-
-## v3.6.0 · Limpieza legacy y orden estructural
-
-Solo cuando todos los consumidores usen los servicios v3:
-
-- retirar lógica monetaria de Orders;
-- retirar cobro directo de Dashboard;
-- consolidar Accounts/Credits;
-- eliminar endpoints legacy sin consumidores;
-- eliminar fachadas temporales;
-- retirar placeholders de impresión;
-- dividir componentes frontend demasiado extensos;
-- dejar routers delgados;
-- eliminar funciones huérfanas y reglas duplicadas;
-- documentar dependencias por dominio.
-
-No eliminar nada basándose únicamente en una búsqueda textual. Identifica consumidores, pruebas y rutas activas.
-
-Commit:
-
-```powershell
-git commit -m "v3.6.0: elimina legacy y ordena arquitectura modular"
-```
-
-## v3.7.0 · Pruebas cruzadas y cierre MundiPOS 3.0
-
-Matriz mínima:
-
-- administrador;
-- cajero exclusivo;
-- salonero con Caja;
-- bartender con Caja;
-- cuenta normal;
-- cuenta dividida 2 + 1;
-- múltiples líneas/cantidades;
-- cliente que paga y se retira;
-- consumo posterior a pago;
-- saldo temporal cero;
-- efectivo/vuelto;
-- tarjeta;
-- mixto;
-- reverso;
-- crédito y abonos;
-- Kitchen cocina/bar;
-- cambios/anulaciones de comanda;
-- impresión fallida y reintento;
-- dos dispositivos concurrentes;
-- finalización y limpieza de responsables;
-- una venta global con múltiples pagos;
-- PC y PWA móvil por HTTPS.
-
-MundiPOS 3.0 solo se cierra cuando:
-
-- cuenta global es la única fuente financiera;
-- prefacturas/pagos no duplican ventas;
-- atención administra consumo y documentos;
-- Caja cobra con autorización;
-- Payments es atómico e idempotente;
-- pagar no cierra mesas;
-- finalizar servicio libera integralmente;
-- Kitchen y Printing están desacoplados;
-- Configuración administra impresoras;
-- Dashboard concilia ventas y Caja;
-- realtime coordina dispositivos;
-- legacy fue retirado;
-- pruebas automáticas y operativas están aprobadas.
-
-Commit:
-
-```powershell
-git commit -m "v3.7.0: cierra arquitectura operativa de MundiPOS 3.0"
-```
+Dashboard debe mantener una venta global y movimientos individuales de Caja sin doble contabilización.
 
 ---
 
-# 12. Restricciones y acciones prohibidas
+# 16. Restricciones absolutas
 
 No debes:
 
 1. Reescribir el proyecto desde cero.
-2. Reconstruir el código combinando ZIP de fases antiguas.
-3. Trabajar sin inspeccionar el ZIP/repo más reciente.
-4. Cambiar la cuenta global por una suma de prefacturas como fuente financiera.
-5. Contabilizar prefacturas como ventas independientes.
-6. Cerrar una mesa al pagar una prefactura.
-7. Liberar mesa desde Payments.
-8. Permitir cobro desde Dashboard.
-9. Mover la división de cuenta a Caja.
-10. Preparar varias subcuentas simultáneamente.
-11. Reutilizar cantidades ya documentadas.
-12. Confiar en montos enviados por frontend.
-13. Proteger operaciones solo ocultando botones.
-14. Emitir realtime antes del commit de la transacción.
-15. Imprimir antes de persistir el documento.
-16. Marcar una impresión como exitosa sin confirmación real.
-17. Mezclar estado de impresión con estado de preparación Kitchen.
-18. Eliminar historial financiero u operativo.
-19. Eliminar tablas legacy antes de migrar consumidores.
-20. Aplicar `npm audit fix --force` automáticamente.
-21. Incluir bases, certificados, secretos o `node_modules` en ZIP/Git.
-22. Usar `git add .`.
-23. Borrar `.git` u objetos Git manualmente.
-24. Volver a usar el repositorio activo dentro de OneDrive.
-25. Cambiar HTTPS a HTTP como solución temporal para PWA.
-26. Cambiar el puerto o IP sin evaluar certificados, origen PWA y documentación.
-27. Afirmar que pruebas pasaron cuando no se ejecutaron.
-28. Entregar un ZIP sin verificar que existe y contiene los archivos correctos.
-29. Avanzar de fase sin confirmación operativa y Git completo.
-30. Inventar rutas, tablas o archivos sin verificar el código actual.
+2. Combinar ZIP antiguos para reconstruir una nueva base de código.
+3. Trabajar sin inspeccionar el ZIP/HEAD más reciente.
+4. Ignorar el commit `a39555a`.
+5. Considerar resuelto el rastreo de respaldos SQLite sin verificarlo.
+6. Exponer contenido de bases en el chat.
+7. Reescribir historial o force-push sin aprobación.
+8. Convertir prefacturas en ventas independientes.
+9. Cerrar mesa por pago o saldo cero.
+10. Liberar mesa desde Payments.
+11. Cobrar desde Dashboard.
+12. Mover división de cuenta a Caja.
+13. Preparar varias subcuentas simultáneamente.
+14. Reutilizar cantidades documentadas.
+15. Confiar en montos del frontend.
+16. Autorizar solo ocultando botones.
+17. Emitir realtime antes del commit.
+18. Imprimir antes de persistir.
+19. Mezclar impresión con preparación.
+20. Eliminar historial financiero u operativo.
+21. Eliminar tablas legacy antes de migrar consumidores.
+22. Ejecutar `npm audit fix --force`.
+23. Incluir bases, certificados, secretos o `node_modules` en ZIP/Git.
+24. Usar `git add .`, `git add -A` o `git commit -a`.
+25. Usar `git clean` o `git reset --hard`.
+26. Aplicar o eliminar el stash automáticamente.
+27. Borrar `.git` u objetos Git.
+28. Volver a desarrollar dentro de OneDrive.
+29. Cambiar HTTPS a HTTP para resolver PWA.
+30. Cambiar puerto/IP sin evaluar certificados y origen PWA.
+31. Afirmar pruebas no ejecutadas.
+32. Ofrecer un ZIP sin crearlo e inspeccionarlo.
+33. Avanzar de fase sin confirmación operativa y Git.
+34. Inventar rutas, tablas o archivos.
+35. Ejecutar scripts antiguos de recuperación SQLite.
+36. Copiar `RECOVERY_KEEP_20260717.zip` dentro del proyecto.
 
 ---
 
-# 13. Formato esperado de cada respuesta de implementación
+# 17. Formato esperado de entregas
 
-La respuesta debe contener, en este orden:
+Para una implementación, responder en este orden:
 
-1. Nombre exacto de la fase.
-2. Enlace al ZIP creado.
-3. Objetivo y reglas preservadas.
-4. Cambios backend.
-5. Cambios frontend.
-6. Migración de base.
-7. Capacidades/autorización.
-8. Realtime.
-9. Compatibilidad y no alcance.
-10. Pruebas realmente ejecutadas.
-11. Pruebas locales que debe ejecutar el usuario.
-12. Validación operativa paso a paso.
-13. Lista de archivos incluidos.
-14. Comandos `git add` explícitos.
-15. Filtro de seguridad.
-16. Commit canónico.
-17. Próxima fase.
+1. nombre exacto de la fase;
+2. enlace al ZIP mínimo creado;
+3. objetivo y reglas preservadas;
+4. cambios backend;
+5. cambios frontend;
+6. migración de base;
+7. capacidades/autorización;
+8. realtime;
+9. compatibilidad y no alcance;
+10. pruebas realmente ejecutadas;
+11. pruebas locales del usuario;
+12. validación operativa paso a paso;
+13. lista de archivos incluidos;
+14. comandos `git add` explícitos;
+15. filtro de seguridad;
+16. commit canónico;
+17. próxima fase.
 
-No satures la respuesta con afirmaciones no verificadas. Distingue entre:
+Distingue siempre:
 
 ```text
 validado en entorno de construcción
@@ -1428,59 +1338,63 @@ pendiente de validar en Windows
 confirmado operativamente por el usuario
 ```
 
+Cuando el usuario trabaje en consola, entrega un bloque de PowerShell por turno. No satures con múltiples acciones irreversibles simultáneas.
+
 ---
 
-# 14. Cómo obtener el ZIP fuente para el nuevo chat
+# 18. Creación segura del ZIP para el nuevo chat
 
-El nuevo chat no puede acceder a `C:\Repos\POS_Restaurante` directamente. El usuario debe adjuntar un ZIP actual.
+No uses el ZIP antiguo de este chat como fuente final. El nuevo chat necesita un ZIP del `HEAD` actual después de verificar el commit `a39555a` y resolver la higiene de respaldos rastreados.
 
-Cuando el repositorio esté limpio y todos los cambios estén comprometidos, la forma más segura es:
+Cuando Git esté limpio y los respaldos ya no estén en el árbol actual, puede usarse:
 
 ```powershell
 Set-Location C:\Repos\POS_Restaurante
 
 git status --short
-git archive --format=zip --output="$HOME\Desktop\POS_Restaurante_HEAD.zip" HEAD
+git log -1 --oneline --decorate
+
+git archive `
+  --format=zip `
+  --output="C:\Repos\POS_Restaurante_HEAD_ACTUAL.zip" `
+  HEAD
 ```
 
-Este ZIP contiene solamente archivos rastreados y excluye automáticamente:
+Antes de adjuntarlo, inspecciona sus entradas y confirma que no contenga:
 
-- `.git`;
-- base local;
-- `.env`;
-- certificados;
-- `node_modules`;
-- respaldos.
+```text
+data/*.db
+data/backups/
+.env
+certs/
+*.pem
+*.key
+node_modules/
+.git/
+```
 
 Adjuntar al nuevo chat:
 
 ```text
-PROMPT-CONTINUIDAD-MUNDIPOS-3.0.md
-POS_Restaurante_HEAD.zip
+docs/PROMPT-CONTINUIDAD-MUNDIPOS-3.0.md
+POS_Restaurante_HEAD_ACTUAL.zip
 ```
-
-Si `v3.2.5` todavía no está aplicada/comprometida, adjuntar también:
-
-```text
-v3.2.5-finalizacion-servicio.zip
-```
-
-y aclarar expresamente que está pendiente de instalación o validación.
 
 ---
 
-# 15. Primera respuesta esperada del nuevo chat
+# 19. Primera respuesta esperada del nuevo chat
 
-La primera respuesta del asistente debe demostrar que comprendió el traspaso y plantear una verificación concreta, sin comenzar a programar a ciegas.
-
-Debe expresar esencialmente:
+La primera respuesta debe demostrar comprensión y no comenzar a programar. Debe expresar esencialmente:
 
 ```text
-1. Confirmaré si v3.2.5 está aplicada y cerrada.
-2. Leeré los documentos canónicos y auditaré el código actual.
-3. Verificaré Git, SQLite, HTTPS/PWA y pruebas.
-4. Solo después iniciaré v3.3.0 Kitchen / Comandas.
-5. No alteraré la cuenta global, Caja, Payments ni el flujo de división.
+1. Confirmaré el HEAD real, main/origin y el árbol limpio.
+2. Auditaré el commit a39555a antes de asumir equivalencia funcional.
+3. Leeré documentos canónicos y el README de recuperación.
+4. Verificaré versión, SQLite, base ignorada, HTTPS/PWA y pruebas.
+5. Resolveré primero los respaldos SQLite rastreados sin borrar copias locales ni reescribir historial automáticamente.
+6. Después auditaré Kitchen/Comandas en el código vigente.
+7. No alteraré cuenta global, Caja, Payments, créditos, división ni finalización.
+8. No generaré código hasta presentar alcance, migración, riesgos y pruebas de v3.3.0.
 ```
 
-Después debe inspeccionar los archivos adjuntos y continuar con evidencia real.
+Después debe trabajar con evidencia real del ZIP y de la salida del usuario.
