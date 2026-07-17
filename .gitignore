@@ -16,54 +16,52 @@ pnpm-debug.log*
 .env.*
 !.env.example
 
-# Datos locales / respaldos
-# Comenta estas líneas si decides versionar una base demo sin datos reales.
+# Bases SQLite operativas y respaldos
 data/*.db
 data/*.sqlite
+data/*.sqlite3
+
+data/*.db-shm
+data/*.db-wal
+data/*.db-journal
+
+data/*.sqlite-shm
+data/*.sqlite-wal
+data/*.sqlite-journal
+
+data/*.sqlite3-shm
+data/*.sqlite3-wal
+data/*.sqlite3-journal
+
 data/backups/
+data/restaurant_backup_manual.db
+
+# Mantener la carpeta data en el repositorio
+!data/.gitkeep
 
 # Archivos subidos por usuarios
 public/uploads/productos/*
 !public/uploads/productos/.gitkeep
 
-# Sistema / editor
+# Certificados y archivos sensibles
+certs/
+*.pem
+*.key
+cookies.txt
+public/mundipos-rootCA.crt
+
+# Sistema y editores
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
 
-# Build / cache
+# Build, cobertura y caché
 coverage/
 dist/
 build/
 .cache/
 .tmp/
 
-cookies.txt
-*.db-shm
-*.db-wal
-*.db-journal
-data/restaurant_backup_manual.db
+# Adjuntos temporales
 .codex-remote-attachments/
-
-certs/
-public/mundipos-rootCA.crt
-
-# MundiPOS - archivos locales / sensibles
-.env
-.env.*
-!.env.example
-
-certs/
-*.pem
-*.key
-cookies.txt
-
-data/*.db
-data/*.db-shm
-data/*.db-wal
-data/backups/
-
-public/mundipos-rootCA.crt
-
-node_modules/
