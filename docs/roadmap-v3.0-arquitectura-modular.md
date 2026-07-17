@@ -978,6 +978,87 @@ git commit -m "v3.2.0: crea Payments transaccional por prefactura"
 
 ---
 
+## v3.2.0 fix1 · Actualización compatible de dependencias
+
+### Estado
+
+Completada.
+
+### Objetivo
+
+Aplicar las correcciones que npm puede resolver sin cambios mayores y conservar una instalación reproducible en `package-lock.json`.
+
+### Reglas
+
+- no usar `npm audit fix --force`;
+- ejecutar la suite completa después de modificar el lockfile;
+- no incluir `node_modules`;
+- mantener la versión funcional en `3.2.0`.
+
+### Commit
+
+```powershell
+git commit -m "v3.2.0 fix1: actualiza dependencias compatibles de seguridad"
+```
+
+---
+
+## v3.2.0 fix2 · Actualización controlada del driver SQLite
+
+### Estado
+
+En validación operativa.
+
+### Objetivo
+
+Actualizar explícitamente `sqlite3 5.1.7` a `sqlite3 6.0.1` para eliminar la cadena vulnerable heredada de `node-gyp`, `cacache`, `make-fetch-happen` y `tar`, sin alterar la capa de dominio.
+
+### Implementación
+
+Se agregan:
+
+```text
+scripts/upgrade-sqlite3.ps1
+tests/sqliteDriverCompatibility.test.js
+docs/avance-v3.2.0-fix2-sqlite3.md
+```
+
+El script:
+
+- exige Node.js `>=20.17.0`;
+- valida Windows x64 cuando corresponde;
+- evita actualizar con el servidor usando el puerto 3000;
+- respalda `package.json` y `package-lock.json`;
+- instala exactamente `sqlite3@6.0.1`;
+- regenera la instalación con `npm ci`;
+- ejecuta la prueba nativa y la suite completa;
+- ejecuta `npm audit --omit=dev --audit-level=high`;
+- restaura los manifests si falla.
+
+### Criterios de aprobación
+
+- `npm ls sqlite3 --depth=0` muestra `sqlite3@6.0.1`;
+- `npm ci` termina correctamente en Windows con Node 24;
+- la prueba nativa valida WAL, commit, rollback, FK e integridad;
+- las 70 pruebas previas y la prueba nueva terminan sin fallos;
+- MundiPOS inicia por HTTPS;
+- las migraciones se ejecutan sin cambios inesperados;
+- la base conserva información después de reiniciar;
+- no quedan vulnerabilidades altas de producción;
+- `data/restaurant.db` no se agrega al commit.
+
+### Deuda técnica
+
+El upstream de `sqlite3` está deprecado y sin mantenimiento activo. La sustitución por un driver mantenido se evaluará después de estabilizar Payments y no formará parte de esta corrección.
+
+### Commit
+
+```powershell
+git commit -m "v3.2.0 fix2: actualiza driver SQLite de forma controlada"
+```
+
+---
+
 ## v3.2.1 · API y read model operativo de Caja
 
 ### Objetivo

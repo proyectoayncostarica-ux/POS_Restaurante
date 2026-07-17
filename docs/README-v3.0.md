@@ -694,3 +694,19 @@ Los reversos conservan el movimiento original, crean un registro auditable y res
 La migración preservó y numeró los pagos legacy disponibles y creó sus componentes de subtotal/servicio. El vínculo exacto con prefactura solo existe para movimientos creados por Payments; los registros antiguos permanecen identificados como `legacy_cuenta_global`.
 
 La suite automática cuenta con 70 pruebas aprobadas. La siguiente fase expondrá el servicio mediante endpoints y búsquedas operativas de Caja.
+
+## 24. Endurecimiento previo a Caja · v3.2.0 fix1 y fix2
+
+La base de Payments se mantiene en `3.2.0`, pero antes de crear su API pública se corrigió la cadena de dependencias.
+
+`fix1` aplicó las actualizaciones compatibles resueltas por npm. `fix2` reemplaza de manera explícita `sqlite3 5.1.7` por `sqlite3 6.0.1`, fija Node.js `>=20.17.0` y añade una prueba que carga el addon nativo y verifica WAL, transacciones, claves foráneas e integridad.
+
+El procedimiento se ejecuta con:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\upgrade-sqlite3.ps1
+```
+
+El script no utiliza `--force`, respalda los manifests, genera el lockfile desde el estado actual, ejecuta `npm ci`, la suite completa y la auditoría de producción.
+
+La actualización no cambia la cuenta global, prefacturas, Payments, Caja, Dashboard ni el esquema funcional. La siguiente fase continúa siendo `v3.2.1`.

@@ -1228,3 +1228,32 @@ La cuenta puede quedar financieramente conciliada y operativamente abierta para 
 La migración numera pagos históricos como `PG-########` y genera sus componentes sin modificar montos. La suite automática cuenta con 70 pruebas aprobadas.
 
 Esta fase no expone todavía endpoints de cobro ni modifica la pantalla de Caja. La siguiente fase es `v3.2.1 · API y read model operativo de Caja`.
+
+## 24. Seguridad de dependencias · v3.2.0 fix1 y fix2
+
+Antes de exponer Payments mediante la API de Caja se endureció la cadena de dependencias.
+
+### v3.2.0 fix1
+
+`npm audit fix` actualizó dependencias compatibles de Express y utilidades transitivas sin introducir versiones mayores. El cambio quedó concentrado en `package-lock.json` y eliminó las vulnerabilidades que podían resolverse dentro de los rangos existentes.
+
+### v3.2.0 fix2
+
+El driver nativo se actualiza de forma explícita y controlada:
+
+```text
+sqlite3 5.1.7 → sqlite3 6.0.1
+Node.js mínimo: 20.17.0
+```
+
+La actualización no se aplica mediante `npm audit fix --force`. El paquete incluye un script PowerShell que respalda los manifests, instala la versión exacta, reconstruye `node_modules` con `npm ci`, ejecuta la prueba nativa de SQLite, corre la suite completa y valida la auditoría de producción.
+
+La prueba nueva comprueba WAL, claves foráneas, commit, rollback e integridad sobre una base temporal utilizando el addon real. La versión funcional permanece en `3.2.0`; no cambian UI, rutas, Payments ni Caja.
+
+`sqlite3 6.0.1` conserva la API actual, pero su upstream está deprecado. El reemplazo futuro del driver queda registrado como deuda técnica y se realizará en una migración independiente.
+
+Documento técnico:
+
+- `docs/avance-v3.2.0-fix2-sqlite3.md`
+
+La siguiente fase funcional continúa siendo `v3.2.1 · API y read model operativo de Caja`.

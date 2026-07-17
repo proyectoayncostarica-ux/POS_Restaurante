@@ -16,7 +16,9 @@
     "test:division": "node --test --test-concurrency=1 tests/preinvoiceService.test.js tests/preinvoiceWorkflowUi.test.js",
     "test:continuity": "node --test --test-concurrency=1 tests/accountContinuity.test.js",
     "test:financial": "node --test --test-concurrency=1 tests/financialReadService.test.js",
-    "test:payments": "node --test --test-concurrency=1 tests/paymentService.test.js tests/paymentMigration.test.js"
+    "test:payments": "node --test --test-concurrency=1 tests/paymentService.test.js tests/paymentMigration.test.js",
+    "test:sqlite-driver": "node --test --test-concurrency=1 tests/sqliteDriverCompatibility.test.js",
+    "security:audit": "npm audit --omit=dev"
   },
   "keywords": [
     "restaurant",
@@ -35,9 +37,12 @@
     "express": "^4.21.2",
     "express-session": "^1.18.1",
     "multer": "^1.4.5-lts.1",
-    "sqlite3": "^5.1.7"
+    "sqlite3": "6.0.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
+  },
+  "engines": {
+    "node": ">=20.17.0"
   }
 }
