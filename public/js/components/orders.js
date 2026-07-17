@@ -7,6 +7,9 @@ const Orders = {
     selectedOrder: null,
     operationalMenu: null,
     menuContractVersion: null,
+    preinvoiceContext: null,
+    preinvoiceDraft: null,
+    preinvoiceSubmitting: false,
 
     getOperationalPayload(response) {
         return response?.data || response || {};
@@ -980,124 +983,633 @@ const Orders = {
         Utils.showNotification('Recibo generado', 'info');
     },
 
-    // Ver detalles del pedido
-    async viewOrder(orderId) {
-        try {
-            const response = await Utils.request(`/orders/${orderId}`);
-            const order = response.data;
+    escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    },
 
-            const nombreZona = order.mesa_tipo?.toLowerCase() === 'barra' ? 'Banco' : 'Mesa';
-            const activeProducts = Array.isArray(order.productos_disponibles)
-                ? order.productos_disponibles
-                : (order.productos || []);
-            const assignedProducts = Array.isArray(order.productos_asignados)
-                ? order.productos_asignados
-                : (order.productos || []).filter(product => Number(product.cantidad_asignada || 0) > 0);
-            const lineSummary = order.resumen_lineas || {};
-            const renderConsumptionRows = (products, quantityField = 'cantidad') => {
-                if (!products.length) {
-                    return `<tr><td colspan="4" class="text-muted text-center">No hay consumo disponible</td></tr>`;
-                }
+    roundMoney(value) {
+        const numeric = Number(value || 0);
+        return Math.round((numeric + Number.EPSILON) * 100) / 100;
+    },
 
-                return products.map(producto => {
-                    const nombreCompleto = producto.presentacion_nombre
-                        ? `${producto.producto_nombre} - ${producto.presentacion_nombre} (${producto.presentacion_cantidad || '-'})`
-                        : producto.producto_nombre;
-                    const quantity = Number(producto[quantityField] ?? producto.cantidad ?? 0);
+    hasOperationalCapability(code) {
+        return typeof Access === 'undefined' || Access.has(code);
+    },
 
-                    return `
-                        <tr>
-                            <td>${nombreCompleto}</td>
-                            <td>${quantity}</td>
-                            <td>${Utils.formatCurrency(producto.precio_unitario)}</td>
-                            <td>${Utils.formatCurrency(producto.precio_unitario * quantity)}</td>
-                        </tr>
-                    `;
-                }).join('');
-            };
+    getConsumptionLineLabel(product = {}) {
+        const name = product.producto_nombre || product.producto_nombre_snapshot || 'Producto';
+        const presentation = product.presentacion_nombre || product.presentacion_nombre_snapshot;
+        const amount = product.presentacion_cantidad || product.presentacion_cantidad_snapshot;
+        return presentation
+            ? `${name} - ${presentation}${amount ? ` (${amount})` : ''}`
+            : name;
+    },
 
-            const modalButtons = [
-                {
-                    text: 'Cerrar',
-                    class: 'btn-light'
-                }
-            ];
+    calculatePreinvoiceDraft(order, assignments = []) {
+        const available = Array.isArray(order?.productos_disponibles) ? order.productos_disponibles : [];
+        const byLine = new Map(available.map(line => [Number(line.pedido_producto_id || line.id), line]));
+        const items = [];
+        let subtotal = 0;
+        let service = 0;
 
-            // Mostrar "Pagar" solo si el pedido está pendiente
-            if (order.estado !== 'pagado' && (typeof Access === 'undefined' || Access.has('cash.collect'))) {
-                modalButtons.push({
-                    text: 'Pagar',
-                    class: 'btn-success text-white',
-                    onclick: `Orders.confirmarPago(${order.id}, '${nombreZona}', ${order.mesa_numero})`
-                });
+        assignments.forEach(assignment => {
+            const lineId = Number(assignment.pedido_producto_id);
+            const quantity = Number(assignment.cantidad);
+            const line = byLine.get(lineId);
+            if (!line || !Number.isInteger(quantity) || quantity <= 0) return;
+
+            const max = Number(line.cantidad_disponible || 0);
+            if (quantity > max) return;
+
+            const lineSubtotal = this.roundMoney(Number(line.precio_unitario || 0) * quantity);
+            const percentage = Number(line.aplica_servicio_snapshot || 0) === 1
+                ? Number(line.porcentaje_servicio_snapshot || 0)
+                : 0;
+            const lineService = this.roundMoney(lineSubtotal * percentage / 100);
+            const lineTotal = this.roundMoney(lineSubtotal + lineService);
+
+            subtotal = this.roundMoney(subtotal + lineSubtotal);
+            service = this.roundMoney(service + lineService);
+            items.push({
+                ...line,
+                pedido_producto_id: lineId,
+                cantidad_seleccionada: quantity,
+                subtotal_seleccionado: lineSubtotal,
+                servicio_seleccionado: lineService,
+                total_seleccionado: lineTotal
+            });
+        });
+
+        return {
+            assignments,
+            items,
+            subtotal,
+            service,
+            total: this.roundMoney(subtotal + service)
+        };
+    },
+
+    buildPreinvoiceIdempotencyKey(orderId) {
+        const random = window.crypto?.randomUUID?.()
+            || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        return `prefactura:${Number(orderId)}:${random}`;
+    },
+
+    async loadAccountPreinvoices(orderId) {
+        const response = await Utils.request(`/orders/${orderId}/preinvoices`);
+        return Array.isArray(response?.data) ? response.data : [];
+    },
+
+    renderPreinvoiceStatus(status) {
+        const normalized = String(status || 'emitida').toLowerCase();
+        const badge = {
+            emitida: 'warning',
+            parcial: 'info',
+            pagada: 'success',
+            anulada: 'secondary'
+        }[normalized] || 'secondary';
+        return `<span class="badge badge-${badge}">${this.escapeHtml(normalized)}</span>`;
+    },
+
+    getPreinvoiceAssignmentsFromView(order, splitMode) {
+        const available = Array.isArray(order?.productos_disponibles) ? order.productos_disponibles : [];
+        if (!splitMode) {
+            return available.map(line => ({
+                pedido_producto_id: Number(line.pedido_producto_id || line.id),
+                cantidad: Number(line.cantidad_disponible || 0),
+                version: Number(line.version || 1)
+            })).filter(item => item.cantidad > 0);
+        }
+
+        return [...document.querySelectorAll('.preinvoice-line-check:checked')]
+            .map(checkbox => {
+                const lineId = Number(checkbox.dataset.lineId);
+                const version = Number(checkbox.dataset.version || 1);
+                const input = document.getElementById(`preinvoice-qty-${lineId}`);
+                const quantity = Number(input?.value || 1);
+                const max = Number(input?.max || 1);
+                if (!Number.isInteger(quantity) || quantity <= 0 || quantity > max) return null;
+                return {
+                    pedido_producto_id: lineId,
+                    cantidad: quantity,
+                    version
+                };
+            })
+            .filter(Boolean);
+    },
+
+    updatePreinvoiceSelection() {
+        const context = this.preinvoiceContext;
+        if (!context) return;
+
+        document.querySelectorAll('.preinvoice-line-check').forEach(checkbox => {
+            const input = document.getElementById(`preinvoice-qty-${checkbox.dataset.lineId}`);
+            if (input) input.disabled = !checkbox.checked;
+        });
+
+        const assignments = this.getPreinvoiceAssignmentsFromView(context.order, true);
+        const draft = this.calculatePreinvoiceDraft(context.order, assignments);
+        const units = draft.items.reduce((sum, item) => sum + Number(item.cantidad_seleccionada || 0), 0);
+        const totalElement = document.getElementById('preinvoice-selection-total');
+        const unitsElement = document.getElementById('preinvoice-selection-units');
+        const issueButton = document.getElementById('btn-issue-preinvoice');
+
+        if (totalElement) totalElement.textContent = Utils.formatCurrency(draft.total);
+        if (unitsElement) unitsElement.textContent = String(units);
+        if (issueButton) issueButton.disabled = assignments.length === 0;
+    },
+
+    restorePreinvoiceSelection(draft) {
+        if (!draft || !Array.isArray(draft.assignments)) {
+            this.updatePreinvoiceSelection();
+            return;
+        }
+
+        draft.assignments.forEach(assignment => {
+            const lineId = Number(assignment.pedido_producto_id);
+            const checkbox = document.querySelector(`.preinvoice-line-check[data-line-id="${lineId}"]`);
+            const input = document.getElementById(`preinvoice-qty-${lineId}`);
+            if (checkbox) checkbox.checked = true;
+            if (input) {
+                input.disabled = false;
+                input.value = String(assignment.cantidad);
+            }
+        });
+        this.updatePreinvoiceSelection();
+    },
+
+    setSplitAccountMode(enabled) {
+        if (!this.preinvoiceContext) return;
+        this.preinvoiceDraft = null;
+        this.showOrderDetailModal(
+            this.preinvoiceContext.order,
+            this.preinvoiceContext.preinvoices,
+            { splitMode: Boolean(enabled) }
+        );
+    },
+
+    showOrderDetailModal(order, preinvoices = [], options = {}) {
+        const seatLabel = order.mesa_tipo?.toLowerCase() === 'banco' ? 'Banco' : 'Mesa';
+        const activeProducts = Array.isArray(order.productos_disponibles)
+            ? order.productos_disponibles
+            : (order.productos || []);
+        const assignedProducts = Array.isArray(order.productos_asignados)
+            ? order.productos_asignados
+            : (order.productos || []).filter(product => Number(product.cantidad_asignada || 0) > 0);
+        const lineSummary = order.resumen_lineas || {};
+        const activeDocuments = preinvoices.filter(document => document.estado !== 'anulada');
+        const splitLocked = activeDocuments.length > 0;
+        const splitMode = splitLocked || Boolean(options.splitMode);
+        const canSplit = this.hasOperationalCapability('orders.split');
+        const canIssue = this.hasOperationalCapability('orders.issue_preinvoice');
+        const canCollect = this.hasOperationalCapability('cash.collect');
+        const canBuildSplit = canSplit && canIssue;
+        const selectionEnabled = splitMode && canBuildSplit;
+        const canIssueCurrent = canIssue && (!splitMode || canSplit);
+        const restoreDraft = options.restoreDraft || null;
+
+        this.preinvoiceContext = {
+            order,
+            preinvoices,
+            splitMode,
+            splitLocked
+        };
+
+        const renderConsumptionRows = (products, quantityField = 'cantidad', selectable = false) => {
+            if (!products.length) {
+                return `<tr><td colspan="${selectable ? 5 : 4}" class="text-muted text-center">No hay consumo disponible</td></tr>`;
             }
 
-            Utils.showModal(`Pedido #${order.id} - ${nombreZona} ${order.mesa_numero}`, `
-                <div class="order-details">
-                    <div class="order-info mb-3">
-                        <p><strong>${nombreZona}:</strong> ${order.mesa_numero}</p>
-                        <p><strong>Cliente:</strong> ${order.cliente_nombre}</p>
-                        <p><strong>Usuario:</strong> ${order.usuario_nombre}</p>
-                        <p><strong>Fecha:</strong> ${Utils.formatDate(order.fecha)}</p>
-                        <p><strong>Estado:</strong> <span class="badge badge-${order.estado === 'pendiente' ? 'warning' : 'success'}">${order.estado}</span></p>
+            return products.map(product => {
+                const lineId = Number(product.pedido_producto_id || product.id);
+                const quantity = Number(product[quantityField] ?? product.cantidad ?? 0);
+                const label = this.escapeHtml(this.getConsumptionLineLabel(product));
+                const selection = selectable ? `
+                    <td class="preinvoice-select-cell">
+                        <input
+                            type="checkbox"
+                            class="preinvoice-line-check"
+                            data-line-id="${lineId}"
+                            data-version="${Number(product.version || 1)}"
+                            onchange="Orders.updatePreinvoiceSelection()"
+                            aria-label="Seleccionar ${label}">
+                    </td>
+                ` : '';
+                const quantityControl = selectable && quantity > 1
+                    ? `<input
+                            id="preinvoice-qty-${lineId}"
+                            class="preinvoice-quantity-input"
+                            type="number"
+                            min="1"
+                            max="${quantity}"
+                            value="1"
+                            disabled
+                            onchange="Orders.updatePreinvoiceSelection()"
+                            oninput="Orders.updatePreinvoiceSelection()">`
+                    : selectable
+                        ? `<input id="preinvoice-qty-${lineId}" type="hidden" min="1" max="1" value="1" disabled><span>1</span>`
+                        : String(quantity);
+
+                return `
+                    <tr>
+                        ${selection}
+                        <td>${label}</td>
+                        <td>${quantityControl}</td>
+                        <td>${Utils.formatCurrency(product.precio_unitario)}</td>
+                        <td>${Utils.formatCurrency(Number(product.precio_unitario || 0) * quantity)}</td>
+                    </tr>
+                `;
+            }).join('');
+        };
+
+        const preinvoiceRows = preinvoices.length
+            ? preinvoices.map(document => `
+                <tr>
+                    <td><strong>${this.escapeHtml(document.numero_documento)}</strong></td>
+                    <td>${this.escapeHtml(document.pagador_nombre)}</td>
+                    <td>${this.renderPreinvoiceStatus(document.estado)}</td>
+                    <td>${Utils.formatCurrency(document.total)}</td>
+                    <td>
+                        <button class="btn btn-light btn-sm" type="button"
+                                onclick="Orders.viewPreinvoice(${order.id}, ${document.id})">
+                            <i class="fas fa-print"></i> Ver / imprimir
+                        </button>
+                    </td>
+                </tr>
+            `).join('')
+            : '';
+
+        const modalButtons = [{ text: 'Cerrar', class: 'btn-light' }];
+        if (canIssueCurrent && activeProducts.length > 0) {
+            modalButtons.push({
+                text: splitMode ? 'Emitir prefactura parcial' : 'Emitir prefactura',
+                class: 'btn-primary',
+                align: 'right',
+                onclick: () => Orders.openPreinvoiceReview(),
+                id: 'btn-issue-preinvoice'
+            });
+        }
+
+        const assignedUnits = Number(lineSummary.unidades_asignadas || 0);
+        if (order.estado !== 'pagado' && canCollect && activeDocuments.length === 0 && assignedUnits === 0) {
+            modalButtons.push({
+                text: 'Pagar cuenta completa',
+                class: 'btn-success text-white',
+                align: 'right',
+                onclick: () => Orders.confirmarPago(order.id, seatLabel, order.mesa_numero)
+            });
+        }
+
+        Utils.showModal(`${this.escapeHtml(order.numero_cuenta || `Pedido #${order.id}`)} - ${seatLabel} ${order.mesa_numero}`, `
+            <div class="order-details preinvoice-workflow">
+                <div class="order-info mb-3">
+                    <p><strong>${seatLabel}:</strong> ${order.mesa_numero}</p>
+                    <p><strong>Cliente principal:</strong> ${this.escapeHtml(order.cliente_principal || order.cliente_nombre || '')}</p>
+                    <p><strong>Responsable:</strong> ${this.escapeHtml(order.usuario_nombre || '')}</p>
+                    <p><strong>Fecha:</strong> ${Utils.formatDate(order.fecha)}</p>
+                    <p><strong>Estado:</strong> <span class="badge badge-${order.estado === 'pendiente' ? 'warning' : 'success'}">${this.escapeHtml(order.estado)}</span></p>
+                </div>
+
+                ${canBuildSplit ? `
+                    <div class="split-account-control">
+                        <label>
+                            <input type="checkbox" id="split-account-checkbox"
+                                   ${splitMode ? 'checked' : ''}
+                                   ${splitLocked ? 'disabled' : ''}
+                                   onchange="Orders.setSplitAccountMode(this.checked)">
+                            <span>Cuenta dividida</span>
+                        </label>
+                        <p class="text-muted">
+                            ${splitLocked
+                                ? 'La cuenta ya tiene documentos separados. Las siguientes prefacturas se emiten una por una.'
+                                : 'Activa esta opción para elegir los ítems y cantidades de un solo cliente.'}
+                        </p>
                     </div>
-                    
-                    <h4>Consumo activo</h4>
+                ` : ''}
+
+                <h4>Consumo activo</h4>
+                ${selectionEnabled ? '<p class="text-muted">Selecciona únicamente el consumo del cliente que se emitirá ahora.</p>' : ''}
+                ${splitMode && !canBuildSplit ? '<p class="alert alert-warning">La cuenta está dividida, pero tu rol activo no permite crear otra subcuenta.</p>' : ''}
+                <div class="table-container">
+                    <table class="table preinvoice-selection-table">
+                        <thead>
+                            <tr>
+                                ${selectionEnabled ? '<th class="preinvoice-select-cell">Elegir</th>' : ''}
+                                <th>Producto</th>
+                                <th>${selectionEnabled ? 'Cantidad para este cliente' : 'Disponible'}</th>
+                                <th>Precio Unit.</th>
+                                <th>Subtotal disponible</th>
+                            </tr>
+                        </thead>
+                        <tbody>${renderConsumptionRows(activeProducts, 'cantidad_disponible', selectionEnabled)}</tbody>
+                        <tfoot>
+                            <tr>
+                                <th colspan="${selectionEnabled ? 4 : 3}">Subtotal disponible</th>
+                                <th>${Utils.formatCurrency(lineSummary.subtotal_disponible ?? order.subtotal ?? order.total)}</th>
+                            </tr>
+                            <tr>
+                                <th colspan="${selectionEnabled ? 4 : 3}">Servicio disponible</th>
+                                <th>${Utils.formatCurrency(lineSummary.servicio_disponible ?? order.monto_servicio ?? 0)}</th>
+                            </tr>
+                            <tr>
+                                <th colspan="${selectionEnabled ? 4 : 3}">Total disponible</th>
+                                <th>${Utils.formatCurrency(lineSummary.total_disponible ?? order.total_con_servicio ?? order.total)}</th>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                ${selectionEnabled ? `
+                    <div class="preinvoice-selection-summary">
+                        <span><strong>Unidades seleccionadas:</strong> <span id="preinvoice-selection-units">0</span></span>
+                        <span><strong>Total parcial:</strong> <span id="preinvoice-selection-total">${Utils.formatCurrency(0)}</span></span>
+                    </div>
+                ` : ''}
+
+                ${preinvoices.length > 0 ? `
+                    <h4 class="mt-3">Prefacturas emitidas</h4>
+                    <p class="text-muted">Son documentos operativos separados y permanecen vinculados a la cuenta global.</p>
                     <div class="table-container">
                         <table class="table">
-                            <thead>
-                                <tr>
-                                    <th>Producto</th>
-                                    <th>Disponible</th>
-                                    <th>Precio Unit.</th>
-                                    <th>Subtotal</th>
-                                </tr>
-                            </thead>
-                            <tbody>${renderConsumptionRows(activeProducts, 'cantidad_disponible')}</tbody>
-                            <tfoot>
-                                <tr>
-                                    <th colspan="3">Subtotal disponible</th>
-                                    <th>${Utils.formatCurrency(lineSummary.subtotal_disponible ?? order.subtotal ?? order.total)}</th>
-                                </tr>
-                                <tr>
-                                    <th colspan="3">Servicio disponible</th>
-                                    <th>${Utils.formatCurrency(lineSummary.servicio_disponible ?? order.monto_servicio ?? 0)}</th>
-                                </tr>
-                                <tr>
-                                    <th colspan="3">Total disponible</th>
-                                    <th>${Utils.formatCurrency(lineSummary.total_disponible ?? order.total_con_servicio ?? order.total)}</th>
-                                </tr>
-                            </tfoot>
+                            <thead><tr><th>Documento</th><th>Pagador</th><th>Estado</th><th>Total</th><th>Acción</th></tr></thead>
+                            <tbody>${preinvoiceRows}</tbody>
                         </table>
                     </div>
+                ` : ''}
 
-                    ${assignedProducts.length > 0 ? `
-                        <h4 class="mt-3">Consumo ya asignado</h4>
-                        <p class="text-muted">Estas cantidades permanecen en el historial de la cuenta, pero ya no forman parte del consumo disponible.</p>
-                        <div class="table-container">
-                            <table class="table">
-                                <thead>
-                                    <tr>
-                                        <th>Producto</th>
-                                        <th>Asignado</th>
-                                        <th>Precio Unit.</th>
-                                        <th>Subtotal</th>
-                                    </tr>
-                                </thead>
-                                <tbody>${renderConsumptionRows(assignedProducts, 'cantidad_asignada')}</tbody>
-                            </table>
-                        </div>
-                    ` : ''}
+                ${assignedProducts.length > 0 ? `
+                    <h4 class="mt-3">Consumo ya asignado</h4>
+                    <p class="text-muted">Estas cantidades permanecen en el historial, pero ya no pueden asignarse nuevamente.</p>
+                    <div class="table-container">
+                        <table class="table">
+                            <thead><tr><th>Producto</th><th>Asignado</th><th>Precio Unit.</th><th>Subtotal</th></tr></thead>
+                            <tbody>${renderConsumptionRows(assignedProducts, 'cantidad_asignada', false)}</tbody>
+                        </table>
+                    </div>
+                ` : ''}
 
-                    <div class="order-global-summary mt-3">
-                        <p><strong>Total cuenta global:</strong> ${Utils.formatCurrency(order.total_con_servicio ?? order.total)}</p>
-                        <p><strong>Total pagado:</strong> ${Utils.formatCurrency(order.total_pagado || 0)}</p>
-                        <p><strong>Saldo pendiente:</strong> ${Utils.formatCurrency(order.saldo_pendiente ?? order.total_con_servicio ?? order.total)}</p>
+                <div class="order-global-summary mt-3">
+                    <p><strong>Total cuenta global:</strong> ${Utils.formatCurrency(order.total_con_servicio ?? order.total)}</p>
+                    <p><strong>Total pagado:</strong> ${Utils.formatCurrency(order.total_pagado || 0)}</p>
+                    <p><strong>Saldo global pendiente:</strong> ${Utils.formatCurrency(order.saldo_pendiente ?? order.total_con_servicio ?? order.total)}</p>
+                </div>
+            </div>
+        `, modalButtons, 'modal-preinvoice-workflow');
+
+        const issueButton = document.querySelector('.modal-footer .right-buttons .btn-primary');
+        if (issueButton) issueButton.id = 'btn-issue-preinvoice';
+        if (selectionEnabled) {
+            this.restorePreinvoiceSelection(restoreDraft);
+        }
+    },
+
+    // Ver detalles de la cuenta y cargar sus documentos operativos.
+    async viewOrder(orderId) {
+        try {
+            const [accountResponse, preinvoices] = await Promise.all([
+                Utils.request(`/orders/${orderId}`),
+                this.loadAccountPreinvoices(orderId)
+            ]);
+            this.preinvoiceDraft = null;
+            this.showOrderDetailModal(accountResponse.data, preinvoices);
+        } catch (error) {
+            Utils.showNotification(error.message || 'Error cargando detalles de la cuenta', 'error');
+        }
+    },
+
+    openPreinvoiceReview() {
+        const context = this.preinvoiceContext;
+        if (!context) return;
+
+        const assignments = this.getPreinvoiceAssignmentsFromView(context.order, context.splitMode);
+        const draft = this.calculatePreinvoiceDraft(context.order, assignments);
+        if (!draft.items.length || draft.total <= 0) {
+            Utils.showNotification('Selecciona al menos un ítem y una cantidad válida.', 'warning');
+            return;
+        }
+
+        const type = context.splitMode ? 'dividida' : 'completa';
+        const defaultPayer = type === 'completa'
+            ? (context.order.cliente_principal || context.order.cliente_nombre || '')
+            : '';
+        this.preinvoiceDraft = {
+            ...draft,
+            orderId: Number(context.order.id),
+            type,
+            payerName: defaultPayer,
+            idempotencyKey: this.buildPreinvoiceIdempotencyKey(context.order.id)
+        };
+
+        const rows = draft.items.map(item => `
+            <tr>
+                <td>${this.escapeHtml(this.getConsumptionLineLabel(item))}</td>
+                <td>${item.cantidad_seleccionada}</td>
+                <td>${Utils.formatCurrency(item.precio_unitario)}</td>
+                <td>${Utils.formatCurrency(item.total_seleccionado)}</td>
+            </tr>
+        `).join('');
+
+        Utils.showModal('Confirmar prefactura', `
+            <div class="preinvoice-review-modal">
+                <div class="form-group">
+                    <label for="preinvoice-payer-name">Nombre del cliente / pagador *</label>
+                    <input id="preinvoice-payer-name" type="text" maxlength="120"
+                           value="${this.escapeHtml(defaultPayer)}"
+                           placeholder="Ej. Pedro" autocomplete="off">
+                </div>
+                <div class="table-container">
+                    <table class="table">
+                        <thead><tr><th>Producto</th><th>Cantidad</th><th>Precio</th><th>Total</th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+                <div class="preinvoice-review-totals">
+                    <p><span>Subtotal</span><strong>${Utils.formatCurrency(draft.subtotal)}</strong></p>
+                    <p><span>Servicio</span><strong>${Utils.formatCurrency(draft.service)}</strong></p>
+                    <p class="preinvoice-review-grand-total"><span>Total seleccionado</span><strong>${Utils.formatCurrency(draft.total)}</strong></p>
+                </div>
+                <p class="text-muted preinvoice-print-note">
+                    Al confirmar, el documento se guarda primero y luego se abre la impresión del navegador.
+                </p>
+            </div>
+        `, [
+            {
+                text: '<i class="fas fa-arrow-left"></i> Volver',
+                class: 'btn-light',
+                onclick: () => Orders.returnToPreinvoiceSelection()
+            },
+            {
+                text: '<i class="fas fa-print"></i> Imprimir y emitir',
+                class: 'btn-primary',
+                align: 'right',
+                onclick: () => Orders.emitCurrentPreinvoice()
+            }
+        ], 'modal-preinvoice-review');
+
+        setTimeout(() => document.getElementById('preinvoice-payer-name')?.focus(), 0);
+    },
+
+    returnToPreinvoiceSelection() {
+        const context = this.preinvoiceContext;
+        const draft = this.preinvoiceDraft;
+        if (!context) return;
+        this.showOrderDetailModal(context.order, context.preinvoices, {
+            splitMode: context.splitMode,
+            restoreDraft: draft
+        });
+    },
+
+    async emitCurrentPreinvoice() {
+        if (this.preinvoiceSubmitting || !this.preinvoiceDraft || !this.preinvoiceContext) return;
+
+        const payerInput = document.getElementById('preinvoice-payer-name');
+        const payerName = String(payerInput?.value || '').trim().replace(/\s+/g, ' ');
+        if (!payerName) {
+            Utils.showNotification('Debes indicar el nombre del cliente o pagador.', 'warning');
+            payerInput?.focus();
+            return;
+        }
+
+        this.preinvoiceSubmitting = true;
+        const actionButton = document.querySelector('.modal-preinvoice-review .modal-footer .btn-primary');
+        if (actionButton) {
+            actionButton.disabled = true;
+            actionButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Emitiendo...';
+        }
+
+        const printWindow = window.open('', '_blank', 'width=760,height=900');
+        if (printWindow) {
+            printWindow.document.write('<p style="font-family:sans-serif;padding:24px">Emitiendo prefactura...</p>');
+        }
+
+        try {
+            const draft = this.preinvoiceDraft;
+            const response = await Utils.request(`/orders/${draft.orderId}/preinvoices`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    pagador_nombre: payerName,
+                    tipo: draft.type,
+                    items: draft.assignments,
+                    clave_idempotencia: draft.idempotencyKey
+                })
+            });
+            const documentData = response.data;
+            this.printPreinvoiceDocument(documentData, printWindow);
+            Utils.showNotification(`Prefactura ${documentData.numero_documento} emitida correctamente.`, 'success');
+            this.preinvoiceDraft = null;
+            await this.viewOrder(draft.orderId);
+        } catch (error) {
+            printWindow?.close();
+            Utils.showNotification(error.message || 'No se pudo emitir la prefactura.', 'error');
+            await this.viewOrder(this.preinvoiceDraft.orderId);
+        } finally {
+            this.preinvoiceSubmitting = false;
+        }
+    },
+
+    printPreinvoiceDocument(documentData, targetWindow = null) {
+        const printWindow = targetWindow || window.open('', '_blank', 'width=760,height=900');
+        if (!printWindow) {
+            Utils.showNotification('El documento fue emitido, pero el navegador bloqueó la ventana de impresión.', 'warning');
+            return;
+        }
+
+        const items = Array.isArray(documentData.items) ? documentData.items : [];
+        const rows = items.map(item => `
+            <tr>
+                <td>${this.escapeHtml(this.getConsumptionLineLabel({
+                    producto_nombre: item.producto_nombre_snapshot,
+                    presentacion_nombre: item.presentacion_nombre_snapshot,
+                    presentacion_cantidad: item.presentacion_cantidad_snapshot
+                }))}</td>
+                <td>${Number(item.cantidad)}</td>
+                <td>${Utils.formatCurrency(item.precio_unitario)}</td>
+                <td>${Utils.formatCurrency(item.total_linea)}</td>
+            </tr>
+        `).join('');
+
+        printWindow.document.open();
+        printWindow.document.write(`<!doctype html>
+            <html lang="es"><head><meta charset="utf-8"><title>${this.escapeHtml(documentData.numero_documento)}</title>
+            <style>
+                body{font-family:Arial,sans-serif;color:#111;margin:28px;line-height:1.35}
+                h1{font-size:22px;margin:0 0 6px}.muted{color:#555}.meta{margin:18px 0;padding:12px;border:1px solid #bbb;border-radius:8px}
+                table{width:100%;border-collapse:collapse;margin-top:16px}th,td{padding:8px;border-bottom:1px solid #ddd;text-align:left}th:last-child,td:last-child{text-align:right}
+                .totals{margin:18px 0 0 auto;max-width:320px}.totals p{display:flex;justify-content:space-between;margin:6px 0}.grand{font-size:18px;border-top:2px solid #111;padding-top:8px}
+                .footer{margin-top:28px;font-size:12px;color:#555;text-align:center}@media print{body{margin:8mm}}
+            </style></head><body>
+                <h1>Prefactura ${this.escapeHtml(documentData.numero_documento)}</h1>
+                <div class="muted">Documento operativo vinculado a ${this.escapeHtml(documentData.numero_cuenta_snapshot)}</div>
+                <div class="meta">
+                    <div><strong>Cliente / pagador:</strong> ${this.escapeHtml(documentData.pagador_nombre)}</div>
+                    <div><strong>Cliente principal:</strong> ${this.escapeHtml(documentData.cliente_principal_snapshot || '')}</div>
+                    <div><strong>${String(documentData.mesa_tipo_snapshot || '').toLowerCase() === 'banco' ? 'Banco' : 'Mesa'}:</strong> ${this.escapeHtml(documentData.mesa_numero_snapshot)}</div>
+                    <div><strong>Zona:</strong> ${this.escapeHtml(documentData.zona_nombre_snapshot || '')}</div>
+                    <div><strong>Fecha:</strong> ${Utils.formatDate(documentData.fecha_emision)}</div>
+                </div>
+                <table><thead><tr><th>Producto</th><th>Cant.</th><th>Precio</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table>
+                <div class="totals">
+                    <p><span>Subtotal</span><strong>${Utils.formatCurrency(documentData.subtotal)}</strong></p>
+                    <p><span>Servicio</span><strong>${Utils.formatCurrency(documentData.servicio)}</strong></p>
+                    <p class="grand"><span>Total</span><strong>${Utils.formatCurrency(documentData.total)}</strong></p>
+                </div>
+                <div class="footer">Esta prefactura no reemplaza la cuenta financiera global.</div>
+                <script>window.addEventListener('load',()=>{window.focus();window.print();});<\/script>
+            </body></html>`);
+        printWindow.document.close();
+    },
+
+    async viewPreinvoice(orderId, preinvoiceId) {
+        try {
+            const response = await Utils.request(`/orders/${orderId}/preinvoices/${preinvoiceId}`);
+            const documentData = response.data;
+            const rows = (documentData.items || []).map(item => `
+                <tr>
+                    <td>${this.escapeHtml(this.getConsumptionLineLabel({
+                        producto_nombre: item.producto_nombre_snapshot,
+                        presentacion_nombre: item.presentacion_nombre_snapshot,
+                        presentacion_cantidad: item.presentacion_cantidad_snapshot
+                    }))}</td>
+                    <td>${item.cantidad}</td>
+                    <td>${Utils.formatCurrency(item.total_linea)}</td>
+                </tr>
+            `).join('');
+
+            Utils.showModal(`Prefactura ${this.escapeHtml(documentData.numero_documento)}`, `
+                <div class="preinvoice-document-detail">
+                    <p><strong>Pagador:</strong> ${this.escapeHtml(documentData.pagador_nombre)}</p>
+                    <p><strong>Cuenta global:</strong> ${this.escapeHtml(documentData.numero_cuenta_snapshot)}</p>
+                    <p><strong>Estado:</strong> ${this.renderPreinvoiceStatus(documentData.estado)}</p>
+                    <div class="table-container"><table class="table">
+                        <thead><tr><th>Producto</th><th>Cantidad</th><th>Total</th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table></div>
+                    <div class="preinvoice-review-totals">
+                        <p><span>Subtotal</span><strong>${Utils.formatCurrency(documentData.subtotal)}</strong></p>
+                        <p><span>Servicio</span><strong>${Utils.formatCurrency(documentData.servicio)}</strong></p>
+                        <p class="preinvoice-review-grand-total"><span>Total</span><strong>${Utils.formatCurrency(documentData.total)}</strong></p>
                     </div>
                 </div>
-            `, modalButtons);
+            `, [
+                {
+                    text: '<i class="fas fa-arrow-left"></i> Volver a la cuenta',
+                    class: 'btn-light',
+                    onclick: () => Orders.viewOrder(orderId)
+                },
+                {
+                    text: '<i class="fas fa-print"></i> Imprimir',
+                    class: 'btn-primary',
+                    align: 'right',
+                    onclick: () => Orders.printPreinvoiceDocument(documentData)
+                }
+            ], 'modal-preinvoice-review');
         } catch (error) {
-            Utils.showNotification('Error cargando detalles del pedido', 'error');
+            Utils.showNotification(error.message || 'No se pudo abrir la prefactura.', 'error');
         }
     },
 

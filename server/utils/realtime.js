@@ -65,6 +65,7 @@ function getScope(req) {
     if (resource === 'orders') {
         if (segments.includes('comandas')) return 'comandas';
         if (segments.includes('pay')) return 'pagos';
+        if (segments.includes('preinvoices')) return 'cuentas';
         return 'pedidos';
     }
     if (resource === 'accounts') return 'cuentas';

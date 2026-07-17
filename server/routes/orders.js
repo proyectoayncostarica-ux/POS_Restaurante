@@ -8,6 +8,7 @@ const {
 } = require('../services/operationalAccessService');
 
 const accountService = require('../services/accountService');
+const preinvoiceService = require('../services/preinvoiceService');
 const { DomainError } = require('../errors/domainError');
 
 const router = express.Router();
@@ -75,6 +76,125 @@ router.get('/:id', requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, r
         return sendRouteError(res, error, 'Error obteniendo la cuenta');
     }
 });
+
+// Listar documentos operativos emitidos para una cuenta global.
+router.get('/:id/preinvoices', requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, res) => {
+    try {
+        const account = await accountService.getAccount(req.params.id);
+        const access = await resolveAccessContext(req);
+        const mesaAccess = await evaluateMesaAccess(access, {
+            id: account.mesa_id,
+            zona_id: account.zona_id,
+            estado: account.estado_operativo === 'abierta' ? 'ocupada' : 'libre'
+        });
+
+        if (!mesaAccess.visible) {
+            return res.status(403).json({
+                error: 'No tienes acceso operativo a las prefacturas de esta cuenta.',
+                code: 'OPERATIONAL_ACCESS_DENIED'
+            });
+        }
+
+        const documents = await preinvoiceService.listByAccount(account.id);
+        res.json({ success: true, data: documents });
+    } catch (error) {
+        return sendRouteError(res, error, 'Error obteniendo prefacturas');
+    }
+});
+
+// Consultar una prefactura individual, siempre dentro de su cuenta global.
+router.get('/:id/preinvoices/:preinvoiceId', requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, res) => {
+    try {
+        const account = await accountService.getAccount(req.params.id);
+        const access = await resolveAccessContext(req);
+        const mesaAccess = await evaluateMesaAccess(access, {
+            id: account.mesa_id,
+            zona_id: account.zona_id,
+            estado: account.estado_operativo === 'abierta' ? 'ocupada' : 'libre'
+        });
+
+        if (!mesaAccess.visible) {
+            return res.status(403).json({
+                error: 'No tienes acceso operativo a esta prefactura.',
+                code: 'OPERATIONAL_ACCESS_DENIED'
+            });
+        }
+
+        const document = await preinvoiceService.getPreinvoice(req.params.preinvoiceId);
+        if (Number(document.pedido_id) !== Number(account.id)) {
+            return res.status(404).json({
+                error: 'Prefactura no encontrada en esta cuenta.',
+                code: 'PREINVOICE_ACCOUNT_MISMATCH'
+            });
+        }
+
+        res.json({ success: true, data: document });
+    } catch (error) {
+        return sendRouteError(res, error, 'Error obteniendo la prefactura');
+    }
+});
+
+// Emitir una sola prefactura por operación. Las cantidades quedan reservadas
+// transaccionalmente y desaparecen del consumo activo disponible.
+router.post(
+    '/:id/preinvoices',
+    requireCapability(CAPABILITIES.ORDERS_OPERATE),
+    requireCapability(CAPABILITIES.ORDERS_ISSUE_PREINVOICE),
+    async (req, res) => {
+        try {
+            const account = await accountService.getAccount(req.params.id);
+            const access = await resolveAccessContext(req);
+            const mesaAccess = await evaluateMesaAccess(access, {
+                id: account.mesa_id,
+                zona_id: account.zona_id,
+                estado: account.estado_operativo === 'abierta' ? 'ocupada' : 'libre'
+            });
+
+            if (!mesaAccess.operable) {
+                return res.status(403).json({
+                    error: mesaAccess.visible
+                        ? 'Solo un responsable asignado puede emitir prefacturas de esta cuenta.'
+                        : 'No tienes acceso operativo a esta zona.',
+                    code: mesaAccess.visible ? 'MESA_RESPONSIBILITY_REQUIRED' : 'ZONE_NOT_ALLOWED'
+                });
+            }
+
+            const type = String(req.body?.tipo || req.body?.type || 'dividida').trim().toLowerCase();
+            const canSplit = access.isAdmin || (access.capabilities || []).includes(CAPABILITIES.ORDERS_SPLIT);
+            if (type === 'dividida' && !canSplit) {
+                return res.status(403).json({
+                    error: 'No tienes capacidad para dividir cuentas.',
+                    code: 'CAPABILITY_REQUIRED',
+                    capability: CAPABILITIES.ORDERS_SPLIT
+                });
+            }
+
+            const document = await preinvoiceService.createPreinvoice({
+                accountId: account.id,
+                payerName: req.body?.pagador_nombre ?? req.body?.payerName,
+                type,
+                assignments: req.body?.items ?? req.body?.assignments,
+                observation: req.body?.observacion ?? req.body?.observation,
+                idempotencyKey: req.body?.clave_idempotencia ?? req.body?.idempotencyKey,
+                issuedByUserId: req.session?.userId
+            });
+
+            res.locals.realtime = {
+                scope: 'cuentas',
+                orderIds: [Number(account.id)],
+                mesaIds: [Number(account.mesa_id)],
+                zoneIds: [Number(account.zona_id)].filter(Boolean)
+            };
+
+            return res.status(document.idempotency_replay ? 200 : 201).json({
+                success: true,
+                data: document
+            });
+        } catch (error) {
+            return sendRouteError(res, error, 'Error emitiendo la prefactura');
+        }
+    }
+);
 
 // Crear una nueva cuenta global. La UI y el endpoint continúan usando el término pedido
 // durante la transición, pero la escritura se ejecuta mediante accountService.
@@ -255,6 +375,28 @@ router.post("/:id/pay", requireCapability(CAPABILITIES.CASH_COLLECT), async (req
 
         if (!pedido) {
             return res.status(400).json({ error: "Pedido no encontrado o ya está procesado" });
+        }
+
+        if (Array.isArray(productos_divididos) && productos_divididos.length > 0) {
+            return res.status(409).json({
+                error: 'La división legacy de pagos fue reemplazada por prefacturas parciales.',
+                code: 'USE_PREINVOICE_SPLIT_FLOW'
+            });
+        }
+
+        const documentState = await database.get(`
+            SELECT
+                COALESCE((SELECT COUNT(*) FROM prefacturas pf
+                          WHERE pf.pedido_id = ? AND pf.estado <> 'anulada'), 0) AS prefacturas_activas,
+                COALESCE((SELECT SUM(pp.cantidad_asignada) FROM pedido_productos pp
+                          WHERE pp.pedido_id = ?), 0) AS unidades_asignadas
+        `, [id, id]);
+        if (Number(documentState?.prefacturas_activas || 0) > 0
+            || Number(documentState?.unidades_asignadas || 0) > 0) {
+            return res.status(409).json({
+                error: 'Esta cuenta ya tiene prefacturas emitidas y debe cobrarse por documento desde Caja.',
+                code: 'ACCOUNT_REQUIRES_PREINVOICE_PAYMENT'
+            });
         }
 
         const syncedTotals = await accountService.synchronizeAccount(id);
