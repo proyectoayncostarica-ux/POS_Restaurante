@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.1.3 · División una subcuenta a la vez
+- **Línea de trabajo actual:** v3.1.4 · Continuidad del consumo después de documentos y pagos
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -1159,3 +1159,21 @@ Documento técnico:
 Documento técnico:
 
 - `docs/avance-v3.1.3-division-subcuenta.md`
+
+### v3.1.4 · Continuidad del consumo después de documentos y pagos
+
+- **Objetivo:** mantener activa la cuenta global y la mesa/banco aunque una prefactura o el saldo actual ya hayan sido pagados.
+- **Lectura por línea:** se distinguen cantidades disponibles, documentadas pendientes, pagadas y reservas sin documento, sin borrar el consumo histórico.
+- **Consumo activo:** los productos ya pagados dejan de aparecer como disponibles; las cantidades restantes y los productos nuevos continúan operativos.
+- **Continuidad:** una cuenta puede tener saldo temporal cero y conservar `estado_operativo = abierta`, cliente principal, responsables y mesa ocupada.
+- **Acumulación:** al agregar productos después de un pago, el total global aumenta y el estado financiero vuelve a parcial/pendiente sin crear otra cuenta.
+- **Pago transitorio:** el endpoint legacy de pago normal liquida únicamente el saldo actual dentro de una transacción y ya no libera la mesa ni borra sus datos.
+- **UI:** `Ver pedido` separa consumo activo, documentos pendientes e historial liquidado, y avisa cuando el servicio continúa abierto con saldo cero.
+- **Integridad:** diferencias entre cantidades asignadas y documentos activos se exponen como reservas sin documento para revisión.
+- **Alcance pendiente:** el pago real por prefactura llegará en `v3.2.x`; crédito en `v3.2.4`; finalización explícita y liberación integral en `v3.2.5`.
+- **Pruebas:** 4 casos específicos y 57 casos totales aprobados sin fallos.
+- **Versión:** visible `3.0`, package y seguimiento interno `3.1.4`.
+
+Documento técnico:
+
+- `docs/avance-v3.1.4-continuidad-consumo.md`

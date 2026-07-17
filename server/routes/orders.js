@@ -491,60 +491,20 @@ router.post("/:id/pay", requireCapability(CAPABILITIES.CASH_COLLECT), async (req
             });
         }
 
-        // 🟢 SI NO ES CRÉDITO, PROCESAR COMO PAGO NORMAL
-        await database.run(
-            `INSERT INTO pagos (
-                pedido_id, metodo_pago, monto, subtotal, servicio,
-                porcentaje_servicio, aplica_servicio, fecha
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                id,
-                metodo_pago,
-                total,
-                subtotal,
-                servicio,
-                servicePayment.porcentaje_servicio,
-                servicePayment.aplica_servicio,
-                new Date().toISOString()
-            ]
-        );
-
-        if (!productos_divididos || productos_divididos.length === 0) {
-            await database.run("UPDATE pedidos SET estado = ? WHERE id = ?", ["pagado", id]);
-            await database.run(
-                "UPDATE mesas SET estado = ?, cliente_nombre = NULL, fecha_apertura = NULL, cantidad_personas = NULL, hora_estimada = NULL WHERE id = ?",
-                ["libre", pedido.mesa_id]
-            );
-        }
-
-        await database.run(
-            "INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)",
-            [`procesar_pago_${nombreZona}`, req.session.userId, `Pago procesado para ${nombreZona} ${pedido.mesa_numero} - $${total}`, new Date().toISOString()]
-        );
-
-        const accountTotals = await accountService.synchronizeAccount(id);
+        // Adaptador transitorio: liquida el saldo actual sin cerrar el servicio ni liberar la mesa.
+        // Payments reemplazará este endpoint en v3.2.x.
+        const paymentResult = await accountService.recordLegacyBalancePayment(id, {
+            userId: req.session.userId,
+            paymentMethod: metodo_pago
+        });
 
         res.json({
             success: true,
-            data: {
-                subtotal,
-                servicio,
-                total,
-                metodo_pago,
-                aplica_servicio: servicePayment.aplica_servicio,
-                porcentaje_servicio: servicePayment.porcentaje_servicio,
-                mesa_numero: pedido.mesa_numero,
-                numero_cuenta: pedido.numero_cuenta,
-                total_pagado: accountTotals.total_pagado,
-                saldo_pendiente: accountTotals.saldo_pendiente,
-                estado_operativo: accountTotals.estado_operativo,
-                estado_financiero: accountTotals.estado_financiero
-            }
+            data: paymentResult
         });
 
     } catch (error) {
-        console.error("Error procesando pago:", error);
-        res.status(500).json({ error: "Error interno del servidor" });
+        return sendRouteError(res, error, 'Error procesando el pago transitorio');
     }
 });
 

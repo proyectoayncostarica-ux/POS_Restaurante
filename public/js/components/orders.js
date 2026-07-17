@@ -766,7 +766,7 @@ const Orders = {
                 );
             } else {
                 Utils.showNotification(
-                    `Pago procesado exitosamente - Total: ${Utils.formatCurrency(response.data.total)}`,
+                    `Pago procesado - ${Utils.formatCurrency(response.data.total)}. La mesa continúa activa hasta finalizar el servicio.`,
                     'success'
                 );
             }
@@ -1161,7 +1161,21 @@ const Orders = {
         const assignedProducts = Array.isArray(order.productos_asignados)
             ? order.productos_asignados
             : (order.productos || []).filter(product => Number(product.cantidad_asignada || 0) > 0);
+        const pendingDocumentProducts = Array.isArray(order.productos_documentados_pendientes)
+            ? order.productos_documentados_pendientes
+            : assignedProducts.filter(product => Number(product.cantidad_documentada_pendiente || 0) > 0);
+        const paidProducts = Array.isArray(order.productos_pagados)
+            ? order.productos_pagados
+            : assignedProducts.filter(product => Number(product.cantidad_pagada || 0) > 0);
+        const reservedWithoutDocumentProducts = Array.isArray(order.productos_reservados_sin_documento)
+            ? order.productos_reservados_sin_documento
+            : assignedProducts.filter(product => Number(product.cantidad_reservada_sin_documento || 0) > 0);
         const lineSummary = order.resumen_lineas || {};
+        const documentSummary = order.resumen_documentos || {};
+        const continuity = order.continuidad_operativa || {};
+        const serviceOpen = continuity.servicio_activo ?? order.estado_operativo === 'abierta';
+        const temporaryZeroBalance = Boolean(continuity.saldo_temporal_cero)
+            || (serviceOpen && Number(order.saldo_pendiente || 0) <= 0);
         const activeDocuments = preinvoices.filter(document => document.estado !== 'anulada');
         const splitLocked = activeDocuments.length > 0;
         const splitMode = splitLocked || Boolean(options.splitMode);
@@ -1256,7 +1270,8 @@ const Orders = {
         }
 
         const assignedUnits = Number(lineSummary.unidades_asignadas || 0);
-        if (order.estado !== 'pagado' && canCollect && activeDocuments.length === 0 && assignedUnits === 0) {
+        const pendingGlobalBalance = Number(order.saldo_pendiente ?? order.total_con_servicio ?? order.total ?? 0);
+        if (serviceOpen && pendingGlobalBalance > 0 && canCollect && activeDocuments.length === 0 && assignedUnits === 0) {
             modalButtons.push({
                 text: 'Pagar cuenta completa',
                 class: 'btn-success text-white',
@@ -1272,8 +1287,27 @@ const Orders = {
                     <p><strong>Cliente principal:</strong> ${this.escapeHtml(order.cliente_principal || order.cliente_nombre || '')}</p>
                     <p><strong>Responsable:</strong> ${this.escapeHtml(order.usuario_nombre || '')}</p>
                     <p><strong>Fecha:</strong> ${Utils.formatDate(order.fecha)}</p>
-                    <p><strong>Estado:</strong> <span class="badge badge-${order.estado === 'pendiente' ? 'warning' : 'success'}">${this.escapeHtml(order.estado)}</span></p>
+                    <p><strong>Estado operativo:</strong> <span class="badge badge-${serviceOpen ? 'warning' : 'success'}">${this.escapeHtml(order.estado_operativo || order.estado)}</span></p>
+                    <p><strong>Estado financiero:</strong> <span class="badge badge-info">${this.escapeHtml(order.estado_financiero || 'sin_documentos')}</span></p>
                 </div>
+
+                ${temporaryZeroBalance ? `
+                    <div class="account-continuity-banner account-continuity-banner--settled">
+                        <i class="fas fa-check-circle"></i>
+                        <div>
+                            <strong>El consumo actual está liquidado, pero el servicio continúa abierto.</strong>
+                            <p>La mesa o banco permanece ocupado y puede recibir nuevos productos hasta que el responsable finalice el servicio explícitamente.</p>
+                        </div>
+                    </div>
+                ` : serviceOpen && Number(order.total_pagado || 0) > 0 ? `
+                    <div class="account-continuity-banner">
+                        <i class="fas fa-receipt"></i>
+                        <div>
+                            <strong>Cuenta global abierta con pagos previos.</strong>
+                            <p>Los consumos liquidados permanecen en el historial y los productos nuevos se agregan al saldo activo.</p>
+                        </div>
+                    </div>
+                ` : ''}
 
                 ${canBuildSplit ? `
                     <div class="split-account-control">
@@ -1342,21 +1376,41 @@ const Orders = {
                     </div>
                 ` : ''}
 
-                ${assignedProducts.length > 0 ? `
-                    <h4 class="mt-3">Consumo ya asignado</h4>
-                    <p class="text-muted">Estas cantidades permanecen en el historial, pero ya no pueden asignarse nuevamente.</p>
+                ${pendingDocumentProducts.length > 0 ? `
+                    <h4 class="mt-3">Consumo documentado pendiente de cobro</h4>
+                    <p class="text-muted">Estas cantidades pertenecen a prefacturas emitidas. Ya no aparecen como consumo activo ni pueden asignarse otra vez.</p>
                     <div class="table-container">
                         <table class="table">
-                            <thead><tr><th>Producto</th><th>Asignado</th><th>Precio Unit.</th><th>Subtotal</th></tr></thead>
-                            <tbody>${renderConsumptionRows(assignedProducts, 'cantidad_asignada', false)}</tbody>
+                            <thead><tr><th>Producto</th><th>Pendiente</th><th>Precio Unit.</th><th>Subtotal</th></tr></thead>
+                            <tbody>${renderConsumptionRows(pendingDocumentProducts, 'cantidad_documentada_pendiente', false)}</tbody>
                         </table>
                     </div>
                 ` : ''}
 
+                ${paidProducts.length > 0 ? `
+                    <h4 class="mt-3">Historial de consumo liquidado</h4>
+                    <p class="text-muted">Los productos pagados permanecen vinculados a la cuenta global para auditoría, pero no forman parte del consumo activo.</p>
+                    <div class="table-container">
+                        <table class="table">
+                            <thead><tr><th>Producto</th><th>Pagado</th><th>Precio Unit.</th><th>Subtotal</th></tr></thead>
+                            <tbody>${renderConsumptionRows(paidProducts, 'cantidad_pagada', false)}</tbody>
+                        </table>
+                    </div>
+                ` : ''}
+
+                ${reservedWithoutDocumentProducts.length > 0 ? `
+                    <div class="alert alert-warning mt-3">
+                        <strong>Revisión de integridad:</strong> existen cantidades reservadas sin un documento activo asociado.
+                    </div>
+                ` : ''}
+
                 <div class="order-global-summary mt-3">
-                    <p><strong>Total cuenta global:</strong> ${Utils.formatCurrency(order.total_con_servicio ?? order.total)}</p>
-                    <p><strong>Total pagado:</strong> ${Utils.formatCurrency(order.total_pagado || 0)}</p>
+                    <p><strong>Total cuenta global acumulada:</strong> ${Utils.formatCurrency(order.total_con_servicio ?? order.total)}</p>
+                    <p><strong>Total documentado:</strong> ${Utils.formatCurrency(documentSummary.total_documentado || 0)}</p>
+                    <p><strong>Documentos pagados:</strong> ${Number(documentSummary.documentos_pagados || 0)}</p>
+                    <p><strong>Total pagado global:</strong> ${Utils.formatCurrency(order.total_pagado || 0)}</p>
                     <p><strong>Saldo global pendiente:</strong> ${Utils.formatCurrency(order.saldo_pendiente ?? order.total_con_servicio ?? order.total)}</p>
+                    ${serviceOpen ? '<p class="order-global-summary-note"><i class="fas fa-lock-open"></i> La mesa permanece ocupada hasta finalizar el servicio.</p>' : ''}
                 </div>
             </div>
         `, modalButtons, 'modal-preinvoice-workflow');

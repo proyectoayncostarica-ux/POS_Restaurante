@@ -331,25 +331,56 @@ class AccountService {
             Math.max(0, Number.parseInt(row.cantidad_asignada, 10) || 0)
         );
         const available = Math.max(0, consumed - assigned);
+        const documentedRaw = Math.max(0, Number.parseInt(row.cantidad_documentada, 10) || 0);
+        const documented = Math.min(consumed, documentedRaw);
+        const paid = Math.min(
+            documented,
+            Math.max(0, Number.parseInt(row.cantidad_pagada, 10) || 0)
+        );
+        const pendingDocumented = Math.min(
+            Math.max(0, documented - paid),
+            Math.max(0, Number.parseInt(row.cantidad_documentada_pendiente, 10) || 0)
+        );
+        const reservedWithoutDocument = Math.max(0, assigned - documented);
         const price = roundMoney(Number(row.precio_unitario || 0));
         const servicePercentage = Number(row.aplica_servicio_snapshot || 0) === 1
             ? clampServicePercentage(row.porcentaje_servicio_snapshot)
             : 0;
-        const consumedSubtotal = multiplyMoney(price, consumed);
-        const assignedSubtotal = multiplyMoney(price, assigned);
-        const availableSubtotal = multiplyMoney(price, available);
-        const assignedService = servicePercentage > 0
-            ? percentageOf(assignedSubtotal, servicePercentage)
-            : 0;
-        const availableService = servicePercentage > 0
-            ? percentageOf(availableSubtotal, servicePercentage)
-            : 0;
+        const amountFor = quantity => {
+            const subtotal = multiplyMoney(price, quantity);
+            const service = servicePercentage > 0
+                ? percentageOf(subtotal, servicePercentage)
+                : 0;
+            return {
+                subtotal,
+                service,
+                total: addMoney(subtotal, service)
+            };
+        };
+        const consumedAmounts = amountFor(consumed);
+        const assignedAmounts = amountFor(assigned);
+        const availableAmounts = amountFor(available);
+        const pendingAmounts = amountFor(pendingDocumented);
+        const paidAmounts = amountFor(paid);
 
         let assignmentState = CONSUMPTION_LINE_STATES.AVAILABLE;
         if (assigned > 0 && available > 0) {
             assignmentState = CONSUMPTION_LINE_STATES.PARTIALLY_ASSIGNED;
         } else if (assigned > 0 && available === 0) {
             assignmentState = CONSUMPTION_LINE_STATES.ASSIGNED;
+        }
+
+        let continuityState = 'activa';
+        if (paid > 0 && available === 0 && pendingDocumented === 0 && paid >= consumed) {
+            continuityState = 'liquidada';
+        } else if (paid > 0) {
+            continuityState = 'parcialmente_liquidada';
+        } else if (pendingDocumented > 0 && available > 0) {
+            continuityState = 'activa_y_documentada';
+        } else if (pendingDocumented > 0) {
+            continuityState = 'documentada_pendiente';
+        } else if (reservedWithoutDocument > 0) {
+            continuityState = 'reservada_sin_documento';
         }
 
         return {
@@ -362,15 +393,27 @@ class AccountService {
             cantidad_consumida: consumed,
             cantidad_asignada: assigned,
             cantidad_disponible: available,
+            cantidad_documentada: documented,
+            cantidad_documentada_pendiente: pendingDocumented,
+            cantidad_pagada: paid,
+            cantidad_reservada_sin_documento: reservedWithoutDocument,
+            integridad_asignacion_documental: assigned === documented,
             estado_asignacion: assignmentState,
+            estado_continuidad: continuityState,
             precio_unitario: price,
-            subtotal_consumido: consumedSubtotal,
-            subtotal_asignado: assignedSubtotal,
-            subtotal_disponible: availableSubtotal,
-            servicio_asignado: assignedService,
-            servicio_disponible: availableService,
-            total_asignado: addMoney(assignedSubtotal, assignedService),
-            total_disponible: addMoney(availableSubtotal, availableService),
+            subtotal_consumido: consumedAmounts.subtotal,
+            subtotal_asignado: assignedAmounts.subtotal,
+            subtotal_disponible: availableAmounts.subtotal,
+            subtotal_documentado_pendiente: pendingAmounts.subtotal,
+            subtotal_pagado: paidAmounts.subtotal,
+            servicio_asignado: assignedAmounts.service,
+            servicio_disponible: availableAmounts.service,
+            servicio_documentado_pendiente: pendingAmounts.service,
+            servicio_pagado: paidAmounts.service,
+            total_asignado: assignedAmounts.total,
+            total_disponible: availableAmounts.total,
+            total_documentado_pendiente: pendingAmounts.total,
+            total_pagado_linea: paidAmounts.total,
             version: Math.max(1, Number.parseInt(row.version, 10) || 1)
         };
     }
@@ -385,26 +428,48 @@ class AccountService {
             summary.unidades_consumidas += line.cantidad_consumida;
             summary.unidades_asignadas += line.cantidad_asignada;
             summary.unidades_disponibles += line.cantidad_disponible;
+            summary.unidades_documentadas += line.cantidad_documentada;
+            summary.unidades_documentadas_pendientes += line.cantidad_documentada_pendiente;
+            summary.unidades_pagadas += line.cantidad_pagada;
+            summary.unidades_reservadas_sin_documento += line.cantidad_reservada_sin_documento;
             summary.subtotal_consumido = addMoney(summary.subtotal_consumido, line.subtotal_consumido);
             summary.subtotal_asignado = addMoney(summary.subtotal_asignado, line.subtotal_asignado);
             summary.subtotal_disponible = addMoney(summary.subtotal_disponible, line.subtotal_disponible);
+            summary.subtotal_documentado_pendiente = addMoney(summary.subtotal_documentado_pendiente, line.subtotal_documentado_pendiente);
+            summary.subtotal_pagado = addMoney(summary.subtotal_pagado, line.subtotal_pagado);
             summary.servicio_asignado = addMoney(summary.servicio_asignado, line.servicio_asignado);
             summary.servicio_disponible = addMoney(summary.servicio_disponible, line.servicio_disponible);
+            summary.servicio_documentado_pendiente = addMoney(summary.servicio_documentado_pendiente, line.servicio_documentado_pendiente);
+            summary.servicio_pagado = addMoney(summary.servicio_pagado, line.servicio_pagado);
             summary.total_asignado = addMoney(summary.total_asignado, line.total_asignado);
             summary.total_disponible = addMoney(summary.total_disponible, line.total_disponible);
+            summary.total_documentado_pendiente = addMoney(summary.total_documentado_pendiente, line.total_documentado_pendiente);
+            summary.total_pagado_lineas = addMoney(summary.total_pagado_lineas, line.total_pagado_linea);
+            if (!line.integridad_asignacion_documental) summary.lineas_con_inconsistencia += 1;
             return summary;
         }, {
             lineas_totales: 0,
             unidades_consumidas: 0,
             unidades_asignadas: 0,
             unidades_disponibles: 0,
+            unidades_documentadas: 0,
+            unidades_documentadas_pendientes: 0,
+            unidades_pagadas: 0,
+            unidades_reservadas_sin_documento: 0,
             subtotal_consumido: 0,
             subtotal_asignado: 0,
             subtotal_disponible: 0,
+            subtotal_documentado_pendiente: 0,
+            subtotal_pagado: 0,
             servicio_asignado: 0,
             servicio_disponible: 0,
+            servicio_documentado_pendiente: 0,
+            servicio_pagado: 0,
             total_asignado: 0,
-            total_disponible: 0
+            total_disponible: 0,
+            total_documentado_pendiente: 0,
+            total_pagado_lineas: 0,
+            lineas_con_inconsistencia: 0
         });
     }
 
@@ -455,15 +520,76 @@ class AccountService {
                 pp.*,
                 COALESCE(pp.producto_nombre_snapshot, pr.nombre) AS producto_nombre,
                 COALESCE(pp.presentacion_nombre_snapshot, pres.nombre, '') AS presentacion_nombre,
-                COALESCE(pp.presentacion_cantidad_snapshot, pres.cantidad, '') AS presentacion_cantidad
+                COALESCE(pp.presentacion_cantidad_snapshot, pres.cantidad, '') AS presentacion_cantidad,
+                COALESCE(documentos.cantidad_documentada, 0) AS cantidad_documentada,
+                COALESCE(documentos.cantidad_documentada_pendiente, 0) AS cantidad_documentada_pendiente,
+                COALESCE(documentos.cantidad_pagada, 0) AS cantidad_pagada
             FROM pedido_productos pp
             LEFT JOIN productos pr ON pr.id = pp.producto_id
             LEFT JOIN presentaciones pres ON pres.id = pp.presentacion_id
+            LEFT JOIN (
+                SELECT
+                    pfi.pedido_producto_id,
+                    SUM(CASE WHEN pf.estado <> 'anulada' THEN pfi.cantidad ELSE 0 END) AS cantidad_documentada,
+                    SUM(CASE WHEN pf.estado IN ('emitida', 'parcial') THEN pfi.cantidad ELSE 0 END) AS cantidad_documentada_pendiente,
+                    SUM(CASE WHEN pf.estado = 'pagada' THEN pfi.cantidad ELSE 0 END) AS cantidad_pagada
+                FROM prefactura_items pfi
+                JOIN prefacturas pf ON pf.id = pfi.prefactura_id
+                GROUP BY pfi.pedido_producto_id
+            ) documentos ON documentos.pedido_producto_id = pp.id
             WHERE pp.pedido_id = ?
             ORDER BY pp.id
         `, [id]);
 
         return rows.map(row => this.toConsumptionLineRead(row));
+    }
+
+    async getDocumentContinuitySummary(accountId, client = this.db) {
+        const id = Number(accountId);
+        if (!id) throw new ValidationError('ID de cuenta inválido', { accountId });
+
+        const summary = await client.get(`
+            SELECT
+                COALESCE(SUM(CASE WHEN estado <> 'anulada' THEN 1 ELSE 0 END), 0) AS documentos_activos,
+                COALESCE(SUM(CASE WHEN estado IN ('emitida', 'parcial') THEN 1 ELSE 0 END), 0) AS documentos_pendientes,
+                COALESCE(SUM(CASE WHEN estado = 'pagada' THEN 1 ELSE 0 END), 0) AS documentos_pagados,
+                COALESCE(SUM(CASE WHEN estado = 'anulada' THEN 1 ELSE 0 END), 0) AS documentos_anulados,
+                COALESCE(SUM(CASE WHEN estado <> 'anulada' THEN total ELSE 0 END), 0) AS total_documentado,
+                COALESCE(SUM(CASE WHEN estado IN ('emitida', 'parcial') THEN saldo_pendiente ELSE 0 END), 0) AS saldo_documentos_pendiente,
+                COALESCE(SUM(CASE WHEN estado = 'pagada' THEN total ELSE 0 END), 0) AS total_documentos_pagados,
+                COALESCE(SUM(CASE WHEN estado <> 'anulada' THEN total_pagado ELSE 0 END), 0) AS total_pagado_documentos
+            FROM prefacturas
+            WHERE pedido_id = ?
+        `, [id]);
+
+        return {
+            documentos_activos: Number(summary?.documentos_activos || 0),
+            documentos_pendientes: Number(summary?.documentos_pendientes || 0),
+            documentos_pagados: Number(summary?.documentos_pagados || 0),
+            documentos_anulados: Number(summary?.documentos_anulados || 0),
+            total_documentado: roundMoney(Number(summary?.total_documentado || 0)),
+            saldo_documentos_pendiente: roundMoney(Number(summary?.saldo_documentos_pendiente || 0)),
+            total_documentos_pagados: roundMoney(Number(summary?.total_documentos_pagados || 0)),
+            total_pagado_documentos: roundMoney(Number(summary?.total_pagado_documentos || 0))
+        };
+    }
+
+    buildContinuityRead(account = {}, lineSummary = {}, documentSummary = {}) {
+        const operationalState = account.estado_operativo || legacyOperationalState(account.estado, account.estado_operativo);
+        const serviceOpen = operationalState === ACCOUNT_OPERATIONAL_STATES.OPEN;
+        const balance = roundMoney(Number(account.saldo_pendiente || 0));
+
+        return {
+            servicio_activo: serviceOpen,
+            puede_agregar_consumo: serviceOpen,
+            requiere_finalizacion_explicita: serviceOpen,
+            mesa_debe_permanecer_ocupada: serviceOpen,
+            saldo_temporal_cero: serviceOpen && balance <= 0,
+            consumo_disponible: Number(lineSummary.unidades_disponibles || 0),
+            consumo_documentado_pendiente: Number(lineSummary.unidades_documentadas_pendientes || 0),
+            consumo_pagado: Number(lineSummary.unidades_pagadas || 0),
+            ...documentSummary
+        };
     }
 
     async assignAvailableQuantitiesInTransaction(accountId, assignments, client, options = {}) {
@@ -989,6 +1115,119 @@ class AccountService {
         });
     }
 
+    async recordLegacyBalancePayment(accountId, input = {}) {
+        const id = Number(accountId);
+        const userId = Number(input.userId || input.usuario_id);
+        const paymentMethod = String(input.paymentMethod || input.metodo_pago || '').trim().toLowerCase();
+        const now = input.now || new Date().toISOString();
+
+        if (!id || !userId) throw new ValidationError('Cuenta y usuario son requeridos');
+        if (!paymentMethod) throw new ValidationError('Método de pago requerido');
+        if (paymentMethod === 'credito') {
+            throw new ConflictError('El crédito continuará temporalmente por el flujo legacy hasta su migración a Payments', {
+                code: 'CREDIT_PAYMENT_ADAPTER_NOT_SUPPORTED'
+            });
+        }
+
+        return this.transactions.immediate(async tx => {
+            const account = await tx.get(`
+                SELECT p.*, m.numero AS mesa_numero, m.estado AS mesa_estado,
+                       m.zona, m.tipo_asiento, m.zona_id
+                FROM pedidos p
+                JOIN mesas m ON m.id = p.mesa_id
+                WHERE p.id = ?
+                  AND p.estado = 'pendiente'
+                  AND p.estado_operativo = 'abierta'
+            `, [id]);
+            if (!account) {
+                throw new ConflictError('Cuenta no encontrada o el servicio ya no está abierto', {
+                    code: 'ACCOUNT_NOT_OPEN',
+                    accountId: id
+                });
+            }
+
+            const documents = await tx.get(`
+                SELECT
+                    COALESCE((SELECT COUNT(*) FROM prefacturas pf
+                              WHERE pf.pedido_id = ? AND pf.estado <> 'anulada'), 0) AS prefacturas_activas,
+                    COALESCE((SELECT SUM(pp.cantidad_asignada) FROM pedido_productos pp
+                              WHERE pp.pedido_id = ?), 0) AS unidades_asignadas
+            `, [id, id]);
+            if (Number(documents?.prefacturas_activas || 0) > 0
+                || Number(documents?.unidades_asignadas || 0) > 0) {
+                throw new ConflictError('La cuenta tiene prefacturas y debe cobrarse por documento desde Caja', {
+                    code: 'ACCOUNT_REQUIRES_PREINVOICE_PAYMENT'
+                });
+            }
+
+            const totals = await this.calculateAccountTotals(id, tx, account);
+            const balanceMinor = toMinorUnits(totals.saldo_pendiente);
+            if (balanceMinor <= 0) {
+                throw new ConflictError('El consumo actual ya está liquidado; la cuenta sigue abierta para nuevos productos', {
+                    code: 'ACCOUNT_CURRENT_CONSUMPTION_ALREADY_SETTLED',
+                    accountId: id
+                });
+            }
+
+            const paidComponents = await tx.get(`
+                SELECT
+                    COALESCE(SUM(subtotal), 0) AS subtotal_pagado,
+                    COALESCE(SUM(servicio), 0) AS servicio_pagado
+                FROM pagos
+                WHERE pedido_id = ?
+            `, [id]);
+            const pendingSubtotalMinor = Math.max(
+                0,
+                toMinorUnits(totals.subtotal) - toMinorUnits(paidComponents?.subtotal_pagado || 0)
+            );
+            const subtotalMinor = Math.min(balanceMinor, pendingSubtotalMinor);
+            const serviceMinor = Math.max(0, balanceMinor - subtotalMinor);
+            const payment = await tx.run(`
+                INSERT INTO pagos (
+                    pedido_id, metodo_pago, monto, subtotal, servicio,
+                    porcentaje_servicio, aplica_servicio, fecha
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `, [
+                id,
+                paymentMethod,
+                fromMinorUnits(balanceMinor),
+                fromMinorUnits(subtotalMinor),
+                fromMinorUnits(serviceMinor),
+                totals.porcentaje_servicio,
+                totals.aplica_servicio,
+                now
+            ]);
+
+            const synchronized = await this.synchronizeAccount(id, tx, { now });
+            const seatLabel = this.getSeatLabel(account);
+            await tx.run(`
+                INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha)
+                VALUES (?, ?, ?, ?)
+            `, [
+                `pago_transitorio_${seatLabel}`,
+                userId,
+                `Saldo actual de ${account.numero_cuenta || formatAccountNumber(id)} liquidado sin cerrar ${seatLabel} ${account.mesa_numero}; el servicio permanece activo`,
+                now
+            ]);
+
+            return {
+                pago_id: payment.id,
+                subtotal: fromMinorUnits(subtotalMinor),
+                servicio: fromMinorUnits(serviceMinor),
+                total: fromMinorUnits(balanceMinor),
+                metodo_pago: paymentMethod,
+                numero_cuenta: account.numero_cuenta || formatAccountNumber(id),
+                mesa_numero: account.mesa_numero,
+                mesa_id: account.mesa_id,
+                mesa_estado: account.mesa_estado,
+                ...synchronized,
+                servicio_activo: true,
+                mesa_liberada: false,
+                requiere_finalizacion_explicita: true
+            };
+        });
+    }
+
     async getLegacyReplacementContext(accountId, currentProductId, newProductId, client = this.db) {
         const account = await client.get(`
             SELECT p.*, m.numero, m.zona, m.tipo_asiento, m.zona_id
@@ -1257,7 +1496,19 @@ class AccountService {
             .filter(product => product.cantidad_disponible > 0)
             .map(product => ({ ...product, cantidad: product.cantidad_disponible }));
         const assignedProducts = products.filter(product => product.cantidad_asignada > 0);
+        const pendingDocumentProducts = products
+            .filter(product => product.cantidad_documentada_pendiente > 0)
+            .map(product => ({ ...product, cantidad: product.cantidad_documentada_pendiente }));
+        const paidProducts = products
+            .filter(product => product.cantidad_pagada > 0)
+            .map(product => ({ ...product, cantidad: product.cantidad_pagada }));
+        const reservedWithoutDocumentProducts = products
+            .filter(product => product.cantidad_reservada_sin_documento > 0)
+            .map(product => ({ ...product, cantidad: product.cantidad_reservada_sin_documento }));
         const lineSummary = this.summarizeConsumptionLines(products);
+        const documentSummary = await this.getDocumentContinuitySummary(id);
+        const enriched = this.enrichAccountRead(row);
+        const continuity = this.buildContinuityRead(enriched, lineSummary, documentSummary);
         const responsibilities = await this.db.all(`
             SELECT
                 usuario_id,
@@ -1272,11 +1523,16 @@ class AccountService {
         `, [id]);
 
         return {
-            ...this.enrichAccountRead(row),
+            ...enriched,
             productos: products,
             productos_disponibles: availableProducts,
             productos_asignados: assignedProducts,
+            productos_documentados_pendientes: pendingDocumentProducts,
+            productos_pagados: paidProducts,
+            productos_reservados_sin_documento: reservedWithoutDocumentProducts,
             resumen_lineas: lineSummary,
+            resumen_documentos: documentSummary,
+            continuidad_operativa: continuity,
             responsables: responsibilities
         };
     }

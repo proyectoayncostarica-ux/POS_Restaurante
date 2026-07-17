@@ -10662,6 +10662,46 @@ body {
     margin: 5px 0;
 }
 
+
+.account-continuity-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin: 0 0 18px;
+    padding: 14px 16px;
+    border: 1px solid rgba(31, 93, 166, 0.22);
+    border-radius: 10px;
+    background: rgba(31, 93, 166, 0.06);
+}
+
+.account-continuity-banner--settled {
+    border-color: rgba(22, 163, 74, 0.28);
+    background: rgba(22, 163, 74, 0.08);
+}
+
+.account-continuity-banner > i {
+    margin-top: 2px;
+    font-size: 1.2rem;
+}
+
+.account-continuity-banner strong {
+    display: block;
+    margin-bottom: 4px;
+}
+
+.account-continuity-banner p,
+.order-global-summary-note {
+    margin: 0;
+    line-height: 1.45;
+}
+
+.order-global-summary-note {
+    margin-top: 10px !important;
+    padding-top: 10px;
+    border-top: 1px solid rgba(15, 23, 42, 0.12);
+    font-weight: 600;
+}
+
 @media (max-width: 720px) {
     .modal-content.modal-preinvoice-workflow,
     .modal-content.modal-preinvoice-review {
