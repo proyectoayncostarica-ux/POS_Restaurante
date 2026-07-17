@@ -710,3 +710,25 @@ powershell -ExecutionPolicy Bypass -File .\scripts\upgrade-sqlite3.ps1
 El script no utiliza `--force`, respalda los manifests, genera el lockfile desde el estado actual, ejecuta `npm ci`, la suite completa y la auditoría de producción.
 
 La actualización no cambia la cuenta global, prefacturas, Payments, Caja, Dashboard ni el esquema funcional. La siguiente fase continúa siendo `v3.2.1`.
+
+
+
+## 25. Estado actual · v3.2.1
+
+MundiPOS expone una API específica de Caja sobre el núcleo transaccional de Payments. El cajero puede consultar la cola de prefacturas, buscar documentos por número, cuenta, mesa/banco, zona, cliente principal, pagador o responsable, y abrir una lectura de cobro con ítems, pagos y contexto de cuenta global.
+
+La cola agrupa las prefacturas bajo su cuenta principal:
+
+```text
+CTA-######## · cliente principal · responsable
+├── PF-######## · pagador 1 · saldo
+└── PF-######## · pagador 2 · saldo
+```
+
+Las lecturas requieren `cash.access`. Registrar cobros requiere `cash.collect`; solicitar reimpresión requiere `cash.reprint`; reversar pagos requiere `cash.reverse`. El usuario cajero se obtiene de la sesión autenticada y no del cuerpo de la solicitud.
+
+Los cobros utilizan `Idempotency-Key`, conservan el vínculo `pago → prefactura → cuenta global` y publican realtime únicamente a sesiones autorizadas. Pagar un documento no libera la mesa ni finaliza el servicio.
+
+La reimpresión queda auditada, pero no se marca como realizada mientras no exista el módulo Printing. La API informa explícitamente que todavía no se creó un trabajo físico de impresión.
+
+No se modifica el esquema SQLite. La suite funcional cuenta con 76 pruebas aprobadas; en Windows, con el addon `sqlite3@6.0.1`, el total esperado es 78. La siguiente fase construirá la interfaz visual completa de Caja sobre este contrato.

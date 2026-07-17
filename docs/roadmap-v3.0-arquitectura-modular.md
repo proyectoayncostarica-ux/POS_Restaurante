@@ -1061,30 +1061,72 @@ git commit -m "v3.2.0 fix2: actualiza driver SQLite de forma controlada"
 
 ## v3.2.1 · API y read model operativo de Caja
 
+**Estado: implementada.**
+
 ### Objetivo
 
-Crear endpoints específicos para la operación de Caja.
+Exponer Payments mediante endpoints específicos de Caja, con lectura agrupada por cuenta global y operación monetaria por prefactura.
 
-### Funciones
+### Implementación
 
-- listar documentos pendientes;
-- buscar por número, cuenta, mesa, zona, cliente principal, pagador o responsable;
-- consultar detalle de documento;
-- consultar saldo;
-- consultar pagos;
-- consultar contexto global de la cuenta;
-- solicitar reimpresión autorizada.
+- servicio `cashReadService`;
+- cola de prefacturas pendientes;
+- agrupación de documentos bajo una cuenta global;
+- búsqueda por documento, cuenta, mesa/banco, zona, cliente principal, pagador o responsable;
+- detalle de prefactura con ítems, pagos y contexto financiero;
+- lectura consolidada de cobro de una cuenta;
+- registro de pagos idempotentes por prefactura;
+- consulta individual de pagos;
+- reverso auditable;
+- solicitud de reimpresión auditada sin simular una impresión física;
+- realtime para Caja y Payments.
 
-### Seguridad
+### API
 
-Solo capacidades de Caja. El cajero consulta únicamente los datos necesarios para el cobro.
+```text
+GET  /api/cash/queue                              cash.access
+GET  /api/cash/preinvoices/:id                    cash.access
+GET  /api/cash/preinvoices/:id/payments           cash.access
+POST /api/cash/preinvoices/:id/payments           cash.collect
+POST /api/cash/preinvoices/:id/reprint-request    cash.reprint
+GET  /api/cash/payments/:id                       cash.access
+POST /api/cash/payments/:id/void                  cash.reverse
+GET  /api/cash/accounts/:id/collection-read       cash.access
+```
+
+Los cobros y reversos requieren `Idempotency-Key`. El cajero se obtiene de la sesión autenticada.
+
+### Invariantes
+
+```text
+prefactura pagada ≠ mesa liberada
+pagador parcial ≠ cliente principal
+varias prefacturas ≠ varias ventas
+reimpresión solicitada ≠ impresión física confirmada
+```
 
 ### Criterios de aprobación
 
-- cajero encuentra una prefactura por número o mesa;
-- ve pagador y contexto global sin editar consumo;
-- no accede a cuentas fuera de la política definida;
-- saldos coinciden con Payments y Cuentas.
+- cajero encuentra una prefactura por número, cuenta, mesa, zona, cliente, pagador o responsable;
+- una cuenta dividida aparece una vez con sus documentos separados;
+- detalle de documento coincide con Payments y Cuentas;
+- pago parcial actualiza solo el saldo del documento;
+- pago completo no cierra la cuenta operativa;
+- doble solicitud con la misma clave no duplica el pago;
+- usuario sin `cash.collect` no puede cobrar;
+- usuario sin `cash.reverse` no puede anular;
+- reimpresión queda auditada y pendiente de Printing;
+- 76 pruebas funcionales terminan sin fallos;
+- en Windows, `npm test` valida también las dos pruebas nativas de SQLite.
+
+### Archivos
+
+```text
+server/services/cashReadService.js
+server/routes/cash.js
+tests/cashReadService.test.js
+docs/avance-v3.2.1-api-read-model-caja.md
+```
 
 ### Commit
 

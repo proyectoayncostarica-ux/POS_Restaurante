@@ -1257,3 +1257,32 @@ Documento técnico:
 - `docs/avance-v3.2.0-fix2-sqlite3.md`
 
 La siguiente fase funcional continúa siendo `v3.2.1 · API y read model operativo de Caja`.
+
+
+
+## 25. Caja operativa backend · v3.2.1
+
+La sección Caja dispone de un contrato backend propio para consultar y cobrar prefacturas. `cashReadService` agrupa los documentos por cuenta global, permite búsquedas operativas y entrega el detalle de ítems, saldos, pagos, cliente principal, mesa/banco, zona y responsable.
+
+Endpoints principales:
+
+```text
+GET  /api/cash/queue
+GET  /api/cash/preinvoices/:preinvoiceId
+POST /api/cash/preinvoices/:preinvoiceId/payments
+POST /api/cash/preinvoices/:preinvoiceId/reprint-request
+POST /api/cash/payments/:paymentId/void
+GET  /api/cash/accounts/:id/collection-read
+```
+
+La seguridad se divide entre `cash.access`, `cash.collect`, `cash.reprint` y `cash.reverse`. Los cobros y reversos requieren una clave de idempotencia. La identidad del cajero proviene de la sesión activa.
+
+La cuenta global continúa siendo la única fuente financiera; las prefacturas son documentos operativos y los pagos son movimientos de Caja. Una prefactura pagada no cierra la cuenta ni libera la mesa.
+
+La solicitud de reimpresión se registra en el historial, pero permanece pendiente del módulo Printing y nunca se reporta falsamente como impresión física completada.
+
+Documento técnico:
+
+- `docs/avance-v3.2.1-api-read-model-caja.md`
+
+La siguiente fase es `v3.2.2 · Sección visual Caja y modal de cobro`.
