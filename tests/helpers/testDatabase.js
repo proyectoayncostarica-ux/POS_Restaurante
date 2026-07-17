@@ -2,19 +2,29 @@ const fs = require('fs/promises');
 const os = require('os');
 const path = require('path');
 function loadDatabaseClass() {
+    let restoreModuleLoader = null;
     try {
         require('sqlite3').verbose();
     } catch (error) {
-        const sqlite3Path = require.resolve('sqlite3');
-        require.cache[sqlite3Path] = {
-            id: sqlite3Path,
-            filename: sqlite3Path,
-            loaded: true,
-            exports: require('./sqlite3Fallback')
+        const Module = require('module');
+        const originalLoad = Module._load;
+        const sqliteFallback = require('./sqlite3Fallback');
+        const bcryptFallback = require('./bcryptFallback');
+        Module._load = function loadWithTestFallbacks(request, parent, isMain) {
+            if (request === 'sqlite3') return sqliteFallback;
+            if (request === 'bcryptjs') return bcryptFallback;
+            return originalLoad.call(this, request, parent, isMain);
+        };
+        restoreModuleLoader = () => {
+            Module._load = originalLoad;
         };
     }
 
-    return require('../../server/db/database').Database;
+    try {
+        return require('../../server/db/database').Database;
+    } finally {
+        restoreModuleLoader?.();
+    }
 }
 
 const Database = loadDatabaseClass();

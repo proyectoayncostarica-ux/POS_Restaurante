@@ -4,7 +4,8 @@ const {
     ValidationError,
     NotFoundError,
     ConflictError,
-    ForbiddenError
+    ForbiddenError,
+    InvariantError
 } = require('../errors/domainError');
 const {
     toMinorUnits,
@@ -28,6 +29,12 @@ const ACCOUNT_FINANCIAL_STATES = Object.freeze({
     PARTIAL: 'parcial',
     RECONCILED: 'conciliada',
     CREDIT: 'credito'
+});
+
+const CONSUMPTION_LINE_STATES = Object.freeze({
+    AVAILABLE: 'disponible',
+    PARTIALLY_ASSIGNED: 'parcialmente_asignada',
+    ASSIGNED: 'asignada'
 });
 
 function clampServicePercentage(value) {
@@ -158,6 +165,8 @@ class AccountService {
 
         let unitPrice = Number(product.precio || 0);
         let presentationId = null;
+        let presentationName = null;
+        let presentationQuantity = null;
         const requestedPresentation = item.presentacion_id !== null
             && typeof item.presentacion_id !== 'undefined'
             ? Number.parseInt(item.presentacion_id, 10)
@@ -170,6 +179,7 @@ class AccountService {
                     pp.presentacion_id,
                     pp.precio,
                     pr.nombre AS presentacion_nombre,
+                    pr.cantidad AS presentacion_cantidad,
                     pr.tipo_presentacion_id,
                     p.tipo_presentacion_id AS producto_tipo_presentacion_id
                 FROM presentaciones_producto pp
@@ -189,6 +199,8 @@ class AccountService {
             }
             unitPrice = Number(presentation.precio || 0);
             presentationId = Number(presentation.presentacion_id);
+            presentationName = presentation.presentacion_nombre || null;
+            presentationQuantity = presentation.presentacion_cantidad || null;
         } else {
             const hasPresentations = await client.get(`
                 SELECT 1 AS existe
@@ -217,7 +229,9 @@ class AccountService {
             precio_original: roundMoney(unitPrice),
             presentacion_id: presentationId,
             es_cocina: Number(product.es_cocina) === 1 ? 1 : 0,
-            producto_nombre: product.nombre
+            producto_nombre: product.nombre,
+            presentacion_nombre: presentationName,
+            presentacion_cantidad: presentationQuantity
         };
     }
 
@@ -287,6 +301,292 @@ class AccountService {
                 snapshot.fecha_asignacion || new Date().toISOString()
             ]);
         }
+    }
+
+    buildConsumptionLineSnapshot(item, servicePolicy = {}, now = new Date().toISOString()) {
+        const appliesService = Number(servicePolicy.aplica_servicio || 0) === 1;
+        const percentage = appliesService
+            ? clampServicePercentage(servicePolicy.porcentaje_servicio)
+            : 0;
+
+        return {
+            producto_nombre_snapshot: item.producto_nombre || 'Producto',
+            presentacion_nombre_snapshot: item.presentacion_nombre || null,
+            presentacion_cantidad_snapshot: item.presentacion_cantidad || null,
+            aplica_servicio_snapshot: appliesService ? 1 : 0,
+            porcentaje_servicio_snapshot: percentage,
+            servicio_unitario_snapshot: appliesService
+                ? percentageOf(item.precio_unitario, percentage)
+                : 0,
+            creado_en: now,
+            actualizado_en: now,
+            version: 1
+        };
+    }
+
+    toConsumptionLineRead(row = {}) {
+        const consumed = Math.max(0, Number.parseInt(row.cantidad, 10) || 0);
+        const assigned = Math.min(
+            consumed,
+            Math.max(0, Number.parseInt(row.cantidad_asignada, 10) || 0)
+        );
+        const available = Math.max(0, consumed - assigned);
+        const price = roundMoney(Number(row.precio_unitario || 0));
+        const servicePercentage = Number(row.aplica_servicio_snapshot || 0) === 1
+            ? clampServicePercentage(row.porcentaje_servicio_snapshot)
+            : 0;
+        const consumedSubtotal = multiplyMoney(price, consumed);
+        const assignedSubtotal = multiplyMoney(price, assigned);
+        const availableSubtotal = multiplyMoney(price, available);
+        const assignedService = servicePercentage > 0
+            ? percentageOf(assignedSubtotal, servicePercentage)
+            : 0;
+        const availableService = servicePercentage > 0
+            ? percentageOf(availableSubtotal, servicePercentage)
+            : 0;
+
+        let assignmentState = CONSUMPTION_LINE_STATES.AVAILABLE;
+        if (assigned > 0 && available > 0) {
+            assignmentState = CONSUMPTION_LINE_STATES.PARTIALLY_ASSIGNED;
+        } else if (assigned > 0 && available === 0) {
+            assignmentState = CONSUMPTION_LINE_STATES.ASSIGNED;
+        }
+
+        return {
+            ...row,
+            pedido_producto_id: Number(row.id),
+            producto_nombre: row.producto_nombre_snapshot || row.producto_nombre || 'Producto',
+            presentacion_nombre: row.presentacion_nombre_snapshot || row.presentacion_nombre || '',
+            presentacion_cantidad: row.presentacion_cantidad_snapshot || row.presentacion_cantidad || '',
+            cantidad: consumed,
+            cantidad_consumida: consumed,
+            cantidad_asignada: assigned,
+            cantidad_disponible: available,
+            estado_asignacion: assignmentState,
+            precio_unitario: price,
+            subtotal_consumido: consumedSubtotal,
+            subtotal_asignado: assignedSubtotal,
+            subtotal_disponible: availableSubtotal,
+            servicio_asignado: assignedService,
+            servicio_disponible: availableService,
+            total_asignado: addMoney(assignedSubtotal, assignedService),
+            total_disponible: addMoney(availableSubtotal, availableService),
+            version: Math.max(1, Number.parseInt(row.version, 10) || 1)
+        };
+    }
+
+    summarizeConsumptionLines(lines = []) {
+        return lines.reduce((summary, rawLine) => {
+            const line = rawLine.cantidad_disponible === undefined
+                ? this.toConsumptionLineRead(rawLine)
+                : rawLine;
+
+            summary.lineas_totales += 1;
+            summary.unidades_consumidas += line.cantidad_consumida;
+            summary.unidades_asignadas += line.cantidad_asignada;
+            summary.unidades_disponibles += line.cantidad_disponible;
+            summary.subtotal_consumido = addMoney(summary.subtotal_consumido, line.subtotal_consumido);
+            summary.subtotal_asignado = addMoney(summary.subtotal_asignado, line.subtotal_asignado);
+            summary.subtotal_disponible = addMoney(summary.subtotal_disponible, line.subtotal_disponible);
+            summary.servicio_asignado = addMoney(summary.servicio_asignado, line.servicio_asignado);
+            summary.servicio_disponible = addMoney(summary.servicio_disponible, line.servicio_disponible);
+            summary.total_asignado = addMoney(summary.total_asignado, line.total_asignado);
+            summary.total_disponible = addMoney(summary.total_disponible, line.total_disponible);
+            return summary;
+        }, {
+            lineas_totales: 0,
+            unidades_consumidas: 0,
+            unidades_asignadas: 0,
+            unidades_disponibles: 0,
+            subtotal_consumido: 0,
+            subtotal_asignado: 0,
+            subtotal_disponible: 0,
+            servicio_asignado: 0,
+            servicio_disponible: 0,
+            total_asignado: 0,
+            total_disponible: 0
+        });
+    }
+
+    normalizeQuantityAssignments(assignments) {
+        if (!Array.isArray(assignments) || assignments.length === 0) {
+            throw new ValidationError('Debe seleccionar al menos una línea y cantidad');
+        }
+
+        const grouped = new Map();
+        for (const assignment of assignments) {
+            const lineId = Number.parseInt(
+                assignment?.pedido_producto_id ?? assignment?.linea_id ?? assignment?.id,
+                10
+            );
+            const quantity = Number.parseInt(assignment?.cantidad, 10);
+            const expectedVersion = assignment?.version === undefined || assignment?.version === null
+                ? null
+                : Number.parseInt(assignment.version, 10);
+
+            if (!lineId || !quantity || quantity <= 0) {
+                throw new ValidationError('Cada asignación requiere línea y cantidad positiva', { assignment });
+            }
+
+            const current = grouped.get(lineId) || {
+                pedido_producto_id: lineId,
+                cantidad: 0,
+                version: expectedVersion
+            };
+            current.cantidad += quantity;
+            if (current.version === null && expectedVersion !== null) current.version = expectedVersion;
+            if (current.version !== null && expectedVersion !== null && current.version !== expectedVersion) {
+                throw new ValidationError('La misma línea no puede enviarse con versiones diferentes', {
+                    pedido_producto_id: lineId
+                });
+            }
+            grouped.set(lineId, current);
+        }
+
+        return [...grouped.values()];
+    }
+
+    async getConsumptionLines(accountId, client = this.db) {
+        const id = Number(accountId);
+        if (!id) throw new ValidationError('ID de cuenta inválido', { accountId });
+
+        const rows = await client.all(`
+            SELECT
+                pp.*,
+                COALESCE(pp.producto_nombre_snapshot, pr.nombre) AS producto_nombre,
+                COALESCE(pp.presentacion_nombre_snapshot, pres.nombre, '') AS presentacion_nombre,
+                COALESCE(pp.presentacion_cantidad_snapshot, pres.cantidad, '') AS presentacion_cantidad
+            FROM pedido_productos pp
+            LEFT JOIN productos pr ON pr.id = pp.producto_id
+            LEFT JOIN presentaciones pres ON pres.id = pp.presentacion_id
+            WHERE pp.pedido_id = ?
+            ORDER BY pp.id
+        `, [id]);
+
+        return rows.map(row => this.toConsumptionLineRead(row));
+    }
+
+    async assignAvailableQuantities(accountId, assignments, options = {}) {
+        const id = Number(accountId);
+        const normalized = this.normalizeQuantityAssignments(assignments);
+        const now = options.now || new Date().toISOString();
+
+        return this.transactions.immediate(async tx => {
+            const account = await tx.get(`
+                SELECT id, estado_operativo
+                FROM pedidos
+                WHERE id = ?
+            `, [id]);
+            if (!account) throw new NotFoundError('Cuenta no encontrada', { accountId: id });
+            if (account.estado_operativo !== ACCOUNT_OPERATIONAL_STATES.OPEN) {
+                throw new ConflictError('Solo una cuenta abierta puede asignar consumo', {
+                    code: 'ACCOUNT_NOT_OPEN',
+                    accountId: id
+                });
+            }
+
+            for (const assignment of normalized) {
+                const line = await tx.get(`
+                    SELECT * FROM pedido_productos
+                    WHERE id = ? AND pedido_id = ?
+                `, [assignment.pedido_producto_id, id]);
+                if (!line) {
+                    throw new NotFoundError('Línea de consumo no encontrada', {
+                        pedido_producto_id: assignment.pedido_producto_id,
+                        accountId: id
+                    });
+                }
+
+                const current = this.toConsumptionLineRead(line);
+                if (assignment.version !== null && assignment.version !== current.version) {
+                    throw new ConflictError('La línea cambió en otro dispositivo', {
+                        code: 'CONSUMPTION_LINE_VERSION_CONFLICT',
+                        pedido_producto_id: current.pedido_producto_id,
+                        expected_version: assignment.version,
+                        current_version: current.version
+                    });
+                }
+                if (assignment.cantidad > current.cantidad_disponible) {
+                    throw new InvariantError('La cantidad seleccionada supera la cantidad disponible', {
+                        code: 'CONSUMPTION_QUANTITY_EXCEEDED',
+                        pedido_producto_id: current.pedido_producto_id,
+                        cantidad_consumida: current.cantidad_consumida,
+                        cantidad_asignada: current.cantidad_asignada,
+                        cantidad_disponible: current.cantidad_disponible,
+                        cantidad_solicitada: assignment.cantidad
+                    });
+                }
+
+                const updated = await tx.run(`
+                    UPDATE pedido_productos
+                    SET cantidad_asignada = cantidad_asignada + ?,
+                        actualizado_en = ?,
+                        version = COALESCE(version, 1) + 1
+                    WHERE id = ?
+                      AND pedido_id = ?
+                      AND cantidad - cantidad_asignada >= ?
+                `, [assignment.cantidad, now, current.pedido_producto_id, id, assignment.cantidad]);
+
+                if (updated.changes !== 1) {
+                    throw new ConflictError('La disponibilidad de la línea cambió durante la operación', {
+                        code: 'CONSUMPTION_LINE_CONCURRENT_CHANGE',
+                        pedido_producto_id: current.pedido_producto_id
+                    });
+                }
+            }
+
+            return this.getConsumptionLines(id, tx);
+        });
+    }
+
+    async releaseAssignedQuantities(accountId, assignments, options = {}) {
+        const id = Number(accountId);
+        const normalized = this.normalizeQuantityAssignments(assignments);
+        const now = options.now || new Date().toISOString();
+
+        return this.transactions.immediate(async tx => {
+            for (const assignment of normalized) {
+                const line = await tx.get(`
+                    SELECT * FROM pedido_productos
+                    WHERE id = ? AND pedido_id = ?
+                `, [assignment.pedido_producto_id, id]);
+                if (!line) throw new NotFoundError('Línea de consumo no encontrada');
+                const current = this.toConsumptionLineRead(line);
+
+                if (assignment.version !== null && assignment.version !== current.version) {
+                    throw new ConflictError('La línea cambió en otro dispositivo', {
+                        code: 'CONSUMPTION_LINE_VERSION_CONFLICT',
+                        pedido_producto_id: current.pedido_producto_id
+                    });
+                }
+                if (assignment.cantidad > current.cantidad_asignada) {
+                    throw new InvariantError('No se puede liberar más cantidad de la asignada', {
+                        code: 'CONSUMPTION_RELEASE_EXCEEDED',
+                        pedido_producto_id: current.pedido_producto_id,
+                        cantidad_asignada: current.cantidad_asignada,
+                        cantidad_solicitada: assignment.cantidad
+                    });
+                }
+
+                const updated = await tx.run(`
+                    UPDATE pedido_productos
+                    SET cantidad_asignada = cantidad_asignada - ?,
+                        actualizado_en = ?,
+                        version = COALESCE(version, 1) + 1
+                    WHERE id = ?
+                      AND pedido_id = ?
+                      AND cantidad_asignada >= ?
+                `, [assignment.cantidad, now, current.pedido_producto_id, id, assignment.cantidad]);
+                if (updated.changes !== 1) {
+                    throw new ConflictError('La asignación cambió durante la operación', {
+                        code: 'CONSUMPTION_LINE_CONCURRENT_CHANGE',
+                        pedido_producto_id: current.pedido_producto_id
+                    });
+                }
+            }
+
+            return this.getConsumptionLines(id, tx);
+        });
     }
 
     async calculateAccountTotals(accountId, client = this.db, accountRow = null) {
@@ -459,18 +759,32 @@ class AccountService {
             await this.persistResponsibilitySnapshots(accountId, responsibilities, creatorUserId, tx);
 
             for (const item of validatedItems) {
+                const lineSnapshot = this.buildConsumptionLineSnapshot(item, totals, now);
                 await tx.run(`
                     INSERT INTO pedido_productos (
-                        pedido_id, producto_id, cantidad, precio_unitario,
-                        precio_original, presentacion_id
-                    ) VALUES (?, ?, ?, ?, ?, ?)
+                        pedido_id, producto_id, cantidad, cantidad_asignada,
+                        precio_unitario, precio_original, presentacion_id,
+                        producto_nombre_snapshot, presentacion_nombre_snapshot,
+                        presentacion_cantidad_snapshot, aplica_servicio_snapshot,
+                        porcentaje_servicio_snapshot, servicio_unitario_snapshot,
+                        creado_en, actualizado_en, version
+                    ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `, [
                     accountId,
                     item.producto_id,
                     item.cantidad,
                     item.precio_unitario,
                     item.precio_original,
-                    item.presentacion_id
+                    item.presentacion_id,
+                    lineSnapshot.producto_nombre_snapshot,
+                    lineSnapshot.presentacion_nombre_snapshot,
+                    lineSnapshot.presentacion_cantidad_snapshot,
+                    lineSnapshot.aplica_servicio_snapshot,
+                    lineSnapshot.porcentaje_servicio_snapshot,
+                    lineSnapshot.servicio_unitario_snapshot,
+                    lineSnapshot.creado_en,
+                    lineSnapshot.actualizado_en,
+                    lineSnapshot.version
                 ]);
             }
 
@@ -528,33 +842,70 @@ class AccountService {
             if (!account) throw new ConflictError('Cuenta no encontrada o no está abierta', { accountId: id });
 
             const validatedItems = await this.validateProductItems(items, tx);
+            const linePolicy = {
+                aplica_servicio: Number(account.aplica_servicio || 0) === 1 ? 1 : 0,
+                porcentaje_servicio: account.porcentaje_servicio
+            };
             let totalAdditional = 0;
             for (const item of validatedItems) {
                 totalAdditional = addMoney(totalAdditional, multiplyMoney(item.precio_unitario, item.cantidad));
+                const lineSnapshot = this.buildConsumptionLineSnapshot(item, linePolicy, now);
                 const existing = await tx.get(`
                     SELECT id
                     FROM pedido_productos
                     WHERE pedido_id = ?
                       AND producto_id = ?
                       AND COALESCE(presentacion_id, 0) = COALESCE(?, 0)
+                      AND COALESCE(cantidad_asignada, 0) = 0
+                      AND precio_unitario = ?
+                      AND COALESCE(aplica_servicio_snapshot, 0) = ?
+                      AND COALESCE(porcentaje_servicio_snapshot, 0) = ?
+                    ORDER BY id DESC
                     LIMIT 1
-                `, [id, item.producto_id, item.presentacion_id]);
+                `, [
+                    id,
+                    item.producto_id,
+                    item.presentacion_id,
+                    item.precio_unitario,
+                    lineSnapshot.aplica_servicio_snapshot,
+                    lineSnapshot.porcentaje_servicio_snapshot
+                ]);
 
                 if (existing) {
-                    await tx.run('UPDATE pedido_productos SET cantidad = cantidad + ? WHERE id = ?', [item.cantidad, existing.id]);
+                    await tx.run(`
+                        UPDATE pedido_productos
+                        SET cantidad = cantidad + ?,
+                            actualizado_en = ?,
+                            version = COALESCE(version, 1) + 1
+                        WHERE id = ?
+                          AND COALESCE(cantidad_asignada, 0) = 0
+                    `, [item.cantidad, now, existing.id]);
                 } else {
                     await tx.run(`
                         INSERT INTO pedido_productos (
-                            pedido_id, producto_id, cantidad, precio_unitario,
-                            precio_original, presentacion_id
-                        ) VALUES (?, ?, ?, ?, ?, ?)
+                            pedido_id, producto_id, cantidad, cantidad_asignada,
+                            precio_unitario, precio_original, presentacion_id,
+                            producto_nombre_snapshot, presentacion_nombre_snapshot,
+                            presentacion_cantidad_snapshot, aplica_servicio_snapshot,
+                            porcentaje_servicio_snapshot, servicio_unitario_snapshot,
+                            creado_en, actualizado_en, version
+                        ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     `, [
                         id,
                         item.producto_id,
                         item.cantidad,
                         item.precio_unitario,
                         item.precio_original,
-                        item.presentacion_id
+                        item.presentacion_id,
+                        lineSnapshot.producto_nombre_snapshot,
+                        lineSnapshot.presentacion_nombre_snapshot,
+                        lineSnapshot.presentacion_cantidad_snapshot,
+                        lineSnapshot.aplica_servicio_snapshot,
+                        lineSnapshot.porcentaje_servicio_snapshot,
+                        lineSnapshot.servicio_unitario_snapshot,
+                        lineSnapshot.creado_en,
+                        lineSnapshot.actualizado_en,
+                        lineSnapshot.version
                     ]);
                 }
             }
@@ -601,15 +952,42 @@ class AccountService {
         `, [Number(accountId)]);
         if (!account) throw new ConflictError('Cuenta no encontrada o no está abierta', { accountId });
 
-        const currentLine = await client.get(`
-            SELECT pp.*, p.nombre AS nombre_actual
+        const currentLines = await client.all(`
+            SELECT pp.*, COALESCE(pp.producto_nombre_snapshot, p.nombre) AS nombre_actual
             FROM pedido_productos pp
             JOIN productos p ON p.id = pp.producto_id
             WHERE pp.pedido_id = ? AND pp.producto_id = ?
             ORDER BY pp.id
-            LIMIT 1
         `, [Number(accountId), Number(currentProductId)]);
-        if (!currentLine) throw new NotFoundError('Producto no encontrado en la cuenta');
+        if (currentLines.length === 0) throw new NotFoundError('Producto no encontrado en la cuenta');
+        if (currentLines.length > 1) {
+            throw new ConflictError(
+                'La edición legacy por producto es ambigua. Debe editarse una línea de consumo específica.',
+                {
+                    code: 'LEGACY_LINE_EDIT_AMBIGUOUS',
+                    producto_id: Number(currentProductId),
+                    lineas: currentLines.map(line => line.id)
+                }
+            );
+        }
+
+        const currentLine = currentLines[0];
+        if (currentLine.presentacion_id) {
+            throw new ConflictError(
+                'La edición legacy no admite líneas con presentación.',
+                { code: 'LEGACY_LINE_EDIT_PRESENTATION_UNSUPPORTED', pedido_producto_id: currentLine.id }
+            );
+        }
+        if (Number(currentLine.cantidad_asignada || 0) > 0) {
+            throw new ConflictError(
+                'Una línea con cantidades asignadas no puede modificarse.',
+                {
+                    code: 'CONSUMPTION_LINE_ALREADY_ASSIGNED',
+                    pedido_producto_id: currentLine.id,
+                    cantidad_asignada: Number(currentLine.cantidad_asignada || 0)
+                }
+            );
+        }
 
         const newProduct = await client.get(`
             SELECT p.*, COALESCE(p.activo, 1) AS producto_activo
@@ -636,11 +1014,16 @@ class AccountService {
         const newPrice = roundMoney(Number(newProduct.precio || 0));
         if (newPrice <= 0) throw new ConflictError('El nuevo producto no tiene precio operativo válido');
 
+        const servicePercentage = Number(currentLine.aplica_servicio_snapshot || 0) === 1
+            ? clampServicePercentage(currentLine.porcentaje_servicio_snapshot)
+            : 0;
+
         return {
             account,
             currentLine,
             newProduct,
             newPrice,
+            newServiceUnit: servicePercentage > 0 ? percentageOf(newPrice, servicePercentage) : 0,
             requiresAdmin: toMinorUnits(newPrice) < toMinorUnits(currentLine.precio_original)
         };
     }
@@ -659,11 +1042,33 @@ class AccountService {
                 );
             }
 
-            await tx.run(`
+            const updated = await tx.run(`
                 UPDATE pedido_productos
-                SET producto_id = ?, precio_unitario = ?
+                SET producto_id = ?,
+                    precio_unitario = ?,
+                    producto_nombre_snapshot = ?,
+                    presentacion_id = NULL,
+                    presentacion_nombre_snapshot = NULL,
+                    presentacion_cantidad_snapshot = NULL,
+                    servicio_unitario_snapshot = ?,
+                    actualizado_en = ?,
+                    version = COALESCE(version, 1) + 1
                 WHERE id = ?
-            `, [Number(newProductId), context.newPrice, context.currentLine.id]);
+                  AND COALESCE(cantidad_asignada, 0) = 0
+            `, [
+                Number(newProductId),
+                context.newPrice,
+                context.newProduct.nombre,
+                context.newServiceUnit,
+                now,
+                context.currentLine.id
+            ]);
+            if (updated.changes !== 1) {
+                throw new ConflictError('La línea cambió y ya no puede editarse', {
+                    code: 'CONSUMPTION_LINE_CONCURRENT_CHANGE',
+                    pedido_producto_id: context.currentLine.id
+                });
+            }
 
             const totals = await this.synchronizeAccount(Number(accountId), tx, { now });
             const seatLabel = this.getSeatLabel(context.account);
@@ -726,6 +1131,9 @@ class AccountService {
                 COALESCE(p.cliente_principal_snapshot, p.cliente_nombre, m.cliente_nombre) AS cliente_principal,
                 u.nombre AS usuario_nombre,
                 COALESCE((SELECT SUM(pp.precio_unitario * pp.cantidad) FROM pedido_productos pp WHERE pp.pedido_id = p.id), 0) AS subtotal_calculado,
+                COALESCE((SELECT SUM(pp.cantidad) FROM pedido_productos pp WHERE pp.pedido_id = p.id), 0) AS unidades_consumidas,
+                COALESCE((SELECT SUM(pp.cantidad_asignada) FROM pedido_productos pp WHERE pp.pedido_id = p.id), 0) AS unidades_asignadas,
+                COALESCE((SELECT SUM(pp.cantidad - pp.cantidad_asignada) FROM pedido_productos pp WHERE pp.pedido_id = p.id), 0) AS unidades_disponibles,
                 COALESCE((SELECT SUM(pg.monto) FROM pagos pg WHERE pg.pedido_id = p.id), 0) AS pagado_calculado
             FROM pedidos p
             JOIN mesas m ON m.id = p.mesa_id
@@ -784,6 +1192,9 @@ class AccountService {
                 COALESCE(p.cliente_principal_snapshot, p.cliente_nombre, m.cliente_nombre) AS cliente_principal,
                 u.nombre AS usuario_nombre,
                 COALESCE((SELECT SUM(pp.precio_unitario * pp.cantidad) FROM pedido_productos pp WHERE pp.pedido_id = p.id), 0) AS subtotal_calculado,
+                COALESCE((SELECT SUM(pp.cantidad) FROM pedido_productos pp WHERE pp.pedido_id = p.id), 0) AS unidades_consumidas,
+                COALESCE((SELECT SUM(pp.cantidad_asignada) FROM pedido_productos pp WHERE pp.pedido_id = p.id), 0) AS unidades_asignadas,
+                COALESCE((SELECT SUM(pp.cantidad - pp.cantidad_asignada) FROM pedido_productos pp WHERE pp.pedido_id = p.id), 0) AS unidades_disponibles,
                 COALESCE((SELECT SUM(pg.monto) FROM pagos pg WHERE pg.pedido_id = p.id), 0) AS pagado_calculado
             FROM pedidos p
             JOIN mesas m ON m.id = p.mesa_id
@@ -793,19 +1204,12 @@ class AccountService {
         `, [id]);
         if (!row) throw new NotFoundError('Cuenta no encontrada', { accountId: id });
 
-        const products = await this.db.all(`
-            SELECT
-                pp.*,
-                pr.nombre AS producto_nombre,
-                pr.descripcion AS producto_descripcion,
-                COALESCE(pres.nombre, '') AS presentacion_nombre,
-                COALESCE(pres.cantidad, '') AS presentacion_cantidad
-            FROM pedido_productos pp
-            JOIN productos pr ON pr.id = pp.producto_id
-            LEFT JOIN presentaciones pres ON pres.id = pp.presentacion_id
-            WHERE pp.pedido_id = ?
-            ORDER BY pp.id
-        `, [id]);
+        const products = await this.getConsumptionLines(id);
+        const availableProducts = products
+            .filter(product => product.cantidad_disponible > 0)
+            .map(product => ({ ...product, cantidad: product.cantidad_disponible }));
+        const assignedProducts = products.filter(product => product.cantidad_asignada > 0);
+        const lineSummary = this.summarizeConsumptionLines(products);
         const responsibilities = await this.db.all(`
             SELECT
                 usuario_id,
@@ -822,6 +1226,9 @@ class AccountService {
         return {
             ...this.enrichAccountRead(row),
             productos: products,
+            productos_disponibles: availableProducts,
+            productos_asignados: assignedProducts,
+            resumen_lineas: lineSummary,
             responsables: responsibilities
         };
     }
@@ -833,4 +1240,5 @@ module.exports = accountService;
 module.exports.AccountService = AccountService;
 module.exports.ACCOUNT_OPERATIONAL_STATES = ACCOUNT_OPERATIONAL_STATES;
 module.exports.ACCOUNT_FINANCIAL_STATES = ACCOUNT_FINANCIAL_STATES;
+module.exports.CONSUMPTION_LINE_STATES = CONSUMPTION_LINE_STATES;
 module.exports.formatAccountNumber = formatAccountNumber;

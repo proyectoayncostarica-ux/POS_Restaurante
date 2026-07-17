@@ -511,20 +511,24 @@ git commit -m "v3.1.0: crea cuenta global y servicio de dominio de Cuentas"
 
 ## v3.1.1 · Líneas de consumo y cantidades disponibles
 
+**Estado:** completada.
+
 ### Objetivo
 
 Preparar cada línea para asignación parcial sin borrar historial ni cobrar unidades dos veces.
 
-### Cambios previstos
+### Implementación realizada
 
-- identidad por `pedido_producto_id`;
-- cantidad consumida;
-- cantidad asignada;
-- cantidad disponible;
-- presentación, precio y servicio en snapshot;
-- reglas de consolidación de líneas;
-- impedir edición incompatible de líneas asignadas;
-- deprecar edición legacy que solo conoce producto y no presentación.
+- identidad estable mediante `pedido_producto_id`;
+- `cantidad_consumida`, `cantidad_asignada` y `cantidad_disponible`;
+- snapshots de producto, presentación, precio y servicio;
+- versión por línea para detectar cambios concurrentes;
+- asignación y liberación transaccional de cantidades;
+- agrupación previa de selecciones repetidas;
+- consolidación solo sobre líneas totalmente disponibles y equivalentes;
+- bloqueo de edición legacy ambigua, con presentación o con cantidades asignadas;
+- read models separados para historial, consumo activo y consumo asignado;
+- migración idempotente de líneas existentes.
 
 ### Fórmula canónica
 
@@ -534,13 +538,25 @@ cantidad_disponible
 - cantidad_asignada_a_prefacturas_no_anuladas
 ```
 
-### Criterios de aprobación
+En esta fase el contador ya existe y se prueba mediante el servicio de dominio. `v3.1.2` será responsable de vincularlo a prefacturas persistentes.
 
-- una línea de cantidad 3 puede distribuirse 2 + 1;
-- no puede distribuirse 2 + 2;
-- anular un documento devuelve la cantidad;
-- las cantidades pagadas siguen visibles en historial;
-- nuevo consumo crea o consolida líneas solo cuando es seguro.
+### Criterios aprobados
+
+- una línea de cantidad 3 puede distribuirse `2 + 1`;
+- no puede distribuirse `2 + 2`;
+- una asignación fallida no deja cambios parciales;
+- las líneas asignadas permanecen en historial y desaparecen del consumo disponible;
+- una anulación futura podrá liberar cantidades sin borrar consumo;
+- nuevo consumo crea o consolida líneas solo cuando es seguro;
+- una línea modificada en otro dispositivo se rechaza por versión.
+
+### Validación
+
+```text
+36 pruebas aprobadas
+0 fallos
+migración validada sobre copia de base operativa
+```
 
 ### Commit
 

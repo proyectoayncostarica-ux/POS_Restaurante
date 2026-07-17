@@ -501,3 +501,44 @@ Reglas vigentes desde esta fase:
 - la tabla `cuenta_responsables` no sustituye a `mesa_responsables`: conserva el snapshot histórico.
 
 La suite automática cuenta con 27 pruebas aprobadas. La siguiente fase normalizará líneas y cantidades disponibles para permitir asignación parcial sin borrar consumo.
+
+## 18. Estado actual · v3.1.1
+
+Cada fila de `pedido_productos` es ahora una **línea de consumo identificable y divisible por cantidades**.
+
+El read model expone:
+
+```text
+cantidad_consumida
+cantidad_asignada
+cantidad_disponible
+estado_asignacion
+precio y servicio en snapshot
+versión de concurrencia
+```
+
+Regla vigente:
+
+```text
+cantidad_disponible
+= cantidad_consumida
+- cantidad_asignada
+```
+
+Las asignaciones se ejecutan de manera transaccional. Selecciones repetidas de la misma línea se agrupan antes de validar, por lo que una línea de cantidad 3 admite `2 + 1`, pero rechaza `2 + 2` sin aplicar cambios parciales.
+
+El nuevo consumo solo se consolida cuando coinciden producto, presentación, precio y servicio y la línea continúa totalmente disponible. Una línea parcialmente asignada permanece intacta y el consumo nuevo se registra por separado.
+
+La cuenta entrega cuatro vistas compatibles:
+
+```text
+productos               historial completo
+productos_disponibles   consumo activo
+productos_asignados     cantidades reservadas
+resumen_lineas           agregados de unidades y montos
+```
+
+Esta fase todavía no crea prefacturas. `cantidad_asignada` es la infraestructura que `v3.1.2` actualizará al emitir o anular documentos operativos.
+
+La suite automática cuenta con 36 pruebas aprobadas. La siguiente fase implementará secuencias y persistencia documental de prefacturas.
+

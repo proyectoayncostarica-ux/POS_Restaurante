@@ -1,15 +1,21 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+let restoreModuleLoader = null;
 try {
     require('sqlite3').verbose();
 } catch (error) {
-    const sqlite3Path = require.resolve('sqlite3');
-    require.cache[sqlite3Path] = {
-        id: sqlite3Path,
-        filename: sqlite3Path,
-        loaded: true,
-        exports: require('./helpers/sqlite3Fallback')
+    const Module = require('module');
+    const originalLoad = Module._load;
+    const sqliteFallback = require('./helpers/sqlite3Fallback');
+    const bcryptFallback = require('./helpers/bcryptFallback');
+    Module._load = function loadWithTestFallbacks(request, parent, isMain) {
+        if (request === 'sqlite3') return sqliteFallback;
+        if (request === 'bcryptjs') return bcryptFallback;
+        return originalLoad.call(this, request, parent, isMain);
+    };
+    restoreModuleLoader = () => {
+        Module._load = originalLoad;
     };
 }
 const frontendAccess = require('../public/js/services/operational-access.js');
@@ -17,6 +23,7 @@ const {
     canOpenSection,
     canReceiveRealtimeEvent
 } = require('../server/services/operationalAccessService');
+restoreModuleLoader?.();
 
 function frontendUserFromContext(context) {
     return {

@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.1.0 · Cuenta global y servicio de dominio de Cuentas
+- **Línea de trabajo actual:** v3.1.1 · Líneas de consumo y cantidades disponibles
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -1100,3 +1100,22 @@ Documento técnico:
 Documento técnico:
 
 - `docs/avance-v3.1.0-cuenta-global-servicio-cuentas.md`
+
+### v3.1.1 · Líneas de consumo y cantidades disponibles
+
+- **Objetivo:** normalizar cada fila de `pedido_productos` como una línea de consumo estable, divisible por cantidades y preparada para las futuras prefacturas.
+- **Cantidades:** cada línea expone `cantidad_consumida`, `cantidad_asignada` y `cantidad_disponible`; la disponibilidad se deriva sin borrar historial.
+- **Snapshots:** producto, presentación, precio y política de servicio quedan congelados en la línea para evitar que cambios posteriores del Menú alteren consumos ya registrados.
+- **Asignación segura:** `accountService.assignAvailableQuantities()` agrupa selecciones repetidas, valida la versión de la línea y evita sobreasignaciones dentro de una transacción.
+- **Liberación:** `releaseAssignedQuantities()` permite devolver cantidades cuando una futura prefactura sea anulada, sin modificar la cantidad consumida original.
+- **Consolidación:** nuevo consumo solo se consolida con una línea equivalente que todavía tenga `cantidad_asignada = 0`; si ya existe asignación parcial, se crea una línea nueva.
+- **Edición legacy:** la edición basada únicamente en `producto_id` queda bloqueada cuando es ambigua, usa presentación o la línea ya tiene cantidades asignadas.
+- **Lectura:** la cuenta entrega `productos`, `productos_disponibles`, `productos_asignados` y `resumen_lineas`. La UI de Ver pedido separa consumo activo de consumo ya asignado.
+- **Migración:** las líneas existentes reciben snapshots y contador asignado en cero de manera idempotente. Se validó la migración sobre una copia de la base operativa.
+- **Pruebas:** la suite asciende a 36 casos aprobados, incluyendo distribución `2 + 1`, rechazo de `2 + 2`, consolidación segura, liberación, concurrencia por versión y migración legacy.
+- **Versión:** visible `3.0`, package y seguimiento interno `3.1.1`.
+
+Documento técnico:
+
+- `docs/avance-v3.1.1-lineas-consumo-cantidades.md`
+

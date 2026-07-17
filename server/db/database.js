@@ -304,10 +304,19 @@ class Database {
                 pedido_id INTEGER NOT NULL,
                 producto_id INTEGER NOT NULL,
                 cantidad INTEGER NOT NULL,
+                cantidad_asignada INTEGER NOT NULL DEFAULT 0,
                 precio_unitario REAL NOT NULL,
                 precio_original REAL NOT NULL,
                 creado_en TEXT DEFAULT CURRENT_TIMESTAMP,
+                actualizado_en TEXT,
+                version INTEGER NOT NULL DEFAULT 1,
                 presentacion_id INTEGER,
+                producto_nombre_snapshot TEXT,
+                presentacion_nombre_snapshot TEXT,
+                presentacion_cantidad_snapshot TEXT,
+                aplica_servicio_snapshot INTEGER NOT NULL DEFAULT 0,
+                porcentaje_servicio_snapshot REAL NOT NULL DEFAULT 0,
+                servicio_unitario_snapshot REAL NOT NULL DEFAULT 0,
                 FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE CASCADE,
                 FOREIGN KEY (producto_id) REFERENCES productos (id) ON DELETE RESTRICT,
                 FOREIGN KEY (presentacion_id) REFERENCES presentaciones (id) ON DELETE SET NULL
@@ -502,8 +511,7 @@ class Database {
         await this.ensureColumn('pagos', 'porcentaje_servicio', 'REAL');
         await this.ensureColumn('pagos', 'aplica_servicio', 'INTEGER');
         await this.backfillOrderServiceTotals();
-        await this.ensureColumn('pedido_productos', 'creado_en', 'TEXT DEFAULT CURRENT_TIMESTAMP');
-        await this.ensureColumn('pedido_productos', 'presentacion_id', 'INTEGER');
+        await this.ensureConsumptionLineColumns();
         await this.ensureColumn('cuentas_credito', 'pedido_id', 'INTEGER');
         await this.ensureColumn('cuentas_credito', 'usuario_origen', 'TEXT');
         await this.ensureColumn('cuentas_credito', 'autorizado_por', 'TEXT');
@@ -514,9 +522,92 @@ class Database {
         // Algunas bases antiguas reconstruyen pedidos durante la migración. Se vuelven a
         // asegurar las columnas v3 después de esa reconstrucción antes del backfill.
         await this.ensureGlobalAccountColumns();
+        await this.ensureConsumptionLineColumns();
         await this.migrateGlobalAccounts();
+        await this.migrateConsumptionLines();
         await this.cleanupOrphanRows();
         console.log('Migraciones de esquema aplicadas/verificadas');
+    }
+
+    async ensureConsumptionLineColumns() {
+        await this.ensureColumn('pedido_productos', 'creado_en', 'TEXT DEFAULT CURRENT_TIMESTAMP');
+        await this.ensureColumn('pedido_productos', 'presentacion_id', 'INTEGER');
+        await this.ensureColumn('pedido_productos', 'cantidad_asignada', 'INTEGER NOT NULL DEFAULT 0');
+        await this.ensureColumn('pedido_productos', 'actualizado_en', 'TEXT');
+        await this.ensureColumn('pedido_productos', 'version', 'INTEGER NOT NULL DEFAULT 1');
+        await this.ensureColumn('pedido_productos', 'producto_nombre_snapshot', 'TEXT');
+        await this.ensureColumn('pedido_productos', 'presentacion_nombre_snapshot', 'TEXT');
+        await this.ensureColumn('pedido_productos', 'presentacion_cantidad_snapshot', 'TEXT');
+        await this.ensureColumn('pedido_productos', 'aplica_servicio_snapshot', 'INTEGER NOT NULL DEFAULT 0');
+        await this.ensureColumn('pedido_productos', 'porcentaje_servicio_snapshot', 'REAL NOT NULL DEFAULT 0');
+        await this.ensureColumn('pedido_productos', 'servicio_unitario_snapshot', 'REAL NOT NULL DEFAULT 0');
+    }
+
+    async migrateConsumptionLines() {
+        if (!await this.tableExists('pedido_productos')) return;
+
+        // La cantidad asignada es un contador transaccional que en v3.1.2 será
+        // actualizado por prefacturas no anuladas. Nunca puede ser negativa ni
+        // superar la cantidad consumida de la línea.
+        await this.run(`
+            UPDATE pedido_productos
+            SET cantidad_asignada = CASE
+                WHEN cantidad_asignada IS NULL OR cantidad_asignada < 0 THEN 0
+                WHEN cantidad_asignada > cantidad THEN cantidad
+                ELSE cantidad_asignada
+            END,
+            version = CASE WHEN version IS NULL OR version < 1 THEN 1 ELSE version END
+        `);
+
+        // Solo las líneas antiguas (sin timestamp de actualización) reciben el
+        // snapshot inicial. Reinicios posteriores no reescriben su historia.
+        await this.run(`
+            UPDATE pedido_productos
+            SET producto_nombre_snapshot = COALESCE(
+                    NULLIF(producto_nombre_snapshot, ''),
+                    (SELECT p.nombre FROM productos p WHERE p.id = pedido_productos.producto_id),
+                    'Producto'
+                ),
+                presentacion_nombre_snapshot = COALESCE(
+                    NULLIF(presentacion_nombre_snapshot, ''),
+                    (SELECT pr.nombre FROM presentaciones pr WHERE pr.id = pedido_productos.presentacion_id)
+                ),
+                presentacion_cantidad_snapshot = COALESCE(
+                    NULLIF(presentacion_cantidad_snapshot, ''),
+                    (SELECT pr.cantidad FROM presentaciones pr WHERE pr.id = pedido_productos.presentacion_id)
+                ),
+                aplica_servicio_snapshot = COALESCE(
+                    (SELECT CASE WHEN p.aplica_servicio = 1 THEN 1 ELSE 0 END
+                     FROM pedidos p WHERE p.id = pedido_productos.pedido_id),
+                    0
+                ),
+                porcentaje_servicio_snapshot = COALESCE(
+                    (SELECT CASE WHEN p.aplica_servicio = 1 THEN COALESCE(p.porcentaje_servicio, 0) ELSE 0 END
+                     FROM pedidos p WHERE p.id = pedido_productos.pedido_id),
+                    0
+                ),
+                servicio_unitario_snapshot = ROUND(
+                    precio_unitario * COALESCE(
+                        (SELECT CASE WHEN p.aplica_servicio = 1 THEN COALESCE(p.porcentaje_servicio, 0) ELSE 0 END
+                         FROM pedidos p WHERE p.id = pedido_productos.pedido_id),
+                        0
+                    ) / 100.0,
+                    2
+                ),
+                actualizado_en = COALESCE(creado_en, CURRENT_TIMESTAMP)
+            WHERE actualizado_en IS NULL
+               OR producto_nombre_snapshot IS NULL
+               OR TRIM(producto_nombre_snapshot) = ''
+        `);
+
+        await this.run('CREATE INDEX IF NOT EXISTS idx_pedido_productos_disponibles ON pedido_productos(pedido_id, cantidad, cantidad_asignada)');
+
+        if (await this.tableExists('configuracion')) {
+            await this.run(`
+                INSERT OR REPLACE INTO configuracion (clave, valor, version_app)
+                VALUES ('v3_consumption_line_backfill_done', ?, ?)
+            `, [new Date().toISOString(), APP_VERSION]);
+        }
     }
 
     async ensureGlobalAccountColumns() {
@@ -809,14 +900,30 @@ class Database {
             pedido_id INTEGER NOT NULL,
             producto_id INTEGER NOT NULL,
             cantidad INTEGER NOT NULL,
+            cantidad_asignada INTEGER NOT NULL DEFAULT 0,
             precio_unitario REAL NOT NULL,
             precio_original REAL NOT NULL,
             creado_en TEXT DEFAULT CURRENT_TIMESTAMP,
+            actualizado_en TEXT,
+            version INTEGER NOT NULL DEFAULT 1,
             presentacion_id INTEGER,
+            producto_nombre_snapshot TEXT,
+            presentacion_nombre_snapshot TEXT,
+            presentacion_cantidad_snapshot TEXT,
+            aplica_servicio_snapshot INTEGER NOT NULL DEFAULT 0,
+            porcentaje_servicio_snapshot REAL NOT NULL DEFAULT 0,
+            servicio_unitario_snapshot REAL NOT NULL DEFAULT 0,
             FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE CASCADE,
             FOREIGN KEY (producto_id) REFERENCES productos (id) ON DELETE RESTRICT,
             FOREIGN KEY (presentacion_id) REFERENCES presentaciones (id) ON DELETE SET NULL
-        )`, ['id', 'pedido_id', 'producto_id', 'cantidad', 'precio_unitario', 'precio_original', 'creado_en', 'presentacion_id']);
+        )`, [
+            'id', 'pedido_id', 'producto_id', 'cantidad', 'cantidad_asignada',
+            'precio_unitario', 'precio_original', 'creado_en', 'actualizado_en',
+            'version', 'presentacion_id', 'producto_nombre_snapshot',
+            'presentacion_nombre_snapshot', 'presentacion_cantidad_snapshot',
+            'aplica_servicio_snapshot', 'porcentaje_servicio_snapshot',
+            'servicio_unitario_snapshot'
+        ]);
 
         await this.rebuildTable('pagos', `CREATE TABLE pagos_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

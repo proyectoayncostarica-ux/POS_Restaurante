@@ -987,6 +987,34 @@ const Orders = {
             const order = response.data;
 
             const nombreZona = order.mesa_tipo?.toLowerCase() === 'barra' ? 'Banco' : 'Mesa';
+            const activeProducts = Array.isArray(order.productos_disponibles)
+                ? order.productos_disponibles
+                : (order.productos || []);
+            const assignedProducts = Array.isArray(order.productos_asignados)
+                ? order.productos_asignados
+                : (order.productos || []).filter(product => Number(product.cantidad_asignada || 0) > 0);
+            const lineSummary = order.resumen_lineas || {};
+            const renderConsumptionRows = (products, quantityField = 'cantidad') => {
+                if (!products.length) {
+                    return `<tr><td colspan="4" class="text-muted text-center">No hay consumo disponible</td></tr>`;
+                }
+
+                return products.map(producto => {
+                    const nombreCompleto = producto.presentacion_nombre
+                        ? `${producto.producto_nombre} - ${producto.presentacion_nombre} (${producto.presentacion_cantidad || '-'})`
+                        : producto.producto_nombre;
+                    const quantity = Number(producto[quantityField] ?? producto.cantidad ?? 0);
+
+                    return `
+                        <tr>
+                            <td>${nombreCompleto}</td>
+                            <td>${quantity}</td>
+                            <td>${Utils.formatCurrency(producto.precio_unitario)}</td>
+                            <td>${Utils.formatCurrency(producto.precio_unitario * quantity)}</td>
+                        </tr>
+                    `;
+                }).join('');
+            };
 
             const modalButtons = [
                 {
@@ -1014,49 +1042,57 @@ const Orders = {
                         <p><strong>Estado:</strong> <span class="badge badge-${order.estado === 'pendiente' ? 'warning' : 'success'}">${order.estado}</span></p>
                     </div>
                     
-                    <h4>Productos</h4>
+                    <h4>Consumo activo</h4>
                     <div class="table-container">
                         <table class="table">
                             <thead>
                                 <tr>
                                     <th>Producto</th>
-                                    <th>Cantidad</th>
+                                    <th>Disponible</th>
                                     <th>Precio Unit.</th>
                                     <th>Subtotal</th>
                                 </tr>
                             </thead>
-                            <tbody>
-                                ${order.productos.map(producto => {
-                                    const nombreCompleto = producto.presentacion_nombre
-                                        ? `${producto.producto_nombre} - ${producto.presentacion_nombre} (${producto.presentacion_cantidad})`
-                                        : producto.producto_nombre;
-
-                                    return `
-                                        <tr>
-                                            <td>${nombreCompleto}</td>
-                                            <td>${producto.cantidad}</td>
-                                            <td>${Utils.formatCurrency(producto.precio_unitario)}</td>
-                                            <td>${Utils.formatCurrency(producto.precio_unitario * producto.cantidad)}</td>
-                                        </tr>
-                                    `;
-                                }).join('')}
-
-                            </tbody>
+                            <tbody>${renderConsumptionRows(activeProducts, 'cantidad_disponible')}</tbody>
                             <tfoot>
                                 <tr>
-                                    <th colspan="3">Subtotal</th>
-                                    <th>${Utils.formatCurrency(order.subtotal ?? order.total)}</th>
+                                    <th colspan="3">Subtotal disponible</th>
+                                    <th>${Utils.formatCurrency(lineSummary.subtotal_disponible ?? order.subtotal ?? order.total)}</th>
                                 </tr>
                                 <tr>
-                                    <th colspan="3">Servicio (${Number(order.porcentaje_servicio || 0)}%)</th>
-                                    <th>${Utils.formatCurrency(order.monto_servicio || 0)}</th>
+                                    <th colspan="3">Servicio disponible</th>
+                                    <th>${Utils.formatCurrency(lineSummary.servicio_disponible ?? order.monto_servicio ?? 0)}</th>
                                 </tr>
                                 <tr>
-                                    <th colspan="3">Total</th>
-                                    <th>${Utils.formatCurrency(order.total_con_servicio ?? order.total)}</th>
+                                    <th colspan="3">Total disponible</th>
+                                    <th>${Utils.formatCurrency(lineSummary.total_disponible ?? order.total_con_servicio ?? order.total)}</th>
                                 </tr>
                             </tfoot>
                         </table>
+                    </div>
+
+                    ${assignedProducts.length > 0 ? `
+                        <h4 class="mt-3">Consumo ya asignado</h4>
+                        <p class="text-muted">Estas cantidades permanecen en el historial de la cuenta, pero ya no forman parte del consumo disponible.</p>
+                        <div class="table-container">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Producto</th>
+                                        <th>Asignado</th>
+                                        <th>Precio Unit.</th>
+                                        <th>Subtotal</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${renderConsumptionRows(assignedProducts, 'cantidad_asignada')}</tbody>
+                            </table>
+                        </div>
+                    ` : ''}
+
+                    <div class="order-global-summary mt-3">
+                        <p><strong>Total cuenta global:</strong> ${Utils.formatCurrency(order.total_con_servicio ?? order.total)}</p>
+                        <p><strong>Total pagado:</strong> ${Utils.formatCurrency(order.total_pagado || 0)}</p>
+                        <p><strong>Saldo pendiente:</strong> ${Utils.formatCurrency(order.saldo_pendiente ?? order.total_con_servicio ?? order.total)}</p>
                     </div>
                 </div>
             `, modalButtons);
