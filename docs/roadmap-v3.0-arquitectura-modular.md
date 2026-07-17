@@ -451,23 +451,29 @@ git commit -m "v3.0.3: centraliza acceso operativo y realtime por capacidades"
 
 ## v3.1.0 · Cuenta global y servicio de dominio de Cuentas
 
+### Estado
+
+Implementado y preparado para validación operativa.
+
 ### Objetivo
 
 Convertir la cuenta principal en entidad canónica explícita y extraer las reglas de `server/routes/orders.js`.
 
-### Cambios previstos
+### Cambios implementados
 
-- `orderService`;
-- número interno de cuenta global;
-- cliente principal;
-- mesa/banco, zona y responsables;
-- snapshots históricos;
-- total consumido;
-- total pagado consolidado;
-- saldo consolidado;
-- estado operativo y financiero separados;
-- fecha de apertura, conciliación y cierre;
-- rutas actuales como adaptadores.
+- `server/services/accountService.js` como servicio de dominio;
+- número interno único `CTA-########`;
+- cliente principal y snapshots de mesa/banco y zona;
+- tabla `cuenta_responsables` para responsabilidad histórica;
+- subtotal, servicio, total pagado y saldo consolidados;
+- estados operativo y financiero separados;
+- fechas de apertura, conciliación y cierre;
+- migración de pedidos legacy;
+- creación y agregado de productos transaccionales;
+- lecturas sin mutaciones ocultas;
+- rutas `/api/orders` conservadas como adaptadores;
+- resumen de Caja basado en saldo de cuentas abiertas;
+- pruebas de dominio y migración.
 
 ### Regla financiera
 
@@ -478,7 +484,22 @@ El servicio de Cuentas es propietario del agregado financiero global. Payments a
 - una cuenta se consulta sin mutaciones ocultas;
 - total, pagado y saldo se calculan con una sola regla canónica;
 - la cuenta conserva cliente principal y responsables;
-- el código de router deja de contener lógica compleja de negocio.
+- crear cuenta y líneas es una transacción única;
+- una falla intermedia no deja cuenta incompleta;
+- un pago parcial puede mantener la cuenta operativamente abierta;
+- el router delega las reglas principales al servicio;
+- `npm run test:accounts` y `npm test` pasan sin fallos.
+
+### Archivos principales
+
+```text
+server/services/accountService.js
+server/db/database.js
+server/routes/orders.js
+server/routes/cash.js
+tests/accountService.test.js
+tests/globalAccountMigration.test.js
+```
 
 ### Commit
 

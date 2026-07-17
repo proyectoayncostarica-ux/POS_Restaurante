@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.0.3 · Acceso operativo compartido y realtime por capacidades
+- **Línea de trabajo actual:** v3.1.0 · Cuenta global y servicio de dominio de Cuentas
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -1083,3 +1083,20 @@ Documento técnico:
 Documento técnico:
 
 - `docs/avance-v3.0.3-acceso-operativo-realtime.md`
+
+### v3.1.0 · Cuenta global y servicio de dominio de Cuentas
+
+- **Objetivo:** convertir cada pedido principal en una cuenta global explícita y trasladar las reglas de creación, lectura, acumulación de consumo, servicio y saldo a un servicio de dominio transaccional.
+- **Cuenta global:** cada cuenta recibe un número interno `CTA-########`, cliente principal, snapshots de mesa/banco, zona y responsables, total pagado, saldo, estados operativo/financiero y fechas de ciclo de vida.
+- **Persistencia:** `pedidos` se conserva como tabla base durante la migración; se agrega `cuenta_responsables` para mantener responsabilidad histórica aunque la mesa cambie posteriormente.
+- **Servicio:** `server/services/accountService.js` centraliza validación de productos/presentaciones, creación transaccional, agregado de consumo, cálculo canónico y lecturas sin escritura.
+- **Rutas:** `/api/orders` permanece como adaptador compatible. Listar, consultar, crear y agregar productos delegan al servicio; la edición y pago legacy sincronizan el agregado global mientras se preparan sus reemplazos.
+- **Lecturas seguras:** abrir una cuenta ya no recalcula mediante `UPDATE`; consultar no modifica versión ni timestamp.
+- **Caja:** el resumen inicial utiliza saldo pendiente consolidado de cuentas abiertas, no la suma bruta del total original.
+- **Migración:** pedidos existentes reciben numeración, estados, saldos y snapshots sin borrar historial.
+- **Pruebas:** la suite asciende a 27 casos aprobados e incluye creación, rollback, migración legacy, pago parcial y lectura sin mutación.
+- **Versión:** visible `3.0`, package y seguimiento interno `3.1.0`.
+
+Documento técnico:
+
+- `docs/avance-v3.1.0-cuenta-global-servicio-cuentas.md`

@@ -467,3 +467,37 @@ Reglas vigentes:
 La suite automática cuenta con 21 pruebas aprobadas. Incluye pruebas de paridad entre la política frontend/backend para evitar que ambas implementaciones evolucionen de forma contradictoria.
 
 Esta fase todavía no introduce prefacturas, cuenta dividida persistente ni el núcleo Payments. Su propósito es asegurar que esos dominios se construyan sobre una autorización y sincronización coherentes.
+
+## 17. Estado actual · v3.1.0
+
+La cuenta principal ya se expresa como **cuenta global canónica** aunque la tabla `pedidos` se conserve temporalmente por compatibilidad.
+
+Cada cuenta dispone de:
+
+```text
+numero_cuenta CTA-########
+cliente principal
+mesa/banco y zona en snapshot
+responsables históricos
+total consumido
+total pagado
+saldo pendiente
+estado operativo
+estado financiero
+fechas de apertura, conciliación y cierre
+```
+
+`server/services/accountService.js` es propietario de la creación, acumulación de consumo, sincronización de totales y lectura del agregado. Las rutas `/api/orders` son adaptadores y no deben volver a incorporar reglas duplicadas.
+
+Reglas vigentes desde esta fase:
+
+- consultar una cuenta no escribe en SQLite;
+- las mutaciones de cuenta usan transacciones;
+- precios y servicio se calculan en backend;
+- cliente y responsables se capturan históricamente;
+- pagos aportan movimientos, pero la venta sigue perteneciendo a la cuenta global;
+- un pago parcial puede dejar estado financiero `parcial` y estado operativo `abierta`;
+- la numeración de cuenta es única y persistente;
+- la tabla `cuenta_responsables` no sustituye a `mesa_responsables`: conserva el snapshot histórico.
+
+La suite automática cuenta con 27 pruebas aprobadas. La siguiente fase normalizará líneas y cantidades disponibles para permitir asignación parcial sin borrar consumo.

@@ -252,6 +252,21 @@ class Database {
                 porcentaje_servicio REAL,
                 monto_servicio REAL NOT NULL DEFAULT 0,
                 total_con_servicio REAL,
+                numero_cuenta TEXT,
+                estado_operativo TEXT NOT NULL DEFAULT 'abierta',
+                estado_financiero TEXT NOT NULL DEFAULT 'sin_documentos',
+                total_pagado REAL NOT NULL DEFAULT 0,
+                saldo_pendiente REAL NOT NULL DEFAULT 0,
+                fecha_apertura TEXT,
+                fecha_conciliacion TEXT,
+                fecha_cierre TEXT,
+                actualizado_en TEXT,
+                version INTEGER NOT NULL DEFAULT 1,
+                mesa_numero_snapshot INTEGER,
+                mesa_tipo_snapshot TEXT,
+                zona_id_snapshot INTEGER,
+                zona_nombre_snapshot TEXT,
+                cliente_principal_snapshot TEXT,
                 FOREIGN KEY (mesa_id) REFERENCES mesas (id) ON DELETE RESTRICT,
                 FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE RESTRICT,
                 FOREIGN KEY (rol_trabajo_id) REFERENCES roles_trabajo (id) ON DELETE SET NULL
@@ -268,6 +283,20 @@ class Database {
                 FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE CASCADE,
                 FOREIGN KEY (rol_trabajo_id) REFERENCES roles_trabajo (id) ON DELETE SET NULL,
                 FOREIGN KEY (asignado_por_usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
+            )`,
+
+            `CREATE TABLE IF NOT EXISTS cuenta_responsables (
+                pedido_id INTEGER NOT NULL,
+                usuario_id INTEGER,
+                rol_trabajo_id INTEGER,
+                usuario_nombre_snapshot TEXT NOT NULL,
+                rol_nombre_snapshot TEXT,
+                es_principal INTEGER NOT NULL DEFAULT 0,
+                fecha_asignacion_snapshot TEXT NOT NULL,
+                PRIMARY KEY (pedido_id, usuario_nombre_snapshot, fecha_asignacion_snapshot),
+                FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE CASCADE,
+                FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL,
+                FOREIGN KEY (rol_trabajo_id) REFERENCES roles_trabajo (id) ON DELETE SET NULL
             )`,
 
             `CREATE TABLE IF NOT EXISTS pedido_productos (
@@ -467,6 +496,7 @@ class Database {
         await this.ensureColumn('pedidos', 'porcentaje_servicio', 'REAL');
         await this.ensureColumn('pedidos', 'monto_servicio', 'REAL NOT NULL DEFAULT 0');
         await this.ensureColumn('pedidos', 'total_con_servicio', 'REAL');
+        await this.ensureGlobalAccountColumns();
         await this.ensureColumn('pagos', 'subtotal', 'REAL');
         await this.ensureColumn('pagos', 'servicio', 'REAL NOT NULL DEFAULT 0');
         await this.ensureColumn('pagos', 'porcentaje_servicio', 'REAL');
@@ -481,8 +511,190 @@ class Database {
         await this.ensureColumn('configuracion', 'version_app', `TEXT DEFAULT '${APP_VERSION}'`);
 
         await this.rebuildLegacyForeignKeys();
+        // Algunas bases antiguas reconstruyen pedidos durante la migración. Se vuelven a
+        // asegurar las columnas v3 después de esa reconstrucción antes del backfill.
+        await this.ensureGlobalAccountColumns();
+        await this.migrateGlobalAccounts();
         await this.cleanupOrphanRows();
         console.log('Migraciones de esquema aplicadas/verificadas');
+    }
+
+    async ensureGlobalAccountColumns() {
+        await this.ensureColumn('pedidos', 'numero_cuenta', 'TEXT');
+        await this.ensureColumn('pedidos', 'estado_operativo', "TEXT NOT NULL DEFAULT 'abierta'");
+        await this.ensureColumn('pedidos', 'estado_financiero', "TEXT NOT NULL DEFAULT 'sin_documentos'");
+        await this.ensureColumn('pedidos', 'total_pagado', 'REAL NOT NULL DEFAULT 0');
+        await this.ensureColumn('pedidos', 'saldo_pendiente', 'REAL NOT NULL DEFAULT 0');
+        await this.ensureColumn('pedidos', 'fecha_apertura', 'TEXT');
+        await this.ensureColumn('pedidos', 'fecha_conciliacion', 'TEXT');
+        await this.ensureColumn('pedidos', 'fecha_cierre', 'TEXT');
+        await this.ensureColumn('pedidos', 'actualizado_en', 'TEXT');
+        await this.ensureColumn('pedidos', 'version', 'INTEGER NOT NULL DEFAULT 1');
+        await this.ensureColumn('pedidos', 'mesa_numero_snapshot', 'INTEGER');
+        await this.ensureColumn('pedidos', 'mesa_tipo_snapshot', 'TEXT');
+        await this.ensureColumn('pedidos', 'zona_id_snapshot', 'INTEGER');
+        await this.ensureColumn('pedidos', 'zona_nombre_snapshot', 'TEXT');
+        await this.ensureColumn('pedidos', 'cliente_principal_snapshot', 'TEXT');
+    }
+
+    async migrateGlobalAccounts() {
+        const exists = await this.tableExists('pedidos');
+        if (!exists) return;
+
+        await this.run(`CREATE TABLE IF NOT EXISTS cuenta_responsables (
+            pedido_id INTEGER NOT NULL,
+            usuario_id INTEGER,
+            rol_trabajo_id INTEGER,
+            usuario_nombre_snapshot TEXT NOT NULL,
+            rol_nombre_snapshot TEXT,
+            es_principal INTEGER NOT NULL DEFAULT 0,
+            fecha_asignacion_snapshot TEXT NOT NULL,
+            PRIMARY KEY (pedido_id, usuario_nombre_snapshot, fecha_asignacion_snapshot),
+            FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE CASCADE,
+            FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL,
+            FOREIGN KEY (rol_trabajo_id) REFERENCES roles_trabajo (id) ON DELETE SET NULL
+        )`);
+
+        const hasConfiguration = await this.tableExists('configuracion');
+        const backfillMarker = hasConfiguration
+            ? await this.get("SELECT valor FROM configuracion WHERE clave = 'v3_global_account_backfill_done'")
+            : null;
+
+        if (backfillMarker) {
+            await this.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_pedidos_numero_cuenta ON pedidos(numero_cuenta)');
+            await this.run('CREATE INDEX IF NOT EXISTS idx_pedidos_estado_operativo ON pedidos(estado_operativo)');
+            await this.run('CREATE INDEX IF NOT EXISTS idx_pedidos_estado_financiero ON pedidos(estado_financiero)');
+            await this.run('CREATE INDEX IF NOT EXISTS idx_cuenta_responsables_pedido ON cuenta_responsables(pedido_id)');
+            await this.run('CREATE INDEX IF NOT EXISTS idx_cuenta_responsables_usuario ON cuenta_responsables(usuario_id)');
+            return;
+        }
+
+        const accounts = await this.all(`
+            SELECT
+                p.id,
+                p.estado,
+                p.fecha,
+                p.total,
+                p.total_con_servicio,
+                p.cliente_nombre,
+                p.numero_cuenta,
+                p.fecha_apertura,
+                m.numero AS mesa_numero,
+                m.tipo_asiento AS mesa_tipo,
+                m.zona_id,
+                z.nombre AS zona_nombre,
+                COALESCE((SELECT SUM(pg.monto) FROM pagos pg WHERE pg.pedido_id = p.id), 0) AS total_pagado_calculado
+            FROM pedidos p
+            LEFT JOIN mesas m ON m.id = p.mesa_id
+            LEFT JOIN zonas z ON z.id = m.zona_id
+            ORDER BY p.id
+        `);
+
+        for (const account of accounts) {
+            const number = account.numero_cuenta || `CTA-${String(account.id).padStart(8, '0')}`;
+            const total = Number(account.total_con_servicio ?? account.total ?? 0) || 0;
+            const paid = Number(account.total_pagado_calculado || 0) || 0;
+            const balance = Math.max(0, Math.round((total - paid + Number.EPSILON) * 100) / 100);
+            const operationalState = account.estado === 'cancelado'
+                ? 'cancelada'
+                : (account.estado === 'pendiente' ? 'abierta' : 'cerrada');
+            const financialState = account.estado === 'credito'
+                ? 'credito'
+                : (account.estado === 'pagado' || (total > 0 && balance <= 0)
+                    ? 'conciliada'
+                    : (paid > 0 ? 'parcial' : 'sin_documentos'));
+            const reconciledAt = financialState === 'conciliada' ? account.fecha : null;
+            const closedAt = operationalState === 'cerrada' || operationalState === 'cancelada' ? account.fecha : null;
+
+            await this.run(`
+                UPDATE pedidos
+                SET numero_cuenta = ?,
+                    estado_operativo = ?,
+                    estado_financiero = ?,
+                    total_pagado = ?,
+                    saldo_pendiente = ?,
+                    fecha_apertura = COALESCE(fecha_apertura, fecha, ?),
+                    fecha_conciliacion = COALESCE(fecha_conciliacion, ?),
+                    fecha_cierre = COALESCE(fecha_cierre, ?),
+                    actualizado_en = COALESCE(actualizado_en, fecha, ?),
+                    version = CASE WHEN version IS NULL OR version < 1 THEN 1 ELSE version END,
+                    mesa_numero_snapshot = COALESCE(mesa_numero_snapshot, ?),
+                    mesa_tipo_snapshot = COALESCE(mesa_tipo_snapshot, ?),
+                    zona_id_snapshot = COALESCE(zona_id_snapshot, ?),
+                    zona_nombre_snapshot = COALESCE(zona_nombre_snapshot, ?),
+                    cliente_principal_snapshot = COALESCE(cliente_principal_snapshot, cliente_nombre, ?)
+                WHERE id = ?
+            `, [
+                number,
+                operationalState,
+                financialState,
+                paid,
+                balance,
+                account.fecha,
+                reconciledAt,
+                closedAt,
+                account.fecha,
+                account.mesa_numero,
+                account.mesa_tipo,
+                account.zona_id,
+                account.zona_nombre,
+                account.cliente_nombre,
+                account.id
+            ]);
+        }
+
+        await this.run(`
+            INSERT OR IGNORE INTO cuenta_responsables (
+                pedido_id, usuario_id, rol_trabajo_id, usuario_nombre_snapshot,
+                rol_nombre_snapshot, es_principal, fecha_asignacion_snapshot
+            )
+            SELECT
+                p.id,
+                mr.usuario_id,
+                mr.rol_trabajo_id,
+                u.nombre,
+                rt.nombre,
+                CASE WHEN mr.usuario_id = p.usuario_id THEN 1 ELSE 0 END,
+                COALESCE(mr.fecha_asignacion, p.fecha)
+            FROM pedidos p
+            JOIN mesa_responsables mr ON mr.mesa_id = p.mesa_id
+            JOIN usuarios u ON u.id = mr.usuario_id
+            LEFT JOIN roles_trabajo rt ON rt.id = mr.rol_trabajo_id
+        `);
+
+        await this.run(`
+            INSERT OR IGNORE INTO cuenta_responsables (
+                pedido_id, usuario_id, rol_trabajo_id, usuario_nombre_snapshot,
+                rol_nombre_snapshot, es_principal, fecha_asignacion_snapshot
+            )
+            SELECT
+                p.id,
+                p.usuario_id,
+                p.rol_trabajo_id,
+                u.nombre,
+                rt.nombre,
+                1,
+                p.fecha
+            FROM pedidos p
+            JOIN usuarios u ON u.id = p.usuario_id
+            LEFT JOIN roles_trabajo rt ON rt.id = p.rol_trabajo_id
+            WHERE NOT EXISTS (
+                SELECT 1 FROM cuenta_responsables cr WHERE cr.pedido_id = p.id
+            )
+        `);
+
+        await this.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_pedidos_numero_cuenta ON pedidos(numero_cuenta)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_pedidos_estado_operativo ON pedidos(estado_operativo)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_pedidos_estado_financiero ON pedidos(estado_financiero)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_cuenta_responsables_pedido ON cuenta_responsables(pedido_id)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_cuenta_responsables_usuario ON cuenta_responsables(usuario_id)');
+
+        if (hasConfiguration) {
+            await this.run(`
+                INSERT OR REPLACE INTO configuracion (clave, valor, version_app)
+                VALUES ('v3_global_account_backfill_done', ?, ?)
+            `, [new Date().toISOString(), APP_VERSION]);
+        }
     }
 
     async normalizeLegacyTableColumns() {
@@ -564,10 +776,33 @@ class Database {
             porcentaje_servicio REAL,
             monto_servicio REAL NOT NULL DEFAULT 0,
             total_con_servicio REAL,
+            numero_cuenta TEXT,
+            estado_operativo TEXT NOT NULL DEFAULT 'abierta',
+            estado_financiero TEXT NOT NULL DEFAULT 'sin_documentos',
+            total_pagado REAL NOT NULL DEFAULT 0,
+            saldo_pendiente REAL NOT NULL DEFAULT 0,
+            fecha_apertura TEXT,
+            fecha_conciliacion TEXT,
+            fecha_cierre TEXT,
+            actualizado_en TEXT,
+            version INTEGER NOT NULL DEFAULT 1,
+            mesa_numero_snapshot INTEGER,
+            mesa_tipo_snapshot TEXT,
+            zona_id_snapshot INTEGER,
+            zona_nombre_snapshot TEXT,
+            cliente_principal_snapshot TEXT,
             FOREIGN KEY (mesa_id) REFERENCES mesas (id) ON DELETE RESTRICT,
             FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE RESTRICT,
             FOREIGN KEY (rol_trabajo_id) REFERENCES roles_trabajo (id) ON DELETE SET NULL
-        )`, ['id', 'mesa_id', 'usuario_id', 'rol_trabajo_id', 'fecha', 'estado', 'total', 'cliente_nombre', 'aplica_servicio', 'porcentaje_servicio', 'monto_servicio', 'total_con_servicio']);
+        )`, [
+            'id', 'mesa_id', 'usuario_id', 'rol_trabajo_id', 'fecha', 'estado', 'total',
+            'cliente_nombre', 'aplica_servicio', 'porcentaje_servicio', 'monto_servicio',
+            'total_con_servicio', 'numero_cuenta', 'estado_operativo', 'estado_financiero',
+            'total_pagado', 'saldo_pendiente', 'fecha_apertura', 'fecha_conciliacion',
+            'fecha_cierre', 'actualizado_en', 'version', 'mesa_numero_snapshot',
+            'mesa_tipo_snapshot', 'zona_id_snapshot', 'zona_nombre_snapshot',
+            'cliente_principal_snapshot'
+        ]);
 
         await this.rebuildTable('pedido_productos', `CREATE TABLE pedido_productos_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -726,6 +961,11 @@ class Database {
         await this.run(`UPDATE mesa_responsables SET rol_trabajo_id = NULL WHERE rol_trabajo_id IS NOT NULL AND rol_trabajo_id NOT IN (SELECT id FROM roles_trabajo)`);
         await this.run(`UPDATE mesa_responsables SET asignado_por_usuario_id = NULL WHERE asignado_por_usuario_id IS NOT NULL AND asignado_por_usuario_id NOT IN (SELECT id FROM usuarios)`);
         await this.run(`UPDATE pedidos SET rol_trabajo_id = NULL WHERE rol_trabajo_id IS NOT NULL AND rol_trabajo_id NOT IN (SELECT id FROM roles_trabajo)`);
+        if (await this.tableExists('cuenta_responsables')) {
+            await this.run(`DELETE FROM cuenta_responsables WHERE pedido_id NOT IN (SELECT id FROM pedidos)`);
+            await this.run(`UPDATE cuenta_responsables SET usuario_id = NULL WHERE usuario_id IS NOT NULL AND usuario_id NOT IN (SELECT id FROM usuarios)`);
+            await this.run(`UPDATE cuenta_responsables SET rol_trabajo_id = NULL WHERE rol_trabajo_id IS NOT NULL AND rol_trabajo_id NOT IN (SELECT id FROM roles_trabajo)`);
+        }
     }
 
     shouldSeedDemoUser() {
