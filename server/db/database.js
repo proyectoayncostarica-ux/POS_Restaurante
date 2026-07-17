@@ -422,7 +422,10 @@ class Database {
                 numero_secuencia INTEGER UNIQUE,
                 estado TEXT NOT NULL DEFAULT 'confirmado' CHECK(estado IN ('pendiente', 'confirmado', 'anulado')),
                 metodo_pago TEXT NOT NULL CHECK(metodo_pago IN ('efectivo', 'tarjeta', 'credito')),
+                metodo_pago_v3 TEXT,
                 monto REAL NOT NULL CHECK(monto > 0),
+                monto_recibido REAL,
+                vuelto REAL NOT NULL DEFAULT 0,
                 subtotal REAL,
                 servicio REAL NOT NULL DEFAULT 0,
                 porcentaje_servicio REAL,
@@ -451,6 +454,21 @@ class Database {
                 tipo TEXT NOT NULL CHECK(tipo IN ('subtotal', 'servicio')),
                 monto REAL NOT NULL DEFAULT 0,
                 creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(pago_id, tipo),
+                FOREIGN KEY (pago_id) REFERENCES pagos (id) ON DELETE CASCADE
+            )`,
+
+            `CREATE TABLE IF NOT EXISTS pago_medios (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pago_id INTEGER NOT NULL,
+                ordinal INTEGER NOT NULL,
+                tipo TEXT NOT NULL CHECK(tipo IN ('efectivo', 'tarjeta', 'credito')),
+                monto_aplicado REAL NOT NULL CHECK(monto_aplicado > 0),
+                monto_recibido REAL NOT NULL CHECK(monto_recibido >= monto_aplicado),
+                vuelto REAL NOT NULL DEFAULT 0 CHECK(vuelto >= 0),
+                referencia TEXT,
+                creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(pago_id, ordinal),
                 UNIQUE(pago_id, tipo),
                 FOREIGN KEY (pago_id) REFERENCES pagos (id) ON DELETE CASCADE
             )`,
@@ -883,6 +901,9 @@ class Database {
         await this.ensureColumn('pagos', 'numero_pago', 'TEXT');
         await this.ensureColumn('pagos', 'numero_secuencia', 'INTEGER');
         await this.ensureColumn('pagos', 'estado', "TEXT NOT NULL DEFAULT 'confirmado'");
+        await this.ensureColumn('pagos', 'metodo_pago_v3', 'TEXT');
+        await this.ensureColumn('pagos', 'monto_recibido', 'REAL');
+        await this.ensureColumn('pagos', 'vuelto', 'REAL NOT NULL DEFAULT 0');
         await this.ensureColumn('pagos', 'referencia', 'TEXT');
         await this.ensureColumn('pagos', 'cajero_usuario_id', 'INTEGER');
         await this.ensureColumn('pagos', 'cajero_nombre_snapshot', 'TEXT');
@@ -901,6 +922,20 @@ class Database {
             tipo TEXT NOT NULL CHECK(tipo IN ('subtotal', 'servicio')),
             monto REAL NOT NULL DEFAULT 0,
             creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(pago_id, tipo),
+            FOREIGN KEY (pago_id) REFERENCES pagos (id) ON DELETE CASCADE
+        )`);
+        await this.run(`CREATE TABLE IF NOT EXISTS pago_medios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pago_id INTEGER NOT NULL,
+            ordinal INTEGER NOT NULL,
+            tipo TEXT NOT NULL CHECK(tipo IN ('efectivo', 'tarjeta', 'credito')),
+            monto_aplicado REAL NOT NULL CHECK(monto_aplicado > 0),
+            monto_recibido REAL NOT NULL CHECK(monto_recibido >= monto_aplicado),
+            vuelto REAL NOT NULL DEFAULT 0 CHECK(vuelto >= 0),
+            referencia TEXT,
+            creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(pago_id, ordinal),
             UNIQUE(pago_id, tipo),
             FOREIGN KEY (pago_id) REFERENCES pagos (id) ON DELETE CASCADE
         )`);
@@ -941,6 +976,9 @@ class Database {
                     WHEN estado IS NULL OR estado NOT IN ('pendiente', 'confirmado', 'anulado') THEN 'confirmado'
                     ELSE estado
                 END,
+                metodo_pago_v3 = COALESCE(NULLIF(metodo_pago_v3, ''), metodo_pago),
+                monto_recibido = COALESCE(monto_recibido, monto),
+                vuelto = COALESCE(vuelto, 0),
                 subtotal = COALESCE(subtotal, MAX(0, monto - COALESCE(servicio, 0))),
                 servicio = COALESCE(servicio, 0),
                 version = CASE WHEN version IS NULL OR version < 1 THEN 1 ELSE version END,
@@ -1006,6 +1044,28 @@ class Database {
             SELECT id, 'servicio', COALESCE(servicio, 0), COALESCE(fecha, CURRENT_TIMESTAMP)
             FROM pagos
         `);
+        await this.run(`
+            INSERT OR IGNORE INTO pago_medios (
+                pago_id, ordinal, tipo, monto_aplicado,
+                monto_recibido, vuelto, referencia, creado_en
+            )
+            SELECT
+                id,
+                1,
+                CASE
+                    WHEN metodo_pago IN ('efectivo', 'tarjeta', 'credito') THEN metodo_pago
+                    ELSE 'efectivo'
+                END,
+                monto,
+                COALESCE(monto_recibido, monto),
+                COALESCE(vuelto, 0),
+                referencia,
+                COALESCE(fecha, CURRENT_TIMESTAMP)
+            FROM pagos
+            WHERE NOT EXISTS (
+                SELECT 1 FROM pago_medios pm WHERE pm.pago_id = pagos.id
+            )
+        `);
 
         await this.run('CREATE INDEX IF NOT EXISTS idx_pagos_pedido ON pagos(pedido_id)');
         await this.run('CREATE INDEX IF NOT EXISTS idx_pagos_prefactura ON pagos(prefactura_id)');
@@ -1013,6 +1073,8 @@ class Database {
         await this.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_pagos_numero_pago ON pagos(numero_pago)');
         await this.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_pagos_numero_secuencia ON pagos(numero_secuencia)');
         await this.run('CREATE INDEX IF NOT EXISTS idx_pago_componentes_pago ON pago_componentes(pago_id)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_pago_medios_pago ON pago_medios(pago_id)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_pago_medios_tipo ON pago_medios(tipo)');
         await this.run('CREATE INDEX IF NOT EXISTS idx_reversos_pago_pago ON reversos_pago(pago_id)');
         await this.run('CREATE INDEX IF NOT EXISTS idx_claves_idempotencia_recurso ON claves_idempotencia(recurso_tipo, recurso_id)');
 
@@ -1539,6 +1601,9 @@ class Database {
         }
         if (await this.tableExists('pago_componentes')) {
             await this.run(`DELETE FROM pago_componentes WHERE pago_id NOT IN (SELECT id FROM pagos)`);
+        }
+        if (await this.tableExists('pago_medios')) {
+            await this.run(`DELETE FROM pago_medios WHERE pago_id NOT IN (SELECT id FROM pagos)`);
         }
         if (await this.tableExists('reversos_pago')) {
             await this.run(`DELETE FROM reversos_pago WHERE pago_id NOT IN (SELECT id FROM pagos)`);

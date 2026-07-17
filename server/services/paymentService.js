@@ -69,6 +69,138 @@ function normalizePositiveAmount(value) {
     return fromMinorUnits(minor);
 }
 
+function normalizeTenderType(value) {
+    return normalizePaymentMethod(value);
+}
+
+function normalizePaymentTenders(input = {}) {
+    const rawTenders = input.paymentTenders ?? input.medios_pago;
+    let tenderInputs;
+
+    if (Array.isArray(rawTenders) && rawTenders.length > 0) {
+        tenderInputs = rawTenders;
+    } else {
+        tenderInputs = [{
+            tipo: input.paymentMethod ?? input.metodo_pago,
+            monto_aplicado: input.amount ?? input.monto,
+            monto_recibido: input.cashReceived ?? input.monto_recibido,
+            referencia: input.reference ?? input.referencia
+        }];
+    }
+
+    if (tenderInputs.length > 2) {
+        throw new ValidationError('Un pago admite como máximo un componente de efectivo y uno de tarjeta', {
+            code: 'PAYMENT_TENDERS_LIMIT_EXCEEDED'
+        });
+    }
+
+    const seen = new Set();
+    const tenders = tenderInputs.map((tender, index) => {
+        const type = normalizeTenderType(tender.tipo ?? tender.type ?? tender.metodo_pago);
+        if (seen.has(type)) {
+            throw new ValidationError('No se puede repetir el mismo medio de pago', {
+                code: 'PAYMENT_TENDER_DUPLICATED',
+                tipo: type
+            });
+        }
+        seen.add(type);
+
+        const applied = normalizePositiveAmount(
+            tender.monto_aplicado ?? tender.appliedAmount ?? tender.monto ?? tender.amount
+        );
+
+        if (type === PAYMENT_METHODS.CARD) {
+            const reference = normalizeOptionalText(
+                tender.referencia ?? tender.reference,
+                'La referencia de tarjeta',
+                180
+            );
+            if (!reference) {
+                throw new ValidationError('La referencia o autorización de tarjeta es obligatoria', {
+                    code: 'CARD_REFERENCE_REQUIRED'
+                });
+            }
+            return {
+                ordinal: index + 1,
+                tipo: type,
+                monto_aplicado: applied,
+                monto_recibido: applied,
+                vuelto: 0,
+                referencia: reference
+            };
+        }
+
+        const received = normalizePositiveAmount(
+            tender.monto_recibido
+                ?? tender.receivedAmount
+                ?? tender.efectivo_recibido
+                ?? applied
+        );
+        const appliedMinor = toMinorUnits(applied);
+        const receivedMinor = toMinorUnits(received);
+        if (receivedMinor < appliedMinor) {
+            throw new ValidationError('El efectivo recibido no puede ser menor que el monto aplicado', {
+                code: 'CASH_RECEIVED_INSUFFICIENT',
+                monto_aplicado: applied,
+                monto_recibido: received
+            });
+        }
+
+        return {
+            ordinal: index + 1,
+            tipo: type,
+            monto_aplicado: applied,
+            monto_recibido: received,
+            vuelto: fromMinorUnits(receivedMinor - appliedMinor),
+            referencia: null
+        };
+    });
+
+    const hasCash = tenders.some(tender => tender.tipo === PAYMENT_METHODS.CASH);
+    const hasCard = tenders.some(tender => tender.tipo === PAYMENT_METHODS.CARD);
+    const methodSummary = hasCash && hasCard
+        ? 'mixto'
+        : tenders[0].tipo;
+    const totalAppliedMinor = tenders.reduce(
+        (total, tender) => total + toMinorUnits(tender.monto_aplicado),
+        0
+    );
+    const totalReceivedMinor = tenders.reduce(
+        (total, tender) => total + toMinorUnits(tender.monto_recibido),
+        0
+    );
+    const totalChangeMinor = tenders.reduce(
+        (total, tender) => total + toMinorUnits(tender.vuelto),
+        0
+    );
+
+    if (input.amount !== undefined || input.monto !== undefined) {
+        const declared = normalizePositiveAmount(input.amount ?? input.monto);
+        if (toMinorUnits(declared) !== totalAppliedMinor) {
+            throw new ValidationError('El monto declarado no coincide con los medios de pago', {
+                code: 'PAYMENT_TENDERS_TOTAL_MISMATCH',
+                monto_declarado: declared,
+                total_medios: fromMinorUnits(totalAppliedMinor)
+            });
+        }
+    }
+
+    return {
+        metodo_pago: methodSummary,
+        metodo_pago_legacy: methodSummary === PAYMENT_METHODS.CARD
+            ? PAYMENT_METHODS.CARD
+            : PAYMENT_METHODS.CASH,
+        monto: fromMinorUnits(totalAppliedMinor),
+        monto_recibido: fromMinorUnits(totalReceivedMinor),
+        vuelto: fromMinorUnits(totalChangeMinor),
+        referencia: tenders
+            .filter(tender => tender.tipo === PAYMENT_METHODS.CARD)
+            .map(tender => tender.referencia)
+            .join(' | ') || null,
+        medios_pago: tenders
+    };
+}
+
 class PaymentService {
     constructor(options = {}) {
         this.db = options.db || database;
@@ -81,9 +213,18 @@ class PaymentService {
         return createRequestFingerprint({
             prefactura_id: Number(input.preinvoiceId),
             cajero_usuario_id: Number(input.cashierUserId),
-            metodo_pago: input.paymentMethod,
-            monto: roundMoney(input.amount),
-            referencia: input.reference || null
+            metodo_pago: input.payment.metodo_pago,
+            monto: roundMoney(input.payment.monto),
+            monto_recibido: roundMoney(input.payment.monto_recibido),
+            vuelto: roundMoney(input.payment.vuelto),
+            medios_pago: input.payment.medios_pago.map(tender => ({
+                ordinal: tender.ordinal,
+                tipo: tender.tipo,
+                monto_aplicado: roundMoney(tender.monto_aplicado),
+                monto_recibido: roundMoney(tender.monto_recibido),
+                vuelto: roundMoney(tender.vuelto),
+                referencia: tender.referencia || null
+            }))
         });
     }
 
@@ -254,9 +395,8 @@ class PaymentService {
     async recordPreinvoicePayment(input = {}) {
         const preinvoiceId = Number(input.preinvoiceId ?? input.prefactura_id);
         const cashierUserId = Number(input.cashierUserId ?? input.cajero_usuario_id ?? input.userId);
-        const amount = normalizePositiveAmount(input.amount ?? input.monto);
-        const paymentMethod = normalizePaymentMethod(input.paymentMethod ?? input.metodo_pago);
-        const reference = normalizeOptionalText(input.reference ?? input.referencia, 'La referencia', 180);
+        const payment = normalizePaymentTenders(input);
+        const amount = payment.monto;
         const idempotencyKey = normalizeIdempotencyKey(
             input.idempotencyKey ?? input.clave_idempotencia
         );
@@ -272,9 +412,7 @@ class PaymentService {
         const fingerprint = this.buildCreateFingerprint({
             preinvoiceId,
             cashierUserId,
-            amount,
-            paymentMethod,
-            reference
+            payment
         });
 
         return this.transactions.immediate(async tx => {
@@ -349,26 +487,29 @@ class PaymentService {
             const inserted = await tx.run(`
                 INSERT INTO pagos (
                     pedido_id, prefactura_id, numero_pago, numero_secuencia,
-                    estado, metodo_pago, monto, subtotal, servicio,
-                    porcentaje_servicio, aplica_servicio, referencia,
+                    estado, metodo_pago, metodo_pago_v3, monto, monto_recibido, vuelto,
+                    subtotal, servicio, porcentaje_servicio, aplica_servicio, referencia,
                     cajero_usuario_id, cajero_nombre_snapshot,
                     pagador_nombre_snapshot, fecha, version,
                     creado_en, actualizado_en
-                ) VALUES (?, ?, ?, ?, 'confirmado', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                ) VALUES (?, ?, ?, ?, 'confirmado', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
             `, [
                 document.pedido_id,
                 preinvoiceId,
                 sequence.documentNumber,
                 sequence.sequence,
-                paymentMethod,
+                payment.metodo_pago_legacy,
+                payment.metodo_pago,
                 amount,
+                payment.monto_recibido,
+                payment.vuelto,
                 components.subtotal,
                 components.servicio,
                 document.servicio > 0 && document.subtotal > 0
                     ? roundMoney((Number(document.servicio) / Number(document.subtotal)) * 100)
                     : 0,
                 Number(document.servicio || 0) > 0 ? 1 : 0,
-                reference,
+                payment.referencia,
                 cashier.id,
                 cashier.nombre,
                 document.pagador_nombre,
@@ -381,6 +522,24 @@ class PaymentService {
                 INSERT INTO pago_componentes (pago_id, tipo, monto, creado_en)
                 VALUES (?, 'subtotal', ?, ?), (?, 'servicio', ?, ?)
             `, [inserted.id, components.subtotal, now, inserted.id, components.servicio, now]);
+
+            for (const tender of payment.medios_pago) {
+                await tx.run(`
+                    INSERT INTO pago_medios (
+                        pago_id, ordinal, tipo, monto_aplicado,
+                        monto_recibido, vuelto, referencia, creado_en
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                `, [
+                    inserted.id,
+                    tender.ordinal,
+                    tender.tipo,
+                    tender.monto_aplicado,
+                    tender.monto_recibido,
+                    tender.vuelto,
+                    tender.referencia,
+                    now
+                ]);
+            }
 
             const previousState = document.estado;
             const synchronizedDocument = await this.synchronizePreinvoice(preinvoiceId, tx, now);
@@ -399,8 +558,10 @@ class PaymentService {
                     pago_id: inserted.id,
                     numero_pago: sequence.documentNumber,
                     monto: amount,
-                    metodo_pago: paymentMethod,
-                    referencia: reference,
+                    metodo_pago: payment.metodo_pago,
+                    monto_recibido: payment.monto_recibido,
+                    vuelto: payment.vuelto,
+                    medios_pago: payment.medios_pago,
                     saldo_pendiente: synchronizedDocument.saldo_pendiente
                 }),
                 now
@@ -417,7 +578,7 @@ class PaymentService {
                 ) VALUES ('pago_prefactura', ?, ?, ?)
             `, [
                 cashier.id,
-                `Pago ${sequence.documentNumber} aplicado a ${document.numero_documento}; cuenta ${document.numero_cuenta}; monto ${amount}; saldo documento ${synchronizedDocument.saldo_pendiente}; servicio permanece ${synchronizedAccount.estado_operativo}`,
+                `Pago ${sequence.documentNumber} aplicado a ${document.numero_documento}; cuenta ${document.numero_cuenta}; modalidad ${payment.metodo_pago}; monto ${amount}; recibido ${payment.monto_recibido}; vuelto ${payment.vuelto}; saldo documento ${synchronizedDocument.saldo_pendiente}; servicio permanece ${synchronizedAccount.estado_operativo}`,
                 now
             ]);
 
@@ -601,14 +762,33 @@ class PaymentService {
             WHERE pago_id = ?
             ORDER BY tipo
         `, [id]);
+        const tenders = await client.all(`
+            SELECT
+                ordinal, tipo, monto_aplicado,
+                monto_recibido, vuelto, referencia
+            FROM pago_medios
+            WHERE pago_id = ?
+            ORDER BY ordinal, id
+        `, [id]);
         const reversal = await client.get(`
             SELECT *
             FROM reversos_pago
             WHERE pago_id = ?
         `, [id]);
+        const canonicalMethod = row.metodo_pago_v3 || row.metodo_pago;
         return {
             ...row,
+            metodo_pago_legacy: row.metodo_pago,
+            metodo_pago: canonicalMethod,
+            monto_recibido: roundMoney(Number(row.monto_recibido ?? row.monto ?? 0)),
+            vuelto: roundMoney(Number(row.vuelto || 0)),
             componentes: components,
+            medios_pago: tenders.map(tender => ({
+                ...tender,
+                monto_aplicado: roundMoney(Number(tender.monto_aplicado || 0)),
+                monto_recibido: roundMoney(Number(tender.monto_recibido || 0)),
+                vuelto: roundMoney(Number(tender.vuelto || 0))
+            })),
             reverso: reversal || null
         };
     }
@@ -650,3 +830,4 @@ module.exports.PAYMENT_STATES = PAYMENT_STATES;
 module.exports.PAYMENT_METHODS = PAYMENT_METHODS;
 module.exports.IDEMPOTENCY_SCOPES = IDEMPOTENCY_SCOPES;
 module.exports.normalizePaymentMethod = normalizePaymentMethod;
+module.exports.normalizePaymentTenders = normalizePaymentTenders;

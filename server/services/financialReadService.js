@@ -197,7 +197,7 @@ class FinancialReadService {
                     COALESCE(SUM(pg.monto), 0) AS total_pagado,
                     MIN(pg.fecha) AS fecha_primer_pago,
                     MAX(pg.fecha) AS fecha_ultimo_pago,
-                    GROUP_CONCAT(DISTINCT LOWER(pg.metodo_pago)) AS metodos_pago
+                    GROUP_CONCAT(DISTINCT LOWER(COALESCE(pg.metodo_pago_v3, pg.metodo_pago))) AS metodos_pago
                 FROM pagos pg
                 WHERE COALESCE(pg.estado, 'confirmado') = 'confirmado'
                 GROUP BY pg.pedido_id
@@ -378,8 +378,10 @@ class FinancialReadService {
                 pg.prefactura_id,
                 pg.numero_pago,
                 pg.estado AS estado_pago,
-                pg.metodo_pago,
+                COALESCE(pg.metodo_pago_v3, pg.metodo_pago) AS metodo_pago,
                 pg.monto,
+                COALESCE(pg.monto_recibido, pg.monto) AS monto_recibido,
+                COALESCE(pg.vuelto, 0) AS vuelto,
                 pg.subtotal,
                 pg.servicio,
                 pg.referencia,
@@ -424,6 +426,8 @@ class FinancialReadService {
             subtotal: roundMoney(Number(row.subtotal || 0)),
             servicio: roundMoney(Number(row.servicio || 0)),
             metodo_pago: row.metodo_pago,
+            monto_recibido: roundMoney(Number(row.monto_recibido ?? row.monto ?? 0)),
+            vuelto: roundMoney(Number(row.vuelto || 0)),
             fecha: row.fecha,
             cliente_principal: row.cliente_principal,
             mesa_numero: row.mesa_numero,

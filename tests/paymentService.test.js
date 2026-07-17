@@ -236,6 +236,7 @@ test('dos cobros concurrentes no pueden liquidar dos veces el mismo saldo', asyn
             cashierUserId: fixture.cashier.id,
             amount: 3300,
             paymentMethod: 'tarjeta',
+            reference: 'AUTH-CONCURRENT-002',
             idempotencyKey: 'payment:concurrent:002'
         })
     ]);
@@ -298,6 +299,7 @@ test('la lectura financiera contabiliza solo pagos confirmados y enlaza document
         cashierUserId: fixture.cashier.id,
         amount: 1100,
         paymentMethod: 'tarjeta',
+        reference: 'AUTH-READ-001',
         idempotencyKey: 'payment:read:001'
     });
     await fixture.paymentService.recordPreinvoicePayment({

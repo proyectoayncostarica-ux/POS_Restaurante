@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.2.2 · Sección visual Caja y modal de cobro
+- **Línea de trabajo actual:** v3.2.3 · Efectivo, vuelto, tarjeta y pagos mixtos
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -1313,3 +1313,21 @@ Documento técnico:
 - `docs/avance-v3.2.2-caja-visual-modal-cobro.md`
 
 La siguiente fase es `v3.2.3 · Efectivo, vuelto, tarjeta y pagos mixtos`.
+
+## 27. Medios de pago y vuelto · v3.2.3
+
+Caja registra efectivo, tarjeta o una combinación de ambos sobre una sola prefactura. El efectivo distingue monto aplicado y monto recibido; el vuelto se calcula exclusivamente sobre ese componente. Las tarjetas exigen referencia o autorización. Un pago mixto continúa siendo un solo movimiento `PG-########`, con sus componentes persistidos en `pago_medios`.
+
+El importe que reduce el saldo es la suma aplicada. El dinero recibido para calcular vuelto no incrementa la venta. La cuenta global sigue siendo la única fuente financiera y pagar una prefactura no libera la mesa.
+
+Archivos principales:
+
+- `server/db/database.js`
+- `server/services/paymentService.js`
+- `server/services/financialReadService.js`
+- `server/routes/cash.js`
+- `public/js/components/cash.js`
+- `tests/paymentMethods.test.js`
+- `docs/avance-v3.2.3-medios-pago.md`
+
+La siguiente fase es `v3.2.4 · Créditos integrados con Payments`.

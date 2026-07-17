@@ -165,7 +165,9 @@ router.post('/preinvoices/:preinvoiceId/payments', requireCapability(CAPABILITIE
             cashierUserId: req.session.userId,
             amount: req.body?.monto ?? req.body?.amount,
             paymentMethod: req.body?.metodo_pago ?? req.body?.paymentMethod,
+            cashReceived: req.body?.monto_recibido ?? req.body?.cashReceived,
             reference: req.body?.referencia ?? req.body?.reference,
+            paymentTenders: req.body?.medios_pago ?? req.body?.paymentTenders,
             idempotencyKey: readIdempotencyKey(req)
         });
         setPaymentRealtime(res, result);
@@ -174,6 +176,9 @@ router.post('/preinvoices/:preinvoiceId/payments', requireCapability(CAPABILITIE
             data: result,
             meta: {
                 idempotency_replay: result.idempotency_replay === true,
+                metodo_pago: result.pago?.metodo_pago,
+                monto_recibido: result.pago?.monto_recibido,
+                vuelto: result.pago?.vuelto,
                 mesa_liberada: false,
                 cuenta_global_permanece_operativa: result.cuenta_global?.estado_operativo === 'abierta'
             }

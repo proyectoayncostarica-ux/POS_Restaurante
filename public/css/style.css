@@ -11245,6 +11245,82 @@ body {
     color: #64748b;
 }
 
+.cash-mixed-fields {
+    margin-top: 0.25rem;
+    padding: 0.85rem;
+    border: 1px solid #d9e4ef;
+    border-radius: 12px;
+    background: #f8fbff;
+}
+
+.cash-mixed-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.cash-payment-calculation {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.55rem;
+    margin-top: 0.9rem;
+    padding: 0.8rem;
+    border: 1px solid #dce6f0;
+    border-radius: 12px;
+    background: #f8fafc;
+}
+
+.cash-payment-calculation > div {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.45rem 0.55rem;
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.cash-payment-calculation span {
+    color: #64748b;
+    font-size: 0.82rem;
+}
+
+.cash-payment-calculation strong {
+    color: #172033;
+}
+
+.cash-payment-calculation .is-change.has-change {
+    background: #e8f7ee;
+}
+
+.cash-payment-calculation .is-change.has-change strong {
+    color: #17643a;
+    font-size: 1.08rem;
+}
+
+.cash-payment-tenders {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.3rem;
+}
+
+.cash-payment-tender {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.2rem 0.45rem;
+    border-radius: 999px;
+    color: #315b78;
+    background: #eaf6ff;
+    font-size: 0.76rem;
+}
+
+.cash-payment-change-note {
+    color: #17643a;
+    font-weight: 700;
+}
+
 .cash-payment-scope-note {
     display: flex;
     align-items: flex-start;
@@ -11358,7 +11434,9 @@ body {
 
     .cash-account-context,
     .cash-payment-context,
-    .cash-document-totals {
+    .cash-document-totals,
+    .cash-mixed-grid,
+    .cash-payment-calculation {
         grid-template-columns: 1fr 1fr;
     }
 
@@ -11401,7 +11479,9 @@ body {
 
     .cash-account-context,
     .cash-payment-context,
-    .cash-document-totals {
+    .cash-document-totals,
+    .cash-mixed-grid,
+    .cash-payment-calculation {
         grid-template-columns: 1fr;
     }
 }

@@ -1255,7 +1255,10 @@ git commit -m "v3.2.2: agrega Caja visual y modal de cobro"
 
 ---
 
-## v3.2.3 · Efectivo, vuelto, tarjeta y pagos mixtos
+## v3.2.3 · Efectivo, vuelto, tarjeta y pagos mixtos ✅
+
+**Estado: implementada y validada.**
+
 
 ### Objetivo
 

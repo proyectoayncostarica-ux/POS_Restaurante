@@ -22,11 +22,11 @@ test('Caja visual consulta cola, detalle y movimientos mediante la API autorizad
 
 
 test('modal de cobro registra una prefactura con idempotencia y bloqueo local', () => {
-    assert.match(cashSource, /Cobrar \$\{this\.escapeHTML\(document\.numero_documento\)\}/);
+    assert.match(cashSource, /Cobrar \$\{this\.escapeHTML\(preinvoice\.numero_documento\)\}/);
     assert.match(cashSource, /cash-payment-idempotency/);
     assert.match(cashSource, /Idempotency-Key/);
     assert.match(cashSource, /paymentSubmitting/);
-    assert.match(cashSource, /El monto no puede superar el saldo/);
+    assert.match(cashSource, /El total aplicado no puede superar el saldo/);
     assert.match(cashSource, /La mesa continúa abierta hasta finalizar el servicio/);
 });
 
@@ -57,7 +57,18 @@ test('interfaz de Caja tiene distribución adaptable para PC y móvil', () => {
 });
 
 
-test('PWA utiliza caché específico de v3.2.2 para cargar la nueva Caja', () => {
-    assert.match(serviceWorkerSource, /v3\.2\.2-cash-ui/);
-    assert.match(serviceWorkerSource, /components\/cash\.js\?v=3\.2\.2-cash-ui/);
+test('PWA utiliza caché específico de v3.2.3 para cargar medios de pago', () => {
+    assert.match(serviceWorkerSource, /v3\.2\.3-payment-methods/);
+    assert.match(serviceWorkerSource, /components\/cash\.js\?v=3\.2\.3-payment-methods/);
+});
+
+test('modal de Caja permite efectivo, tarjeta y pago mixto con cálculo de vuelto', () => {
+    assert.match(cashSource, /Mixto: efectivo \+ tarjeta/);
+    assert.match(cashSource, /cash-payment-cash-received/);
+    assert.match(cashSource, /cash-payment-mixed-cash/);
+    assert.match(cashSource, /cash-payment-mixed-card/);
+    assert.match(cashSource, /cash-payment-change/);
+    assert.match(cashSource, /medios_pago/);
+    assert.match(styleSource, /\.cash-payment-calculation/);
+    assert.match(styleSource, /\.cash-mixed-grid/);
 });

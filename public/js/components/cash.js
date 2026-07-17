@@ -1,4 +1,4 @@
-// Caja Component · v3.2.2
+// Caja Component · v3.2.3
 // Interfaz operativa de cobro por prefactura. La cuenta global continúa siendo
 // la única fuente financiera y pagar un documento no finaliza el servicio.
 const Cash = {
@@ -184,13 +184,13 @@ const Cash = {
             return;
         }
 
-        const document = read.prefactura;
+        const preinvoice = read.prefactura;
         const account = read.cuenta_global;
-        const balance = Number(document.saldo_pendiente_calculado ?? document.saldo_pendiente ?? 0);
+        const balance = Number(preinvoice.saldo_pendiente_calculado ?? preinvoice.saldo_pendiente ?? 0);
         const idempotencyKey = this.buildIdempotencyKey('payment');
 
-        Utils.showModal(`Cobrar ${this.escapeHTML(document.numero_documento)}`, `
-            <div class="cash-payment-modal">
+        Utils.showModal(`Cobrar ${this.escapeHTML(preinvoice.numero_documento)}`, `
+            <div class="cash-payment-modal" data-balance="${balance}">
                 <div class="cash-payment-context">
                     <div>
                         <small>Cuenta global</small>
@@ -198,7 +198,7 @@ const Cash = {
                     </div>
                     <div>
                         <small>Pagador</small>
-                        <strong>${this.escapeHTML(document.pagador_nombre || 'Sin nombre')}</strong>
+                        <strong>${this.escapeHTML(preinvoice.pagador_nombre || 'Sin nombre')}</strong>
                     </div>
                     <div>
                         <small>${this.seatLabel(account)}</small>
@@ -210,29 +210,78 @@ const Cash = {
                     <strong>${Utils.formatCurrency(balance)}</strong>
                 </div>
                 <form id="cash-payment-form" onsubmit="Cash.submitPayment(event)">
-                    <input type="hidden" id="cash-payment-preinvoice-id" value="${Number(document.id)}">
+                    <input type="hidden" id="cash-payment-preinvoice-id" value="${Number(preinvoice.id)}">
                     <input type="hidden" id="cash-payment-idempotency" value="${this.escapeAttribute(idempotencyKey)}">
+
                     <div class="form-group">
-                        <label for="cash-payment-amount">Monto a cobrar *</label>
-                        <input id="cash-payment-amount" type="number" min="0.01" max="${balance}" step="0.01"
-                               value="${balance}" inputmode="decimal" required autocomplete="off">
-                        <small class="cash-form-help">Puede registrar un abono o liquidar el saldo completo.</small>
-                    </div>
-                    <div class="form-group">
-                        <label for="cash-payment-method">Método de pago *</label>
+                        <label for="cash-payment-method">Modalidad de pago *</label>
                         <select id="cash-payment-method" required onchange="Cash.onPaymentMethodChange(this.value)">
                             <option value="efectivo">Efectivo</option>
                             <option value="tarjeta">Tarjeta</option>
+                            <option value="mixto">Mixto: efectivo + tarjeta</option>
                         </select>
                     </div>
-                    <div class="form-group" id="cash-payment-reference-group" hidden>
-                        <label for="cash-payment-reference">Referencia / autorización *</label>
-                        <input id="cash-payment-reference" type="text" maxlength="180" autocomplete="off"
-                               placeholder="Ej. AUTH-123456">
+
+                    <div id="cash-payment-simple-fields">
+                        <div class="form-group">
+                            <label for="cash-payment-amount">Monto aplicado *</label>
+                            <input id="cash-payment-amount" type="number" min="0.01" max="${balance}" step="0.01"
+                                   value="${balance}" inputmode="decimal" required autocomplete="off"
+                                   oninput="Cash.updatePaymentTotals()">
+                            <small class="cash-form-help">Puede registrar un abono o liquidar el saldo completo.</small>
+                        </div>
+                        <div class="form-group" id="cash-payment-cash-received-group">
+                            <label for="cash-payment-cash-received">Efectivo recibido *</label>
+                            <input id="cash-payment-cash-received" type="number" min="0.01" step="0.01"
+                                   value="${balance}" inputmode="decimal" autocomplete="off"
+                                   oninput="Cash.updatePaymentTotals()">
+                        </div>
+                        <div class="form-group" id="cash-payment-reference-group" hidden>
+                            <label for="cash-payment-reference">Referencia / autorización *</label>
+                            <input id="cash-payment-reference" type="text" maxlength="180" autocomplete="off"
+                                   placeholder="Ej. AUTH-123456">
+                        </div>
                     </div>
+
+                    <div id="cash-payment-mixed-fields" class="cash-mixed-fields" hidden>
+                        <div class="cash-mixed-grid">
+                            <div class="form-group">
+                                <label for="cash-payment-mixed-cash">Monto en efectivo *</label>
+                                <input id="cash-payment-mixed-cash" type="number" min="0.01" step="0.01"
+                                       value="" inputmode="decimal" autocomplete="off"
+                                       oninput="Cash.updatePaymentTotals()">
+                            </div>
+                            <div class="form-group">
+                                <label for="cash-payment-mixed-received">Efectivo recibido *</label>
+                                <input id="cash-payment-mixed-received" type="number" min="0.01" step="0.01"
+                                       value="" inputmode="decimal" autocomplete="off"
+                                       oninput="Cash.updatePaymentTotals()">
+                            </div>
+                            <div class="form-group">
+                                <label for="cash-payment-mixed-card">Monto en tarjeta *</label>
+                                <input id="cash-payment-mixed-card" type="number" min="0.01" step="0.01"
+                                       value="${balance}" inputmode="decimal" autocomplete="off"
+                                       oninput="Cash.updatePaymentTotals()">
+                            </div>
+                            <div class="form-group">
+                                <label for="cash-payment-mixed-reference">Referencia de tarjeta *</label>
+                                <input id="cash-payment-mixed-reference" type="text" maxlength="180"
+                                       autocomplete="off" placeholder="Ej. AUTH-123456">
+                            </div>
+                        </div>
+                        <small class="cash-form-help">Ambos medios deben tener un monto mayor que cero. El vuelto se calcula solamente sobre el efectivo.</small>
+                    </div>
+
+                    <div class="cash-payment-calculation">
+                        <div><span>Total aplicado</span><strong id="cash-payment-total-applied">${Utils.formatCurrency(balance)}</strong></div>
+                        <div><span>Total recibido/cargado</span><strong id="cash-payment-total-received">${Utils.formatCurrency(balance)}</strong></div>
+                        <div class="is-change"><span>Vuelto</span><strong id="cash-payment-change">${Utils.formatCurrency(0)}</strong></div>
+                        <div><span>Saldo posterior</span><strong id="cash-payment-remaining">${Utils.formatCurrency(0)}</strong></div>
+                    </div>
+
                     <div class="cash-payment-scope-note">
                         <i class="fas fa-circle-info"></i>
-                        <span>Este cobro afecta únicamente a ${this.escapeHTML(document.numero_documento)}. La mesa continúa abierta hasta finalizar el servicio.</span>
+                        <span>Este cobro afecta únicamente a ${this.escapeHTML(preinvoice.numero_documento)}. La mesa continúa abierta hasta finalizar el servicio.</span>
                     </div>
                 </form>
             </div>
@@ -250,15 +299,144 @@ const Cash = {
             }
         ], 'modal-cash-payment');
 
-        setTimeout(() => document.getElementById('cash-payment-amount')?.select(), 0);
+        setTimeout(() => {
+            globalThis.document.getElementById('cash-payment-amount')?.select();
+            this.updatePaymentTotals();
+        }, 0);
     },
 
     onPaymentMethodChange(method) {
-        const group = document.getElementById('cash-payment-reference-group');
-        const input = document.getElementById('cash-payment-reference');
-        const card = method === 'tarjeta';
-        if (group) group.hidden = !card;
-        if (input) input.required = card;
+        const simple = document.getElementById('cash-payment-simple-fields');
+        const mixed = document.getElementById('cash-payment-mixed-fields');
+        const cashGroup = document.getElementById('cash-payment-cash-received-group');
+        const cashInput = document.getElementById('cash-payment-cash-received');
+        const referenceGroup = document.getElementById('cash-payment-reference-group');
+        const referenceInput = document.getElementById('cash-payment-reference');
+        const amountInput = document.getElementById('cash-payment-amount');
+
+        const isMixed = method === 'mixto';
+        const isCard = method === 'tarjeta';
+        if (simple) simple.hidden = isMixed;
+        if (mixed) mixed.hidden = !isMixed;
+        if (cashGroup) cashGroup.hidden = isCard;
+        if (cashInput) cashInput.required = !isCard && !isMixed;
+        if (referenceGroup) referenceGroup.hidden = !isCard;
+        if (referenceInput) referenceInput.required = isCard;
+        if (amountInput) amountInput.required = !isMixed;
+
+        this.updatePaymentTotals();
+    },
+
+    paymentNumber(id) {
+        const value = Number(document.getElementById(id)?.value || 0);
+        return Number.isFinite(value) ? Math.max(0, value) : 0;
+    },
+
+    updatePaymentTotals() {
+        const modal = document.querySelector('.cash-payment-modal');
+        if (!modal) return;
+        const balance = Number(modal.dataset.balance || 0);
+        const method = String(document.getElementById('cash-payment-method')?.value || 'efectivo');
+
+        let applied = 0;
+        let received = 0;
+        let change = 0;
+
+        if (method === 'mixto') {
+            const cashApplied = this.paymentNumber('cash-payment-mixed-cash');
+            const cashReceived = this.paymentNumber('cash-payment-mixed-received');
+            const cardApplied = this.paymentNumber('cash-payment-mixed-card');
+            applied = cashApplied + cardApplied;
+            received = cashReceived + cardApplied;
+            change = Math.max(0, cashReceived - cashApplied);
+        } else {
+            applied = this.paymentNumber('cash-payment-amount');
+            if (method === 'efectivo') {
+                const cashReceived = this.paymentNumber('cash-payment-cash-received');
+                received = cashReceived;
+                change = Math.max(0, cashReceived - applied);
+            } else {
+                received = applied;
+            }
+        }
+
+        const remaining = Math.max(0, balance - applied);
+        const values = {
+            'cash-payment-total-applied': applied,
+            'cash-payment-total-received': received,
+            'cash-payment-change': change,
+            'cash-payment-remaining': remaining
+        };
+        Object.entries(values).forEach(([id, value]) => {
+            const element = document.getElementById(id);
+            if (element) element.textContent = Utils.formatCurrency(value);
+        });
+
+        const changeRow = document.getElementById('cash-payment-change')?.closest('div');
+        if (changeRow) changeRow.classList.toggle('has-change', change > 0);
+    },
+
+    buildPaymentPayload() {
+        const method = String(document.getElementById('cash-payment-method')?.value || '');
+        if (!['efectivo', 'tarjeta', 'mixto'].includes(method)) {
+            throw new Error('Selecciona una modalidad de pago válida.');
+        }
+
+        if (method === 'mixto') {
+            const cashApplied = this.paymentNumber('cash-payment-mixed-cash');
+            const cashReceived = this.paymentNumber('cash-payment-mixed-received');
+            const cardApplied = this.paymentNumber('cash-payment-mixed-card');
+            const cardReference = String(document.getElementById('cash-payment-mixed-reference')?.value || '').trim();
+
+            if (cashApplied <= 0 || cardApplied <= 0) {
+                throw new Error('En un pago mixto, efectivo y tarjeta deben ser mayores que cero.');
+            }
+            if (cashReceived < cashApplied) {
+                throw new Error('El efectivo recibido no puede ser menor que el efectivo aplicado.');
+            }
+            if (!cardReference) {
+                throw new Error('Indica la referencia o autorización de la tarjeta.');
+            }
+
+            return {
+                metodo_pago: 'mixto',
+                medios_pago: [
+                    {
+                        tipo: 'efectivo',
+                        monto_aplicado: cashApplied,
+                        monto_recibido: cashReceived
+                    },
+                    {
+                        tipo: 'tarjeta',
+                        monto_aplicado: cardApplied,
+                        referencia: cardReference
+                    }
+                ]
+            };
+        }
+
+        const amount = this.paymentNumber('cash-payment-amount');
+        if (amount <= 0) throw new Error('Indica un monto mayor que cero.');
+
+        if (method === 'tarjeta') {
+            const reference = String(document.getElementById('cash-payment-reference')?.value || '').trim();
+            if (!reference) throw new Error('Indica la referencia o autorización de la tarjeta.');
+            return {
+                monto: amount,
+                metodo_pago: 'tarjeta',
+                referencia: reference
+            };
+        }
+
+        const received = this.paymentNumber('cash-payment-cash-received');
+        if (received < amount) {
+            throw new Error('El efectivo recibido no puede ser menor que el monto aplicado.');
+        }
+        return {
+            monto: amount,
+            metodo_pago: 'efectivo',
+            monto_recibido: received
+        };
     },
 
     async submitPayment(event) {
@@ -266,30 +444,22 @@ const Cash = {
         if (this.paymentSubmitting) return;
 
         const preinvoiceId = Number(document.getElementById('cash-payment-preinvoice-id')?.value || 0);
-        const amount = Number(document.getElementById('cash-payment-amount')?.value || 0);
-        const method = String(document.getElementById('cash-payment-method')?.value || '');
-        const referenceInput = document.getElementById('cash-payment-reference');
-        const reference = String(referenceInput?.value || '').trim();
         const idempotencyKey = document.getElementById('cash-payment-idempotency')?.value;
         const balance = Number(this.selectedRead?.prefactura?.saldo_pendiente_calculado ?? 0);
+        let payload;
 
-        if (!Number.isFinite(amount) || amount <= 0) {
-            Utils.showNotification('Indica un monto mayor que cero.', 'warning');
-            document.getElementById('cash-payment-amount')?.focus();
+        try {
+            payload = this.buildPaymentPayload();
+        } catch (error) {
+            Utils.showNotification(error.message, 'warning');
             return;
         }
-        if (amount > balance + 0.0001) {
-            Utils.showNotification('El monto no puede superar el saldo de la prefactura.', 'warning');
-            document.getElementById('cash-payment-amount')?.focus();
-            return;
-        }
-        if (!['efectivo', 'tarjeta'].includes(method)) {
-            Utils.showNotification('Selecciona un método de pago válido.', 'warning');
-            return;
-        }
-        if (method === 'tarjeta' && !reference) {
-            Utils.showNotification('Indica la referencia o autorización de la tarjeta.', 'warning');
-            referenceInput?.focus();
+
+        const applied = Array.isArray(payload.medios_pago)
+            ? payload.medios_pago.reduce((sum, tender) => sum + Number(tender.monto_aplicado || 0), 0)
+            : Number(payload.monto || 0);
+        if (applied > balance + 0.0001) {
+            Utils.showNotification('El total aplicado no puede superar el saldo de la prefactura.', 'warning');
             return;
         }
 
@@ -304,15 +474,18 @@ const Cash = {
             const response = await Utils.request(`/cash/preinvoices/${preinvoiceId}/payments`, {
                 method: 'POST',
                 headers: { 'Idempotency-Key': idempotencyKey },
-                body: JSON.stringify({
-                    monto: amount,
-                    metodo_pago: method,
-                    referencia: reference || null
-                })
+                body: JSON.stringify(payload)
             });
-            const paymentNumber = response.data?.pago?.numero_pago || 'Pago registrado';
+            const payment = response.data?.pago || {};
+            const paymentNumber = payment.numero_pago || 'Pago registrado';
+            const change = Number(payment.vuelto || 0);
             Utils.hideModal();
-            Utils.showNotification(`${paymentNumber} confirmado correctamente.`, 'success');
+            Utils.showNotification(
+                change > 0
+                    ? `${paymentNumber} confirmado. Vuelto: ${Utils.formatCurrency(change)}.`
+                    : `${paymentNumber} confirmado correctamente.`,
+                'success'
+            );
             await this.reloadAfterMutation(preinvoiceId);
         } catch (error) {
             Utils.showNotification(error.message || 'No se pudo registrar el cobro.', 'error');
@@ -613,6 +786,37 @@ const Cash = {
         `;
     },
 
+    paymentMethodLabel(method) {
+        const labels = {
+            efectivo: 'Efectivo',
+            tarjeta: 'Tarjeta',
+            mixto: 'Mixto',
+            credito: 'Crédito'
+        };
+        return labels[String(method || '').toLowerCase()] || method || '';
+    },
+
+    renderTenderSummary(payment = {}) {
+        const tenders = Array.isArray(payment.medios_pago) ? payment.medios_pago : [];
+        if (!tenders.length) {
+            const change = Number(payment.vuelto || 0);
+            return change > 0
+                ? `<small class="cash-payment-change-note">Vuelto: ${Utils.formatCurrency(change)}</small>`
+                : '';
+        }
+        return `
+            <div class="cash-payment-tenders">
+                ${tenders.map(tender => `
+                    <span class="cash-payment-tender">
+                        <i class="fas ${tender.tipo === 'tarjeta' ? 'fa-credit-card' : 'fa-money-bill-wave'}"></i>
+                        ${this.paymentMethodLabel(tender.tipo)} ${Utils.formatCurrency(Number(tender.monto_aplicado || 0))}
+                        ${Number(tender.vuelto || 0) > 0 ? ` · Vuelto ${Utils.formatCurrency(Number(tender.vuelto || 0))}` : ''}
+                    </span>
+                `).join('')}
+            </div>
+        `;
+    },
+
     renderDocumentPayments(payments) {
         if (!payments.length) {
             return '<div class="cash-inline-empty">Todavía no hay pagos registrados para esta prefactura.</div>';
@@ -624,8 +828,9 @@ const Cash = {
                         <div>
                             <strong>${this.escapeHTML(payment.numero_pago || `Pago #${payment.id}`)}</strong>
                             <small>${this.escapeHTML(payment.cajero_nombre_snapshot || payment.cajero_nombre || '')} · ${Utils.formatDateTime(payment.fecha)}</small>
+                            ${this.renderTenderSummary(payment)}
                         </div>
-                        <span>${this.escapeHTML(payment.metodo_pago || '')}</span>
+                        <span>${this.escapeHTML(this.paymentMethodLabel(payment.metodo_pago))}</span>
                         <strong>${Utils.formatCurrency(Number(payment.monto || 0))}</strong>
                         <span class="cash-document-status ${payment.estado === 'anulado' ? 'is-voided' : 'is-paid'}">${payment.estado === 'anulado' ? 'Anulado' : 'Confirmado'}</span>
                     </article>
@@ -648,7 +853,10 @@ const Cash = {
                             <td>${this.escapeHTML(movement.numero_cuenta || '')}</td>
                             <td>${this.escapeHTML(movement.numero_documento || '')}</td>
                             <td>${this.escapeHTML(movement.pagador_nombre || movement.cliente_principal || '')}</td>
-                            <td>${this.escapeHTML(movement.metodo_pago || '')}</td>
+                            <td>
+                                ${this.escapeHTML(this.paymentMethodLabel(movement.metodo_pago))}
+                                ${Number(movement.vuelto || 0) > 0 ? `<small class="cash-payment-change-note">Vuelto ${Utils.formatCurrency(Number(movement.vuelto || 0))}</small>` : ''}
+                            </td>
                             <td>${this.escapeHTML(movement.cajero_nombre || '')}</td>
                             <td>${Utils.formatDateTime(movement.fecha)}</td>
                             <td>${Utils.formatCurrency(Number(movement.monto || 0))}</td>

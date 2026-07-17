@@ -756,3 +756,20 @@ Dashboard deja de ejecutar cobros. Los accesos previos desde Orders solo redirig
 La UI está adaptada para PC y móvil. El caché PWA cambia a `v3.2.2-cash-ui` para evitar que dispositivos instalados conserven el componente anterior.
 
 Esta fase admite cobros simples en efectivo o tarjeta. El cálculo de efectivo recibido, vuelto y pagos mixtos se implementará en `v3.2.3`.
+
+## v3.2.3 · Efectivo, vuelto, tarjeta y pagos mixtos
+
+La capa Payments soporta efectivo, tarjeta y modalidad mixta. Cada pago conserva un único número y una única afectación sobre la prefactura, mientras `pago_medios` registra cómo se compuso el cobro.
+
+Reglas:
+
+- el efectivo recibido debe ser igual o mayor que el efectivo aplicado;
+- el vuelto solo se calcula sobre efectivo;
+- la tarjeta requiere referencia;
+- un pago mixto requiere efectivo y tarjeta mayores que cero;
+- la suma aplicada no puede superar el saldo documental;
+- el pago confirmado no finaliza el servicio.
+
+Documento de avance: `docs/avance-v3.2.3-medios-pago.md`.
+
+Siguiente fase: `v3.2.4 · Créditos integrados con Payments`.
