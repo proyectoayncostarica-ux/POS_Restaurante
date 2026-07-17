@@ -389,6 +389,11 @@ router.post('/', requireAdmin, async (req, res) => {
         );
 
         const [createdUser] = await getUsersWithWorkRoles('WHERE id = ?', [result.id]);
+        res.locals.realtime = {
+            scope: 'usuarios',
+            targetUserIds: [Number(result.id)],
+            affectedUserIds: [Number(result.id)]
+        };
         res.status(201).json({
             success: true,
             data: createdUser || {
@@ -482,6 +487,11 @@ router.put('/:id', requireAdmin, async (req, res) => {
             ['actualizar_usuario', req.session.userId, `Usuario ${nombre} actualizado`, new Date().toISOString()]
         );
 
+        res.locals.realtime = {
+            scope: 'usuarios',
+            targetUserIds: [Number(id)],
+            affectedUserIds: [Number(id)]
+        };
         res.json({ success: true, message: 'Usuario actualizado exitosamente' });
     } catch (error) {
         console.error('Error actualizando usuario:', error);
@@ -528,6 +538,11 @@ router.delete('/:id', requireAdmin, async (req, res) => {
             ['eliminar_usuario', req.session.userId, `Usuario ${usuario.nombre} eliminado`, new Date().toISOString()]
         );
 
+        res.locals.realtime = {
+            scope: 'usuarios',
+            targetUserIds: [Number(id)],
+            affectedUserIds: [Number(id)]
+        };
         res.json({ success: true, message: 'Usuario eliminado exitosamente' });
     } catch (error) {
         console.error('Error eliminando usuario:', error);

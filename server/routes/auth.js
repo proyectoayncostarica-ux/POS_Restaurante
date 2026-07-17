@@ -7,6 +7,7 @@ const {
     syncSessionCapabilities,
     normalizeCodes
 } = require('../services/capabilityService');
+const { buildPolicyFromOperationalSession } = require('../services/operationalAccessService');
 
 const router = express.Router();
 const adminVerificationAttempts = new Map();
@@ -684,8 +685,7 @@ function buildOperationalSession(req, user, rolesTrabajo = [], options = {}) {
 
 function buildUserPayload(req, user, rolesTrabajo = [], operationalSession = null) {
     const sessionPayload = operationalSession || buildOperationalSession(req, user, rolesTrabajo);
-
-    return {
+    const baseUser = {
         id: Number(user.id || req.session.userId),
         nombre: user.nombre || req.session.userName,
         tipo: user.tipo || req.session.userType,
@@ -693,6 +693,11 @@ function buildUserPayload(req, user, rolesTrabajo = [], operationalSession = nul
         capacidades: sessionPayload.capacidades || [],
         destino_inicial: sessionPayload.destino_inicial || 'dashboard',
         sesion_operativa: sessionPayload
+    };
+
+    return {
+        ...baseUser,
+        acceso_operativo: buildPolicyFromOperationalSession(baseUser, sessionPayload)
     };
 }
 

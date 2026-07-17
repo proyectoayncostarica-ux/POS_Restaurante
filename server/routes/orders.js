@@ -2,6 +2,11 @@ const express = require("express");
 const database = require("../db/database");
 const requireCapability = require("../middleware/requireCapability");
 const { CAPABILITIES } = require("../security/capabilities");
+const {
+    resolveAccessContext,
+    buildZoneFilter,
+    evaluateMesaAccess
+} = require('../services/operationalAccessService');
 
 const router = express.Router();
 
@@ -244,27 +249,35 @@ function enrichOrderWithService(order = {}) {
 
 
 // Obtener todos los pedidos
-router.get("/", async (req, res) => {
+router.get("/", requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, res) => {
     try {
         const { estado, mesa_id } = req.query;
-        
-        let whereClause = "";
-        let params = [];
-        
+        const access = await resolveAccessContext(req);
+        const zoneFilter = buildZoneFilter(access, { alias: 'm', column: 'zona_id' });
+        const clauses = [];
+        const params = [];
+
         if (estado) {
-            whereClause += " WHERE p.estado = ?";
+            clauses.push('p.estado = ?');
             params.push(estado);
         }
-        
+
         if (mesa_id) {
-            whereClause += estado ? " AND p.mesa_id = ?" : " WHERE p.mesa_id = ?";
+            clauses.push('p.mesa_id = ?');
             params.push(mesa_id);
         }
 
+        if (zoneFilter.clause) {
+            clauses.push(zoneFilter.clause);
+            params.push(...zoneFilter.params);
+        }
+
+        const whereClause = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
         const pedidos = await database.all(`
             SELECT p.*, 
                 m.numero as mesa_numero,
                 m.tipo_asiento as mesa_tipo,
+                m.zona_id,
                 u.nombre as usuario_nombre
 
             FROM pedidos p
@@ -282,7 +295,7 @@ router.get("/", async (req, res) => {
 });
 
 // Obtener un pedido específico con sus productos
-router.get("/:id", async (req, res) => {
+router.get("/:id", requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, res) => {
     try {
         const { id } = req.params;
         
@@ -290,6 +303,7 @@ router.get("/:id", async (req, res) => {
     SELECT p.*, 
            m.numero as mesa_numero,
            m.tipo_asiento as mesa_tipo,
+           m.zona_id,
            COALESCE(p.cliente_nombre, m.cliente_nombre) as cliente_nombre,
            u.nombre as usuario_nombre
     FROM pedidos p
@@ -300,6 +314,19 @@ router.get("/:id", async (req, res) => {
 
         if (!pedido) {
             return res.status(404).json({ error: "Pedido no encontrado" });
+        }
+
+        const access = await resolveAccessContext(req);
+        const mesaAccess = await evaluateMesaAccess(access, {
+            id: pedido.mesa_id,
+            zona_id: pedido.zona_id,
+            estado: pedido.estado === 'pendiente' ? 'ocupada' : 'libre'
+        });
+        if (!mesaAccess.visible) {
+            return res.status(403).json({
+                error: 'No tienes acceso operativo a la zona de esta cuenta.',
+                code: 'OPERATIONAL_ACCESS_DENIED'
+            });
         }
 
 const productos = await database.all(`
@@ -332,7 +359,7 @@ pedido.productos = productos;
 });
 
 // Crear nuevo pedido
-router.post("/", async (req, res) => {
+router.post("/", requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, res) => {
   try {
     const { mesa_id, productos } = req.body;
 
@@ -343,6 +370,17 @@ router.post("/", async (req, res) => {
     const mesa = await database.get("SELECT * FROM mesas WHERE id = ?", [mesa_id]);
     if (!mesa) {
       return res.status(400).json({ error: "Zona no encontrada" });
+    }
+
+    const access = await resolveAccessContext(req);
+    const mesaAccess = await evaluateMesaAccess(access, mesa);
+    if (!mesaAccess.operable) {
+      return res.status(403).json({
+        error: mesaAccess.visible
+          ? 'Esta mesa/cuenta está asignada a otros responsables operativos.'
+          : 'No tienes acceso operativo a esta zona.',
+        code: mesaAccess.visible ? 'MESA_RESPONSIBILITY_REQUIRED' : 'ZONE_NOT_ALLOWED'
+      });
     }
 
     const nombreZona = mesa.zona?.toLowerCase() === 'barra' ? 'banco' : 'mesa';
@@ -472,7 +510,7 @@ router.post("/", async (req, res) => {
 });
 
 // Agregar productos a un pedido existente
-router.post("/:id/products", async (req, res) => {
+router.post("/:id/products", requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, res) => {
     try {
         const { id } = req.params;
         const { productos } = req.body;
@@ -485,6 +523,17 @@ router.post("/:id/products", async (req, res) => {
         const pedido = await database.get("SELECT * FROM pedidos WHERE id = ? AND estado = ?", [id, "pendiente"]);
         if (!pedido) {
             return res.status(400).json({ error: "Pedido no encontrado o ya está procesado" });
+        }
+
+        const access = await resolveAccessContext(req);
+        const mesaAccess = await evaluateMesaAccess(access, pedido.mesa_id);
+        if (!mesaAccess.operable) {
+            return res.status(403).json({
+                error: mesaAccess.visible
+                    ? 'Solo un responsable asignado puede agregar productos a esta cuenta.'
+                    : 'No tienes acceso operativo a esta zona.',
+                code: mesaAccess.visible ? 'MESA_RESPONSIBILITY_REQUIRED' : 'ZONE_NOT_ALLOWED'
+            });
         }
 
         // Obtener zona (mesa) relacionada para personalizar historial
@@ -577,7 +626,7 @@ for (const item of productosValidados) {
 });
 
 // Editar producto en pedido (reglas de negocio)
-router.put("/:pedido_id/products/:producto_id", async (req, res) => {
+router.put("/:pedido_id/products/:producto_id", requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, res) => {
     try {
         const { pedido_id, producto_id } = req.params;
         const { nuevo_producto_id, admin_password } = req.body;
@@ -586,6 +635,17 @@ router.put("/:pedido_id/products/:producto_id", async (req, res) => {
         const pedido = await database.get("SELECT * FROM pedidos WHERE id = ? AND estado = ?", [pedido_id, "pendiente"]);
         if (!pedido) {
             return res.status(400).json({ error: "Pedido no encontrado o ya está procesado" });
+        }
+
+        const access = await resolveAccessContext(req);
+        const mesaAccess = await evaluateMesaAccess(access, pedido.mesa_id);
+        if (!mesaAccess.operable) {
+            return res.status(403).json({
+                error: mesaAccess.visible
+                    ? 'Solo un responsable asignado puede modificar esta cuenta.'
+                    : 'No tienes acceso operativo a esta zona.',
+                code: mesaAccess.visible ? 'MESA_RESPONSIBILITY_REQUIRED' : 'ZONE_NOT_ALLOWED'
+            });
         }
 
         // Obtener el producto actual en el pedido
@@ -815,7 +875,7 @@ router.post("/:id/pay", requireCapability(CAPABILITIES.CASH_COLLECT), async (req
 });
 
 // Obtener comandas pendientes
-router.get("/comandas/pending", async (req, res) => {
+router.get("/comandas/pending", requireCapability(CAPABILITIES.KITCHEN_OPERATE), async (req, res) => {
     try {
         const comandas = await database.all(`
             SELECT c.*, m.numero as mesa_numero
@@ -833,7 +893,7 @@ router.get("/comandas/pending", async (req, res) => {
 });
 
 // Marcar comanda como impresa
-router.put("/comandas/:id/print", async (req, res) => {
+router.put("/comandas/:id/print", requireCapability(CAPABILITIES.KITCHEN_OPERATE), async (req, res) => {
     try {
         const { id } = req.params;
 

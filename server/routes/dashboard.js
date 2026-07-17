@@ -1,5 +1,8 @@
 const express = require('express');
 const database = require('../db/database');
+const requireCapability = require('../middleware/requireCapability');
+const { CAPABILITIES } = require('../security/capabilities');
+const { resolveAccessContext } = require('../services/operationalAccessService');
 
 const router = express.Router();
 const COSTA_RICA_UTC_OFFSET_HOURS = 6;
@@ -220,10 +223,10 @@ function getSessionActiveWorkRoleIds(req) {
 }
 
 async function getDashboardScope(req) {
-    const userId = Number(req.session?.userId || 0);
-    const userType = req.session?.userType || 'basico';
-    const activeWorkRoleIds = getSessionActiveWorkRoleIds(req);
-    const isAdmin = isAdminType(userType);
+    const access = await resolveAccessContext(req);
+    const userId = Number(access.userId || 0);
+    const activeWorkRoleIds = access.activeRoleIds || [];
+    const isAdmin = access.isAdmin;
 
     if (isAdmin) {
         const zonas = await database.all(`
@@ -270,16 +273,17 @@ async function getDashboardScope(req) {
         }
 
         const roleIds = roles.map(role => Number(role.id));
-        const rolePlaceholders = roleIds.map(() => '?').join(',');
-        const zonas = await database.all(`
-            SELECT DISTINCT z.*
-            FROM rol_trabajo_zonas rtz
-            INNER JOIN zonas z ON z.id = rtz.zona_id
-            WHERE rtz.rol_trabajo_id IN (${rolePlaceholders})
-              AND z.activa = 1
-              AND z.visible_dashboard = 1
-            ORDER BY z.orden ASC, z.nombre ASC
-        `, roleIds);
+        const zoneIds = Array.isArray(access.zoneIds) ? access.zoneIds : [];
+        const zonas = zoneIds.length
+            ? await database.all(`
+                SELECT DISTINCT z.*
+                FROM zonas z
+                WHERE z.id IN (${zoneIds.map(() => '?').join(',')})
+                  AND z.activa = 1
+                  AND z.visible_dashboard = 1
+                ORDER BY z.orden ASC, z.nombre ASC
+            `, zoneIds)
+            : [];
 
         const mappedRoles = roles.map(role => ({
             id: Number(role.id),
@@ -388,7 +392,7 @@ function buildDashboardSeatSelect(zoneWhere, options = {}) {
 }
 
 // Obtener datos del dashboard
-router.get('/', async (req, res) => {
+router.get('/', requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, res) => {
     try {
         const today = getCostaRicaDayRange();
         const dayParams = [today.startIso, today.endIso];
@@ -552,7 +556,7 @@ router.get('/', async (req, res) => {
 });
 
 // Obtener detalle de ventas del día
-router.get('/ventas-detalle', async (req, res) => {
+router.get('/ventas-detalle', requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, res) => {
     try {
         const today = getCostaRicaDayRange();
         const dayParams = [today.startIso, today.endIso];
@@ -601,7 +605,7 @@ router.get('/ventas-detalle', async (req, res) => {
 });
 
 // Obtener estadísticas de ventas por período
-router.get('/stats/:period', async (req, res) => {
+router.get('/stats/:period', requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, res) => {
     try {
         const { period } = req.params;
         const scope = await getDashboardScope(req);

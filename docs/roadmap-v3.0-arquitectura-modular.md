@@ -329,33 +329,115 @@ git commit -m "v3.0.2: agrega capacidades y rol operativo de Cajero"
 
 ### Objetivo
 
-Centralizar reglas que actualmente viven dispersas en Users, Tables, Orders y Dashboard.
+Centralizar capacidades, zonas efectivas, responsabilidad, navegación y filtrado realtime en una política operativa común para backend y frontend.
 
-### Servicio previsto
+### Implementación
+
+Se agregan:
 
 ```text
 server/services/operationalAccessService.js
 public/js/services/operational-access.js
 ```
 
-### Reglas compartidas
+El servicio backend resuelve:
 
-- administrador;
-- zona visible;
-- zona operable;
-- responsabilidad de mesa;
-- emisión de prefactura;
-- cobro;
-- anulación/reverso;
-- finalización del servicio;
-- visibilidad de eventos realtime.
+- usuario y condición de administrador;
+- roles activos de la sesión;
+- capacidades efectivas;
+- zonas visibles/operables;
+- responsabilidad sobre mesas;
+- secciones autorizadas;
+- destino inicial;
+- recepción autorizada de eventos SSE.
+
+El servicio frontend consume la política `acceso_operativo` entregada por sesión y adapta navegación/realtime, sin reemplazar la autorización backend.
+
+### Integraciones
+
+- `requireCapability()` utiliza el contexto compartido;
+- Auth entrega `acceso_operativo`;
+- Dashboard, Zonas y Menú requieren `orders.operate`;
+- Orders filtra cuentas por zonas y verifica responsabilidad en mutaciones;
+- Caja conserva acceso sin zona mediante `cash.access`;
+- rutas de comandas requieren `kitchen.operate`;
+- cambios de usuario/rol emiten eventos dirigidos;
+- el cliente actualiza sesión, navegación y SSE cuando cambia su política.
+
+### Realtime
+
+La entrega SSE se filtra por:
+
+```text
+capacidad requerida
+zona relacionada
+usuario objetivo
+alcance funcional
+mesa/pedido/comanda relacionados
+```
+
+Esto evita que:
+
+- un usuario de otra zona reciba datos operativos ajenos;
+- un cajero exclusivo reciba eventos de mesas;
+- cambios privados de roles se difundan globalmente.
+
+### Pruebas
+
+La suite asciende a 21 casos aprobados.
+
+Cobertura nueva:
+
+- política combinada para usuario mixto;
+- aislamiento del cajero exclusivo;
+- filtrado realtime entre zonas;
+- responsabilidad compartida de mesa;
+- paridad frontend/backend para secciones y eventos.
+
+Comandos:
+
+```powershell
+npm test
+npm run test:access
+```
 
 ### Criterios de aprobación
 
-- Orders, Caja y Dashboard consultan la misma política;
-- los eventos no filtran datos de mesas no autorizadas;
-- backend y frontend producen resultados coherentes;
-- frontend nunca sustituye la autorización backend.
+- Orders, Caja, Dashboard, Zonas y Menú consultan la política compartida;
+- usuarios sin capacidad reciben bloqueo backend aunque manipulen la UI;
+- eventos no filtran datos de otra zona o usuario;
+- cambios de rol/capacidad actualizan navegación sin recarga manual completa;
+- cajero exclusivo conserva Caja y no recibe datos de atención;
+- frontend y backend mantienen paridad comprobada;
+- `npm test` termina con 21 pruebas y 0 fallos.
+
+### Archivos esperados
+
+```text
+README.md
+docs/README-v3.0.md
+docs/roadmap-v3.0-arquitectura-modular.md
+docs/avance-v3.0.3-acceso-operativo-realtime.md
+package.json
+package-lock.json
+server/config/appInfo.js
+server/services/operationalAccessService.js
+server/middleware/requireCapability.js
+server/routes/auth.js
+server/routes/dashboard.js
+server/routes/tables.js
+server/routes/menu.js
+server/routes/orders.js
+server/routes/users.js
+server/utils/realtime.js
+public/js/services/operational-access.js
+public/js/main.js
+public/js/components/cash.js
+public/index.html
+public/service-worker.js
+tests/operationalAccessService.test.js
+tests/operationalAccessParity.test.js
+```
 
 ### Commit
 

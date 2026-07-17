@@ -6,41 +6,28 @@ let lastDesktopDateTime = '';
 let lastMobileDateTime = '';
 
 const Access = {
+    getPolicy() {
+        return typeof OperationalAccess !== 'undefined'
+            ? OperationalAccess.buildPolicy(currentUser)
+            : { capabilities: currentUser?.capacidades || [], isAdmin: false, allowedSections: [] };
+    },
+
     has(capability) {
-        const type = String(currentUser?.tipo || '').toLowerCase();
-        if (type === 'administrador' || type === 'admin') return true;
-        const capabilities = Array.isArray(currentUser?.capacidades)
-            ? currentUser.capacidades
-            : (currentUser?.sesion_operativa?.capacidades || []);
-        return capabilities.includes(capability);
+        return typeof OperationalAccess !== 'undefined'
+            ? OperationalAccess.has(currentUser, capability)
+            : false;
     },
 
     canOpen(sectionName) {
-        const type = String(currentUser?.tipo || '').toLowerCase();
-        if (type === 'administrador' || type === 'admin') return true;
-
-        const requirements = {
-            dashboard: 'orders.operate',
-            tables: 'orders.operate',
-            menu: 'orders.operate',
-            orders: 'orders.operate',
-            accounts: 'orders.operate',
-            cash: 'cash.access',
-            users: '__admin__',
-            settings: '__admin__'
-        };
-        const required = requirements[sectionName];
-        if (!required) return false;
-        if (required === '__admin__') return false;
-        return this.has(required);
+        return typeof OperationalAccess !== 'undefined'
+            ? OperationalAccess.canOpen(currentUser, sectionName)
+            : false;
     },
 
     getInitialSection() {
-        const requested = currentUser?.destino_inicial || currentUser?.sesion_operativa?.destino_inicial;
-        if (requested && this.canOpen(requested)) return requested;
-        if (this.canOpen('dashboard')) return 'dashboard';
-        if (this.canOpen('cash')) return 'cash';
-        return 'dashboard';
+        return typeof OperationalAccess !== 'undefined'
+            ? OperationalAccess.getInitialSection(currentUser)
+            : 'dashboard';
     },
 
     applyNavigation() {
@@ -1733,33 +1720,9 @@ const Realtime = {
 
     isPayloadRelevant(payload = {}) {
         if (!currentUser || !payload) return false;
-
-        const userType = String(currentUser.tipo || '').trim().toLowerCase();
-        if (userType === 'administrador' || userType === 'admin') return true;
-
-        const targetUserIds = Array.isArray(payload.targetUserIds)
-            ? payload.targetUserIds.map(id => Number(id)).filter(Boolean)
-            : [];
-        const affectedUserIds = Array.isArray(payload.affectedUserIds)
-            ? payload.affectedUserIds.map(id => Number(id)).filter(Boolean)
-            : [];
-        const userId = Number(currentUser.id || 0);
-
-        if (userId && (targetUserIds.includes(userId) || affectedUserIds.includes(userId))) {
-            return true;
-        }
-
-        const zoneIds = Array.isArray(payload.zoneIds)
-            ? payload.zoneIds.map(id => Number(id)).filter(Boolean)
-            : [];
-        if (!zoneIds.length || payload.global === true) return true;
-
-        const activeRoles = getActiveWorkRoles(currentUser);
-        const allowedZoneIds = activeRoles.flatMap(role => Array.isArray(role.zonas)
-            ? role.zonas.map(zone => Number(zone.id)).filter(Boolean)
-            : []);
-
-        return zoneIds.some(zoneId => allowedZoneIds.includes(Number(zoneId)));
+        return typeof OperationalAccess !== 'undefined'
+            ? OperationalAccess.canReceiveRealtime(currentUser, payload)
+            : false;
     },
 
     handleServerEvent(event, shouldRefresh) {
@@ -1802,8 +1765,17 @@ const Realtime = {
             && payload.targetUserIds.map(id => Number(id)).includes(Number(currentUser?.id || 0));
 
         try {
-            if (scope === 'sesion' && isSelfTarget && payload.sourceClientId !== MUNDIPOS_CLIENT_ID) {
+            if (['sesion', 'usuarios', 'estructura'].includes(scope)
+                && isSelfTarget
+                && payload.sourceClientId !== MUNDIPOS_CLIENT_ID) {
+                const previousSection = currentSection;
                 await Auth.refreshCurrentUserFromServer({ silent: true });
+                Access.applyNavigation();
+
+                if (!Access.canOpen(previousSection)) {
+                    await Navigation.showSection(Access.getInitialSection());
+                }
+
                 this.reconnectForSession();
             }
 
@@ -1827,6 +1799,16 @@ const Realtime = {
 
             if (currentSection === 'accounts' && typeof Accounts !== 'undefined') {
                 await Accounts.load({ source: 'realtime', payload });
+                return;
+            }
+
+            if (currentSection === 'cash' && typeof Cash !== 'undefined') {
+                await Cash.load({ source: 'realtime', payload });
+                return;
+            }
+
+            if (currentSection === 'users' && scope === 'usuarios' && typeof Users !== 'undefined') {
+                await Users.load({ source: 'realtime', payload });
                 return;
             }
 

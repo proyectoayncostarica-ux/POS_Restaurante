@@ -1,4 +1,4 @@
-// Caja Component · v3.0.2
+// Caja Component · v3.0.3
 // Esta sección visible es una fachada autorizada. La lógica de cobro se implementará
 // internamente en Payments durante v3.2.x sin cambiar el acceso del usuario.
 const Cash = {

@@ -4,8 +4,14 @@ const fs = require('fs');
 const multer = require('multer');
 const path = require('path');
 const zlib = require('zlib');
+const requireCapability = require('../middleware/requireCapability');
+const { CAPABILITIES } = require('../security/capabilities');
 
 const router = express.Router();
+
+// Menú operativo solo está disponible para sesiones con capacidad de atención.
+// Las mutaciones siguen protegidas adicionalmente por administración dentro de este router.
+router.use(requireCapability(CAPABILITIES.ORDERS_OPERATE));
 const PRODUCT_UPLOAD_DIR = path.join(__dirname, '../../public/uploads/productos');
 
 if (!fs.existsSync(PRODUCT_UPLOAD_DIR)) {

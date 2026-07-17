@@ -1,5 +1,9 @@
 const crypto = require('crypto');
 const database = require('../db/database');
+const {
+    resolveAccessContext,
+    canReceiveRealtimeEvent
+} = require('../services/operationalAccessService');
 
 const clients = new Map();
 let eventCounter = 0;
@@ -10,10 +14,13 @@ const OPERATIONAL_PREFIXES = [
     '/api/orders',
     '/api/accounts',
     '/api/credits',
-    '/api/settings/reset-database'
+    '/api/settings/reset-database',
+    '/api/menu',
+    '/api/users',
+    '/api/cash'
 ];
 
-const GLOBAL_SCOPES = new Set(['estructura', 'sistema', 'cuentas', 'creditos']);
+const GLOBAL_SCOPES = new Set(['estructura']);
 
 function createClientId() {
     if (typeof crypto.randomUUID === 'function') {
@@ -55,9 +62,16 @@ function getScope(req) {
         return 'zonas';
     }
 
-    if (resource === 'orders') return 'pedidos';
+    if (resource === 'orders') {
+        if (segments.includes('comandas')) return 'comandas';
+        if (segments.includes('pay')) return 'pagos';
+        return 'pedidos';
+    }
     if (resource === 'accounts') return 'cuentas';
     if (resource === 'credits') return 'creditos';
+    if (resource === 'menu') return 'menu';
+    if (resource === 'users') return 'usuarios';
+    if (resource === 'cash') return 'caja';
     if (resource === 'settings' && second === 'reset-database') return 'sistema';
 
     return 'operacion';
@@ -109,33 +123,20 @@ function buildBaseClientContext(session = {}) {
         userType,
         isAdmin,
         activeWorkRoleIds: sessionRoleIds(session),
+        capabilities: Array.isArray(session.capabilities) ? session.capabilities : [],
+        zoneIds: isAdmin ? null : [],
         permittedZoneIds: isAdmin ? null : [],
         updatedAt: Date.now()
     };
 }
 
-async function resolvePermittedZoneIds(context = {}) {
-    if (!context.userId || context.isAdmin) return null;
-    if (!Array.isArray(context.activeWorkRoleIds) || !context.activeWorkRoleIds.length) return [];
-
-    const placeholders = context.activeWorkRoleIds.map(() => '?').join(',');
-    const rows = await database.all(`
-        SELECT DISTINCT z.id
-        FROM rol_trabajo_zonas rtz
-        INNER JOIN roles_trabajo rt ON rt.id = rtz.rol_trabajo_id AND rt.activo = 1
-        INNER JOIN zonas z ON z.id = rtz.zona_id AND z.activa = 1
-        INNER JOIN usuario_roles_trabajo urt ON urt.rol_trabajo_id = rt.id AND urt.usuario_id = ?
-        WHERE rtz.rol_trabajo_id IN (${placeholders})
-    `, [context.userId, ...context.activeWorkRoleIds]);
-
-    return rows.map(row => Number(row.id)).filter(id => Number.isFinite(id) && id > 0);
-}
-
 async function buildClientContext(session = {}) {
-    const context = buildBaseClientContext(session);
-    context.permittedZoneIds = await resolvePermittedZoneIds(context);
-    context.updatedAt = Date.now();
-    return context;
+    const resolved = await resolveAccessContext(session);
+    return {
+        ...resolved,
+        permittedZoneIds: resolved.zoneIds,
+        updatedAt: Date.now()
+    };
 }
 
 async function refreshClientContext(clientId, session = null) {
@@ -156,21 +157,7 @@ function sendEvent(res, eventName, payload) {
 }
 
 function shouldSendToClient(client = {}, payload = {}) {
-    const context = client.context || {};
-    const userId = Number(context.userId || 0);
-
-    if (!userId) return false;
-    if (payload.global === true || GLOBAL_SCOPES.has(payload.scope)) return true;
-    if (context.isAdmin) return true;
-
-    const targetUserIds = normalizeNumericList(payload.targetUserIds || payload.affectedUserIds || []);
-    if (targetUserIds.length && targetUserIds.includes(userId)) return true;
-
-    const zoneIds = normalizeNumericList(payload.zoneIds || payload.zonaIds || payload.zonaId || []);
-    if (!zoneIds.length) return true;
-
-    const permittedZoneIds = Array.isArray(context.permittedZoneIds) ? context.permittedZoneIds : [];
-    return zoneIds.some(zoneId => permittedZoneIds.includes(Number(zoneId)));
+    return canReceiveRealtimeEvent(client.context || {}, payload);
 }
 
 function broadcast(eventName, payload = {}) {
@@ -200,7 +187,8 @@ function eventsHandler(req, res) {
         userName: req.session?.userName || null,
         userType: req.session?.userType || null,
         activeWorkRoleIds: req.session?.activeWorkRoleIds || [],
-        activeWorkRoleId: req.session?.activeWorkRoleId || null
+        activeWorkRoleId: req.session?.activeWorkRoleId || null,
+        capabilities: req.session?.capabilities || []
     };
 
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -304,6 +292,23 @@ async function getOrderRealtimeContext(orderId) {
     };
 }
 
+async function getComandaRealtimeContext(comandaId) {
+    const id = Number(comandaId || 0);
+    if (!id) return {};
+
+    const comanda = await database.get(`
+        SELECT id, mesa_id
+        FROM comandas
+        WHERE id = ?
+    `, [id]);
+
+    if (!comanda) return { comandaIds: [id] };
+    return {
+        ...(await getMesaRealtimeContext(comanda.mesa_id)),
+        comandaIds: [id]
+    };
+}
+
 function getNumericSegment(segments = [], index = 1) {
     const value = Number(segments[index] || 0);
     return Number.isFinite(value) && value > 0 ? value : 0;
@@ -313,6 +318,20 @@ async function inferMutationContext(req, scope) {
     const segments = getApiSegments(req);
     const resource = segments[0] || '';
     const context = {};
+
+    if (resource === 'tables' && segments[1] === 'work-roles') {
+        const roleId = getNumericSegment(segments, 2);
+        if (roleId) {
+            const rows = await database.all(`
+                SELECT DISTINCT usuario_id
+                FROM usuario_roles_trabajo
+                WHERE rol_trabajo_id = ?
+            `, [roleId]);
+            const userIds = rows.map(row => Number(row.usuario_id)).filter(Boolean);
+            return { global: true, targetUserIds: userIds, affectedUserIds: userIds };
+        }
+        return { global: true };
+    }
 
     if (GLOBAL_SCOPES.has(scope) || scope === 'estructura') {
         return { global: true };
@@ -333,9 +352,28 @@ async function inferMutationContext(req, scope) {
             if (mesaId) return getMesaRealtimeContext(mesaId);
         }
 
+        if (segments[1] === 'comandas') {
+            const comandaId = getNumericSegment(segments, 2);
+            if (comandaId) return getComandaRealtimeContext(comandaId);
+        }
+
         const orderId = getNumericSegment(segments, 1);
         if (orderId) return getOrderRealtimeContext(orderId);
     }
+
+    if (resource === 'users') {
+        const userId = getNumericSegment(segments, 1);
+        return userId ? { targetUserIds: [userId], affectedUserIds: [userId] } : { global: true };
+    }
+
+    if (resource === 'cash') {
+        return { global: true, requiredAnyCapabilities: ['cash.access'] };
+    }
+
+    if (resource === 'menu') {
+        return { global: true, requiredAnyCapabilities: ['orders.operate'] };
+    }
+
 
     return context;
 }

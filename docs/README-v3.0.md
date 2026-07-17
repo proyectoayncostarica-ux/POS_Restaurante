@@ -435,3 +435,35 @@ La vista Caja de `v3.0.2` es una base de navegación y consulta. No implementa t
 
 La suite automática cuenta con 15 pruebas aprobadas. Las próximas fases deben ampliar estas pruebas sin eliminar la cobertura transaccional y de capacidades existente.
 
+
+## 16. Estado actual · v3.0.3
+
+La autorización operativa ya no se resuelve mediante reglas aisladas en cada componente. Desde esta fase existe una política compartida para backend, frontend y realtime.
+
+La sesión entrega un bloque `acceso_operativo` con:
+
+```text
+usuario y tipo
+roles de trabajo activos
+capacidades efectivas
+zonas efectivas
+secciones autorizadas
+destino inicial
+```
+
+Reglas vigentes:
+
+- el backend continúa siendo la fuente de autorización;
+- el frontend solo adapta navegación y experiencia según la política recibida;
+- Dashboard, Zonas, Menú y Cuentas requieren `orders.operate`;
+- Caja requiere `cash.access` y el cobro requiere `cash.collect`;
+- los pedidos se filtran por zonas efectivas del usuario;
+- una mutación de mesa/pedido debe respetar zona y responsabilidad;
+- un cajero exclusivo no recibe eventos operativos de mesas o pedidos;
+- un usuario de atención no recibe eventos de otras zonas;
+- los eventos dirigidos a un usuario solo llegan a ese usuario;
+- al cambiar roles/capacidades, la sesión y la navegación se actualizan sin cerrar manualmente la aplicación.
+
+La suite automática cuenta con 21 pruebas aprobadas. Incluye pruebas de paridad entre la política frontend/backend para evitar que ambas implementaciones evolucionen de forma contradictoria.
+
+Esta fase todavía no introduce prefacturas, cuenta dividida persistente ni el núcleo Payments. Su propósito es asegurar que esos dominios se construyan sobre una autorización y sincronización coherentes.

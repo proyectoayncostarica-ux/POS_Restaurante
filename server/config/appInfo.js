@@ -1,6 +1,6 @@
 const APP_NAME = 'MundiPOS';
 const APP_VERSION = '3.0';
-const STABILITY_TRACK = '3.0.2';
+const STABILITY_TRACK = '3.0.3';
 
 module.exports = {
     APP_NAME,

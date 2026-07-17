@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.0.2 · Capacidades, rol Cajero y navegación autorizada
+- **Línea de trabajo actual:** v3.0.3 · Acceso operativo compartido y realtime por capacidades
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -1066,3 +1066,20 @@ Documento técnico:
 
 - `docs/avance-v3.0.2-capacidades-cajero-navegacion.md`
 
+### v3.0.3 · Acceso operativo compartido y realtime por capacidades
+
+- **Objetivo:** centralizar en una sola política las reglas de capacidades, zonas activas, responsabilidad operativa, navegación y entrega de eventos realtime.
+- **Servicio backend:** se agrega `server/services/operationalAccessService.js` como fuente común para resolver contexto operativo, secciones autorizadas, zonas visibles, responsabilidad de mesa y recepción de eventos.
+- **Servicio frontend:** se agrega `public/js/services/operational-access.js`, que consume la política entregada por la sesión y mantiene paridad con las reglas backend sin sustituir la autorización real del servidor.
+- **Sesión:** el payload autenticado incorpora `acceso_operativo` con capacidades, roles activos, zonas efectivas, secciones permitidas y destino inicial.
+- **Rutas operativas:** Dashboard, Zonas, Menú y Cuentas utilizan capacidades compartidas. Orders filtra cuentas por zonas autorizadas y verifica responsabilidad antes de mutaciones operativas.
+- **Caja:** un cajero exclusivo conserva acceso global a Caja sin recibir datos de mesas, pedidos o zonas que no necesita operar.
+- **Realtime:** el servidor filtra cada evento SSE por capacidad, zona, usuario objetivo y alcance. Los cambios de usuario/rol pueden dirigirse únicamente a los usuarios afectados.
+- **Actualización de sesión:** cuando cambian roles, capacidades o sesión, el frontend vuelve a cargar la política, reconstruye la navegación, reconecta realtime y redirige si la sección actual dejó de estar autorizada.
+- **Compatibilidad:** no cambia todavía el modelo de cuenta global, prefacturas ni Payments. La experiencia visible de atención y Caja se conserva.
+- **Pruebas:** la suite asciende a 21 casos aprobados, incluyendo paridad frontend/backend, usuario mixto, cajero exclusivo, filtros por zona y responsabilidad de mesa.
+- **Versión:** visible `3.0`, package y seguimiento interno `3.0.3`.
+
+Documento técnico:
+
+- `docs/avance-v3.0.3-acceso-operativo-realtime.md`

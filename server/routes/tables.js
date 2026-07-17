@@ -1,8 +1,19 @@
 const express = require('express');
 const database = require('../db/database');
-const { CASHIER_CAPABILITIES } = require('../security/capabilities');
+const { CASHIER_CAPABILITIES, CAPABILITIES } = require('../security/capabilities');
+const requireCapability = require('../middleware/requireCapability');
+const {
+    resolveAccessContext,
+    canViewZone,
+    buildZoneFilter,
+    evaluateMesaAccess
+} = require('../services/operationalAccessService');
 
 const router = express.Router();
+
+// Todas las rutas de Zonas pertenecen al dominio operativo de atención.
+// Administradores pasan automáticamente; un cajero exclusivo queda aislado de mesas y zonas.
+router.use(requireCapability(CAPABILITIES.ORDERS_OPERATE));
 
 function normalizeSlug(value, fallback = 'mesa') {
     const rawValue = String(value || fallback).trim().toLowerCase();
@@ -346,32 +357,13 @@ async function getSessionActiveWorkRoleIdForMesa(req, mesaId) {
 
 
 async function getSessionPermittedZoneIds(req) {
-    if (isAdminSession(req)) return null;
-
-    const roleIds = getSessionActiveWorkRoleIds(req);
-    if (!roleIds.length) return [];
-
-    const placeholders = roleIds.map(() => '?').join(',');
-    const rows = await database.all(`
-        SELECT DISTINCT z.id
-        FROM rol_trabajo_zonas rtz
-        INNER JOIN roles_trabajo rt ON rt.id = rtz.rol_trabajo_id AND rt.activo = 1
-        INNER JOIN zonas z ON z.id = rtz.zona_id AND z.activa = 1
-        INNER JOIN usuario_roles_trabajo urt ON urt.rol_trabajo_id = rt.id AND urt.usuario_id = ?
-        WHERE rtz.rol_trabajo_id IN (${placeholders})
-    `, [getSessionUserId(req), ...roleIds]);
-
-    return rows.map(row => Number(row.id)).filter(id => id > 0);
+    const access = await resolveAccessContext(req);
+    return access.isAdmin ? null : (access.zoneIds || []);
 }
 
 async function canAccessMesaZone(req, mesa = {}) {
-    if (isAdminSession(req)) return true;
-
-    const zonaId = Number(mesa.zona_id || mesa.zona_dinamica_id || 0);
-    if (!getSessionUserId(req) || !zonaId) return false;
-
-    const zoneIds = await getSessionPermittedZoneIds(req);
-    return Array.isArray(zoneIds) && zoneIds.includes(zonaId);
+    const access = await resolveAccessContext(req);
+    return canViewZone(access, mesa.zona_id || mesa.zona_dinamica_id);
 }
 
 async function requireMesaZoneAccess(req, res, mesa = {}) {
@@ -385,17 +377,14 @@ async function requireMesaZoneAccess(req, res, mesa = {}) {
 }
 
 async function buildTablesAccessFilter(req, baseWhere = 'WHERE COALESCE(m.activo, 1) = 1', baseParams = []) {
+    const access = await resolveAccessContext(req);
+    const zoneFilter = buildZoneFilter(access, { alias: 'm', column: 'zona_id' });
     const params = [...baseParams];
     const clauses = [baseWhere.replace(/^WHERE\s+/i, '').trim()].filter(Boolean);
 
-    if (!isAdminSession(req)) {
-        const zoneIds = await getSessionPermittedZoneIds(req);
-        if (!zoneIds.length) {
-            clauses.push('1 = 0');
-        } else {
-            clauses.push(`m.zona_id IN (${zoneIds.map(() => '?').join(',')})`);
-            params.push(...zoneIds);
-        }
+    if (zoneFilter.clause) {
+        clauses.push(zoneFilter.clause);
+        params.push(...zoneFilter.params);
     }
 
     return {
@@ -555,14 +544,9 @@ async function getMesaResponsibilitySummary(mesaId, currentUserId = 0) {
 
 async function canOperateAssignedMesa(req, mesa) {
     if (!mesa) return false;
-    if (isAdminSession(req)) return true;
-    if (!(await canAccessMesaZone(req, mesa))) return false;
-
-    const estado = String(mesa.estado || 'libre').toLowerCase();
-    if (estado === 'libre') return true;
-
-    const summary = await getMesaResponsibilitySummary(mesa.id, getSessionUserId(req));
-    return summary.soy_responsable;
+    const access = await resolveAccessContext(req);
+    const result = await evaluateMesaAccess(access, mesa);
+    return result.operable;
 }
 
 async function requireMesaOperationAccess(req, res, mesa) {
