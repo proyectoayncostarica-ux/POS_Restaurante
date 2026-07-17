@@ -581,3 +581,58 @@ varias prefacturas = varias obligaciones operativas de cobro
 
 La suite automática cuenta con 47 pruebas aprobadas. La siguiente fase expondrá este dominio en `Ver pedido` mediante la emisión guiada de una subcuenta a la vez.
 
+
+
+## 20. Estado actual · v3.1.3
+
+`Ver pedido` ya conecta el consumo disponible con el modelo persistente de prefacturas.
+
+Con `Cuenta dividida` activa, el mesero, salonero o bartender selecciona las líneas correspondientes a un solo cliente. Cuando una línea tiene varias unidades, elige la cantidad exacta. El total parcial se actualiza antes de emitir.
+
+El minimodal solicita el nombre del pagador y permite:
+
+```text
+Volver                   corregir sin reservar
+Imprimir y emitir        persistir una prefactura y abrir impresión
+```
+
+Cada confirmación crea un único documento idempotente. Después, la cuenta se vuelve a consultar y las cantidades reservadas desaparecen del consumo activo, sin borrarse del historial global.
+
+Con la división desactivada, la prefactura toma todo el consumo disponible. El backend exige coincidencia exacta para impedir que un documento marcado como completo contenga solo una parte.
+
+La división legacy de pagos queda deshabilitada. Una cuenta con prefacturas activas deberá cobrarse posteriormente por documento desde Caja; no puede atravesar el endpoint antiguo de pago completo.
+
+La impresión actual es un adaptador temporal del navegador y no confirma el estado físico del trabajo. Printing continuará siendo responsable de colas, dispositivos, reintentos y trazabilidad en `v3.4.x`.
+
+La suite automática cuenta con 53 pruebas aprobadas. La siguiente fase formaliza la continuidad del consumo cuando ya existen documentos y, posteriormente, pagos.
+
+## 21. Estado actual · v3.1.4
+
+La cuenta global ya separa el estado del servicio de la liquidación de sus documentos. Una prefactura pagada no cierra la mesa y sus ítems no vuelven al consumo activo.
+
+El read model distingue:
+
+```text
+productos_disponibles
+productos_documentados_pendientes
+productos_pagados
+productos_reservados_sin_documento
+resumen_documentos
+continuidad_operativa
+```
+
+Una cuenta puede permanecer así:
+
+```text
+estado_operativo: abierta
+estado_financiero: conciliada
+saldo_pendiente: 0
+```
+
+Ese estado significa que el consumo actual fue liquidado, pero la mesa/banco continúa ocupado y puede recibir productos nuevos. Al agregarlos, el total global aumenta y el saldo vuelve a quedar pendiente sin crear una segunda cuenta financiera.
+
+El adaptador de pago normal sin prefacturas ahora liquida solo el saldo vigente y no libera la mesa. El cobro por documento seguirá implementándose en Payments, por lo que esta fase no expone todavía el pago real de prefacturas desde Caja.
+
+`Ver pedido` muestra consumo activo, consumo documentado pendiente e historial liquidado en secciones separadas. Las responsabilidades, el cliente principal y la trazabilidad de la cuenta global se conservan.
+
+La suite automática cuenta con 57 pruebas aprobadas. La siguiente fase construirá el read model financiero consolidado para Dashboard, Caja, reportes y cierre.

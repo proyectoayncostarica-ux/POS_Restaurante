@@ -312,3 +312,58 @@ test('la creación simultánea no puede reservar la misma última unidad dos vec
     assert.equal(count.total, 1);
     assert.equal(source.cantidad_asignada, 1);
 });
+
+test('una prefactura completa debe incluir todo el consumo disponible', async t => {
+    const context = await createTestDatabase();
+    t.after(() => context.cleanup());
+    const fixture = await seedPreinvoiceDomain(context.db, 3);
+    const line = await firstAvailableLine(fixture);
+
+    await assert.rejects(
+        fixture.preinvoiceService.createPreinvoice({
+            accountId: fixture.account.id,
+            payerName: 'Juan',
+            issuedByUserId: fixture.user.id,
+            type: 'completa',
+            assignments: [{
+                pedido_producto_id: line.id,
+                cantidad: 2,
+                version: line.version
+            }]
+        }),
+        error => error?.details?.code === 'PREINVOICE_COMPLETE_REQUIRES_ALL_AVAILABLE'
+    );
+
+    const documents = await context.db.get('SELECT COUNT(*) AS total FROM prefacturas');
+    const source = await context.db.get(
+        'SELECT cantidad_asignada FROM pedido_productos WHERE id = ?',
+        [line.id]
+    );
+    assert.equal(documents.total, 0);
+    assert.equal(source.cantidad_asignada, 0);
+});
+
+test('una prefactura completa reserva exactamente todo el consumo disponible', async t => {
+    const context = await createTestDatabase();
+    t.after(() => context.cleanup());
+    const fixture = await seedPreinvoiceDomain(context.db, 3);
+    const line = await firstAvailableLine(fixture);
+
+    const document = await fixture.preinvoiceService.createPreinvoice({
+        accountId: fixture.account.id,
+        payerName: 'Juan',
+        issuedByUserId: fixture.user.id,
+        type: 'completa',
+        assignments: [{
+            pedido_producto_id: line.id,
+            cantidad: 3,
+            version: line.version
+        }]
+    });
+
+    assert.equal(document.tipo, 'completa');
+    assert.equal(document.items[0].cantidad, 3);
+    const account = await fixture.accountService.getAccount(fixture.account.id);
+    assert.equal(account.productos_disponibles.length, 0);
+    assert.equal(account.productos[0].cantidad_asignada, 3);
+});

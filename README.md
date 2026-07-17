@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.1.2 · Secuencias y modelo persistente de prefacturas
+- **Línea de trabajo actual:** v3.1.4 · Continuidad del consumo después de documentos y pagos
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -1139,3 +1139,41 @@ Documento técnico:
 
 - `docs/avance-v3.1.2-secuencias-prefacturas.md`
 
+
+
+### v3.1.3 · División una subcuenta a la vez
+
+- **Objetivo:** exponer en `Ver pedido` la emisión guiada de una sola prefactura por cliente, usando líneas y cantidades disponibles.
+- **Cuenta dividida:** activa checkboxes por línea y controles numéricos cuando la cantidad disponible es mayor que uno.
+- **Selección temporal:** el frontend calcula unidades, subtotal, servicio y total parcial sin reservar cantidades antes de la confirmación.
+- **Minimodal:** solicita nombre del pagador, muestra el resumen y ofrece `Volver` o `Imprimir y emitir`.
+- **Persistencia:** cada confirmación crea un documento `PF-########` idempotente, reserva solo sus cantidades y vuelve a cargar el consumo restante.
+- **Cuenta completa:** con división desactivada se emite todo el consumo disponible; el backend rechaza documentos completos incompletos.
+- **Consulta:** las prefacturas emitidas se listan dentro de la cuenta y pueden visualizarse o imprimirse nuevamente mediante el adaptador temporal del navegador.
+- **Seguridad:** emisión protegida por `orders.issue_preinvoice`, división por `orders.split`, zona y responsabilidad operativa.
+- **Legacy:** se rechaza `productos_divididos` y se bloquea el pago legacy cuando existen documentos o cantidades asignadas.
+- **Realtime:** la emisión se publica como cambio de `cuentas` para atención autorizada y Caja.
+- **Pruebas:** 13 casos específicos y 53 casos totales aprobados sin fallos.
+- **Versión:** visible `3.0`, package y seguimiento interno `3.1.3`.
+
+Documento técnico:
+
+- `docs/avance-v3.1.3-division-subcuenta.md`
+
+### v3.1.4 · Continuidad del consumo después de documentos y pagos
+
+- **Objetivo:** mantener activa la cuenta global y la mesa/banco aunque una prefactura o el saldo actual ya hayan sido pagados.
+- **Lectura por línea:** se distinguen cantidades disponibles, documentadas pendientes, pagadas y reservas sin documento, sin borrar el consumo histórico.
+- **Consumo activo:** los productos ya pagados dejan de aparecer como disponibles; las cantidades restantes y los productos nuevos continúan operativos.
+- **Continuidad:** una cuenta puede tener saldo temporal cero y conservar `estado_operativo = abierta`, cliente principal, responsables y mesa ocupada.
+- **Acumulación:** al agregar productos después de un pago, el total global aumenta y el estado financiero vuelve a parcial/pendiente sin crear otra cuenta.
+- **Pago transitorio:** el endpoint legacy de pago normal liquida únicamente el saldo actual dentro de una transacción y ya no libera la mesa ni borra sus datos.
+- **UI:** `Ver pedido` separa consumo activo, documentos pendientes e historial liquidado, y avisa cuando el servicio continúa abierto con saldo cero.
+- **Integridad:** diferencias entre cantidades asignadas y documentos activos se exponen como reservas sin documento para revisión.
+- **Alcance pendiente:** el pago real por prefactura llegará en `v3.2.x`; crédito en `v3.2.4`; finalización explícita y liberación integral en `v3.2.5`.
+- **Pruebas:** 4 casos específicos y 57 casos totales aprobados sin fallos.
+- **Versión:** visible `3.0`, package y seguimiento interno `3.1.4`.
+
+Documento técnico:
+
+- `docs/avance-v3.1.4-continuidad-consumo.md`

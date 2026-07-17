@@ -10539,3 +10539,201 @@ body {
         padding: 0.9rem;
     }
 }
+
+/* v3.1.3 · División de cuenta y emisión individual de prefacturas */
+.modal-content.modal-preinvoice-workflow {
+    width: min(1080px, calc(100vw - 32px));
+    max-height: calc(100vh - 32px);
+}
+
+.modal-content.modal-preinvoice-review {
+    width: min(720px, calc(100vw - 32px));
+    max-height: calc(100vh - 32px);
+}
+
+.modal-content.modal-preinvoice-workflow .modal-body,
+.modal-content.modal-preinvoice-review .modal-body {
+    overflow-y: auto;
+}
+
+.split-account-control {
+    margin: 0 0 18px;
+    padding: 14px 16px;
+    border: 1px solid var(--border-color, #d9e0e8);
+    border-radius: 10px;
+    background: rgba(31, 93, 166, 0.05);
+}
+
+.split-account-control label {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.split-account-control input[type="checkbox"],
+.preinvoice-line-check {
+    width: 19px;
+    height: 19px;
+    accent-color: var(--primary-color, #1f5da6);
+}
+
+.split-account-control p {
+    margin: 7px 0 0 29px;
+}
+
+.preinvoice-select-cell {
+    width: 78px;
+    text-align: center !important;
+}
+
+.preinvoice-quantity-input {
+    width: 78px;
+    min-height: 36px;
+    padding: 5px 8px;
+    border: 1px solid var(--border-color, #cbd5e1);
+    border-radius: 7px;
+    text-align: center;
+}
+
+.preinvoice-quantity-input:disabled {
+    opacity: 0.55;
+    background: #eef2f6;
+}
+
+.preinvoice-selection-summary {
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 18px;
+    margin-top: 12px;
+    padding: 12px 14px;
+    border-radius: 9px;
+    background: rgba(212, 169, 69, 0.12);
+}
+
+.preinvoice-selection-summary span:last-child {
+    font-size: 1.06rem;
+}
+
+.preinvoice-review-modal .form-group input {
+    width: 100%;
+    min-height: 42px;
+    padding: 9px 11px;
+    border: 1px solid var(--border-color, #cbd5e1);
+    border-radius: 8px;
+}
+
+.preinvoice-review-totals {
+    width: min(100%, 360px);
+    margin: 18px 0 0 auto;
+}
+
+.preinvoice-review-totals p {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 7px 0;
+}
+
+.preinvoice-review-grand-total {
+    margin-top: 10px !important;
+    padding-top: 10px;
+    border-top: 2px solid currentColor;
+    font-size: 1.12rem;
+}
+
+.preinvoice-print-note {
+    margin: 18px 0 0;
+    padding: 10px 12px;
+    border-left: 3px solid var(--primary-color, #1f5da6);
+    background: rgba(31, 93, 166, 0.05);
+}
+
+.preinvoice-workflow .order-global-summary {
+    padding: 14px 16px;
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.04);
+}
+
+.preinvoice-workflow .order-global-summary p {
+    margin: 5px 0;
+}
+
+
+.account-continuity-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin: 0 0 18px;
+    padding: 14px 16px;
+    border: 1px solid rgba(31, 93, 166, 0.22);
+    border-radius: 10px;
+    background: rgba(31, 93, 166, 0.06);
+}
+
+.account-continuity-banner--settled {
+    border-color: rgba(22, 163, 74, 0.28);
+    background: rgba(22, 163, 74, 0.08);
+}
+
+.account-continuity-banner > i {
+    margin-top: 2px;
+    font-size: 1.2rem;
+}
+
+.account-continuity-banner strong {
+    display: block;
+    margin-bottom: 4px;
+}
+
+.account-continuity-banner p,
+.order-global-summary-note {
+    margin: 0;
+    line-height: 1.45;
+}
+
+.order-global-summary-note {
+    margin-top: 10px !important;
+    padding-top: 10px;
+    border-top: 1px solid rgba(15, 23, 42, 0.12);
+    font-weight: 600;
+}
+
+@media (max-width: 720px) {
+    .modal-content.modal-preinvoice-workflow,
+    .modal-content.modal-preinvoice-review {
+        width: calc(100vw - 16px);
+        max-height: calc(100vh - 16px);
+    }
+
+    .preinvoice-selection-summary {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 6px;
+    }
+
+    .preinvoice-selection-table {
+        min-width: 720px;
+    }
+
+    .modal-content.modal-preinvoice-review .modal-footer,
+    .modal-content.modal-preinvoice-workflow .modal-footer {
+        gap: 8px;
+    }
+
+    .modal-content.modal-preinvoice-review .modal-footer .left-buttons,
+    .modal-content.modal-preinvoice-review .modal-footer .right-buttons,
+    .modal-content.modal-preinvoice-workflow .modal-footer .left-buttons,
+    .modal-content.modal-preinvoice-workflow .modal-footer .right-buttons {
+        width: 100%;
+    }
+
+    .modal-content.modal-preinvoice-review .modal-footer .btn,
+    .modal-content.modal-preinvoice-workflow .modal-footer .btn {
+        width: 100%;
+        margin: 3px 0;
+    }
+}

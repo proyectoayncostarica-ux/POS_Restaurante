@@ -164,6 +164,44 @@ class PreinvoiceService {
         });
     }
 
+    async assertCompleteAssignments(accountId, assignments, client) {
+        const availableLines = await client.all(`
+            SELECT
+                id AS pedido_producto_id,
+                cantidad - COALESCE(cantidad_asignada, 0) AS cantidad_disponible
+            FROM pedido_productos
+            WHERE pedido_id = ?
+              AND cantidad - COALESCE(cantidad_asignada, 0) > 0
+            ORDER BY id
+        `, [accountId]);
+
+        const requested = new Map(assignments.map(item => [
+            Number(item.pedido_producto_id),
+            Number(item.cantidad)
+        ]));
+        const available = new Map(availableLines.map(item => [
+            Number(item.pedido_producto_id),
+            Number(item.cantidad_disponible)
+        ]));
+
+        const exact = requested.size === available.size
+            && [...available.entries()].every(([lineId, quantity]) => requested.get(lineId) === quantity);
+
+        if (!exact) {
+            throw new ConflictError(
+                'La prefactura completa debe incluir todo el consumo disponible de la cuenta',
+                {
+                    code: 'PREINVOICE_COMPLETE_REQUIRES_ALL_AVAILABLE',
+                    accountId,
+                    available: [...available.entries()].map(([pedido_producto_id, cantidad]) => ({
+                        pedido_producto_id,
+                        cantidad
+                    }))
+                }
+            );
+        }
+    }
+
     async createPreinvoice(input = {}) {
         const accountId = Number(input.accountId ?? input.pedido_id);
         const issuedByUserId = Number(input.issuedByUserId ?? input.usuario_id);
@@ -210,6 +248,10 @@ class PreinvoiceService {
             }
 
             const { account, responsibilities } = await this.getAccountDocumentContext(accountId, tx);
+            if (type === PREINVOICE_TYPES.FULL) {
+                await this.assertCompleteAssignments(accountId, normalizedAssignments, tx);
+            }
+
             const issuer = await tx.get(`
                 SELECT id, nombre, activo
                 FROM usuarios
@@ -357,6 +399,20 @@ class PreinvoiceService {
                     version = COALESCE(version, 1) + 1
                 WHERE id = ?
             `, [financialState, now, accountId]);
+
+            const seatType = String(account.mesa_tipo_documento || '').toLowerCase() === 'banco'
+                ? 'banco'
+                : 'mesa';
+            await tx.run(`
+                INSERT INTO historial_transacciones (
+                    tipo_accion, usuario_id, descripcion, fecha
+                ) VALUES (?, ?, ?, ?)
+            `, [
+                'emitir_prefactura',
+                issuer.id,
+                `Prefactura ${sequence.documentNumber} emitida para ${payerName} en ${seatType} ${account.mesa_numero_documento}; cuenta ${account.numero_cuenta}; total ${totals.total}`,
+                now
+            ]);
 
             return this.getPreinvoice(inserted.id, tx);
         });

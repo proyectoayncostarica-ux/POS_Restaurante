@@ -651,43 +651,95 @@ git commit -m "v3.1.2: agrega modelo transaccional de prefacturas"
 
 ## v3.1.3 · División una subcuenta a la vez
 
+**Estado:** implementada; pendiente de validación operativa y commit.
+
 ### Objetivo
 
-Implementar el flujo aprobado dentro de `Ver pedido`.
+Implementar el flujo aprobado dentro de `Ver pedido` usando el modelo persistente de `v3.1.2`.
 
-### Flujo
+### Flujo implementado
 
 1. activar `Cuenta dividida`;
-2. seleccionar ítems de un cliente;
-3. indicar cantidades;
-4. mostrar total parcial;
-5. pulsar `Emitir prefactura`;
+2. seleccionar ítems de un solo cliente;
+3. indicar cantidades cuando una línea dispone de varias unidades;
+4. visualizar unidades y total parcial;
+5. pulsar `Emitir prefactura parcial`;
 6. abrir minimodal;
-7. escribir nombre del cliente;
-8. revisar resumen y total;
-9. `Volver` o `Imprimir y emitir`;
-10. regresar al consumo restante.
+7. escribir nombre del cliente/pagador;
+8. revisar productos, subtotal, servicio y total;
+9. usar `Volver` o `Imprimir y emitir`;
+10. regresar al consumo restante y repetir para el siguiente cliente.
 
-### Reglas UX
+### Reglas implementadas
 
-- no construir dos subcuentas simultáneamente;
-- mostrar cantidad disponible;
-- deshabilitar líneas sin cantidad;
-- en PC usar tabla amplia;
-- en móvil usar controles táctiles/cards sin perder la misma capacidad;
-- el frontend mantiene selección temporal; el backend valida todo nuevamente.
+- no se construyen dos subcuentas simultáneamente;
+- la selección es temporal hasta confirmar;
+- `Volver` conserva la selección y no escribe en SQLite;
+- cada confirmación usa una clave de idempotencia;
+- la prefactura se persiste antes de abrir impresión;
+- las cantidades emitidas dejan de aparecer como disponibles;
+- documentos previos bloquean la cuenta como dividida;
+- el backend vuelve a validar cantidades, versiones, zona, responsabilidad y capacidades;
+- una prefactura `completa` debe coincidir exactamente con todo el consumo disponible;
+- la división legacy mediante `productos_divididos` queda rechazada;
+- el pago legacy queda bloqueado cuando existen prefacturas o cantidades asignadas.
 
-### Flujo no dividido
+### API
 
-Con `Cuenta dividida` desactivada, `Emitir prefactura` toma todo el consumo disponible en ese momento.
+```text
+GET  /api/orders/:id/preinvoices
+GET  /api/orders/:id/preinvoices/:preinvoiceId
+POST /api/orders/:id/preinvoices
+```
+
+Capacidades:
+
+```text
+orders.operate
+orders.issue_preinvoice
+orders.split              solo para cuenta dividida
+```
+
+### Impresión transitoria
+
+`Imprimir y emitir` utiliza una ventana imprimible del navegador. No confirma ni cambia `estado_impresion`, porque la cola, los drivers y los reintentos pertenecen a `v3.4.x`.
+
+### Realtime
+
+Las emisiones se publican con alcance `cuentas`, visible para atención autorizada por zona y para Caja con `cash.access`.
 
 ### Criterios de aprobación
 
-- el ejemplo Imperial 3 se divide correctamente 2 + 1;
-- el total del minimodal coincide con backend;
-- volver no reserva cantidades;
+- Imperial 3 se divide correctamente como 2 + 1;
+- el minimodal coincide con el cálculo backend;
+- `Volver` no reserva cantidades;
 - confirmar sí reserva y persiste;
-- la siguiente división solo muestra cantidades restantes.
+- la segunda división muestra únicamente cantidades restantes;
+- cada prefactura tiene número y pagador propios;
+- la cuenta global conserva el total financiero único;
+- no es posible cobrar por el flujo legacy una cuenta ya documentada;
+- PC y móvil permiten completar el mismo flujo.
+
+### Pruebas
+
+```powershell
+npm run test:division
+npm test
+```
+
+Resultado de preparación:
+
+```text
+13 pruebas específicas aprobadas
+53 pruebas totales aprobadas
+0 fallos
+```
+
+### Documento
+
+```text
+docs/avance-v3.1.3-division-subcuenta.md
+```
 
 ### Commit
 
@@ -701,17 +753,25 @@ git commit -m "v3.1.3: agrega emision guiada de prefacturas divididas"
 
 ### Objetivo
 
-Permitir que una mesa siga activa aunque se hayan emitido o pagado subcuentas.
+Permitir que una mesa siga activa aunque se hayan emitido o pagado subcuentas, separando el estado operativo del servicio del estado financiero de sus documentos.
 
-### Cambios previstos
+### Implementación
 
-- separar consumo disponible, consumo reservado e historial pagado;
-- permitir agregar productos nuevos;
-- recalcular total global acumulado;
-- mantener responsabilidades;
-- mantener mesa ocupada;
-- mostrar documentos emitidos sin mezclarlos con consumo disponible;
-- permitir saldo temporal cero con servicio todavía abierto.
+- las líneas distinguen cantidad disponible, documentada pendiente, pagada y reservada sin documento;
+- `getAccount()` entrega vistas separadas de consumo activo, documentos pendientes e historial liquidado;
+- una cuenta abierta puede tener saldo temporal cero sin liberar la mesa;
+- los productos nuevos se registran en líneas independientes cuando la línea histórica ya tiene asignaciones;
+- el total global acumulado se recalcula sin modificar cliente ni responsables;
+- el pago normal legacy sin prefacturas liquida solo el saldo actual dentro de una transacción;
+- el adaptador de pago ya no cambia la cuenta a pagada ni la mesa a libre;
+- la UI informa que el servicio continúa abierto y oculta el pago cuando no existe saldo;
+- las reservas sin documento se muestran como alerta de integridad.
+
+### Límites de esta fase
+
+- no se registra todavía el pago real por prefactura desde Caja;
+- el flujo de crédito continúa pendiente de `v3.2.4`;
+- el cierre explícito y la liberación definitiva de mesa corresponden a `v3.2.5`.
 
 ### Criterios de aprobación
 
@@ -720,7 +780,30 @@ Permitir que una mesa siga activa aunque se hayan emitido o pagado subcuentas.
 - María y otros clientes siguen consumiendo;
 - se agregan productos nuevos;
 - el total global aumenta correctamente;
-- la mesa no se libera automáticamente.
+- un saldo cero puede coexistir con una cuenta abierta;
+- la mesa, el cliente principal y los responsables permanecen activos;
+- una liquidación posterior cobra únicamente el consumo nuevo.
+
+### Validación automática
+
+```powershell
+npm run test:continuity
+npm test
+```
+
+Resultado esperado:
+
+```text
+4 pruebas específicas aprobadas
+57 pruebas totales aprobadas
+0 fallos
+```
+
+### Documento
+
+```text
+docs/avance-v3.1.4-continuidad-consumo.md
+```
 
 ### Commit
 
