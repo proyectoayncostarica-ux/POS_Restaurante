@@ -127,6 +127,9 @@ function buildBaseClientContext(session = {}) {
         isAdmin,
         activeWorkRoleIds: sessionRoleIds(session),
         capabilities: Array.isArray(session.capabilities) ? session.capabilities : [],
+        kitchenDestinations: Array.isArray(session.kitchenDestinations)
+            ? session.kitchenDestinations
+            : (session.kitchenDestinations ? [session.kitchenDestinations] : []),
         zoneIds: isAdmin ? null : [],
         permittedZoneIds: isAdmin ? null : [],
         updatedAt: Date.now()
@@ -191,7 +194,8 @@ function eventsHandler(req, res) {
         userType: req.session?.userType || null,
         activeWorkRoleIds: req.session?.activeWorkRoleIds || [],
         activeWorkRoleId: req.session?.activeWorkRoleId || null,
-        capabilities: req.session?.capabilities || []
+        capabilities: req.session?.capabilities || [],
+        kitchenDestinations: req.session?.kitchenDestinations || []
     };
 
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');

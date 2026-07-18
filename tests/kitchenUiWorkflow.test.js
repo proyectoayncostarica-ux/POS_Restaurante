@@ -79,3 +79,33 @@ test('realtime de comandas llega a Kitchen autorizado sin requerir orders.operat
     assert.equal(canReceiveRealtimeEvent(kitchenContext, { ...payload, zoneIds: [4] }), false);
     assert.equal(canReceiveRealtimeEvent({ ...kitchenContext, capabilities: [] }, payload), false);
 });
+
+test('Kitchen v3.3.1 expone tablero, historial y transición operativa con versión', () => {
+    assert.match(kitchenRouteSource, /\/board/);
+    assert.match(kitchenRouteSource, /\/comandas\/:id\/history/);
+    assert.match(kitchenRouteSource, /\/comandas\/:id\/state/);
+    assert.match(kitchenRouteSource, /expectedVersion/);
+    assert.match(kitchenRouteSource, /transitionState/);
+});
+
+test('realtime de comandas puede restringirse por destino además de zona y capacidad', () => {
+    require('./helpers/testDatabase');
+    const { canReceiveRealtimeEvent } = require('../server/services/operationalAccessService');
+    const { CAPABILITIES } = require('../server/security/capabilities');
+    const kitchenContext = {
+        userId: 41,
+        isAdmin: false,
+        capabilities: [CAPABILITIES.KITCHEN_OPERATE],
+        zoneIds: [3],
+        kitchenDestinations: ['cocina']
+    };
+    const payload = {
+        scope: 'comandas',
+        requiredAnyCapabilities: [CAPABILITIES.KITCHEN_OPERATE],
+        zoneIds: [3],
+        destinations: ['cocina']
+    };
+
+    assert.equal(canReceiveRealtimeEvent(kitchenContext, payload), true);
+    assert.equal(canReceiveRealtimeEvent(kitchenContext, { ...payload, destinations: ['bar'] }), false);
+});

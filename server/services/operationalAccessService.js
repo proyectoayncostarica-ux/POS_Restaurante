@@ -63,6 +63,14 @@ function normalizeCodes(values = []) {
     return [...new Set(raw.map(value => String(value || '').trim()).filter(Boolean))];
 }
 
+function normalizeKitchenDestinations(values = []) {
+    const raw = Array.isArray(values) ? values : [values];
+    return [...new Set(raw
+        .flatMap(value => typeof value === 'string' && value.includes(',') ? value.split(',') : [value])
+        .map(value => String(value || '').trim().toLowerCase())
+        .filter(value => ['cocina', 'bar'].includes(value)))];
+}
+
 function getSessionRoleIds(session = {}) {
     return normalizeRoleIds([
         ...(Array.isArray(session.activeWorkRoleIds) ? session.activeWorkRoleIds : []),
@@ -132,6 +140,9 @@ async function resolveAccessContext(source = {}, db = database, options = {}) {
         activeRoleIds,
         capabilities: normalizeCodes(capabilities),
         zoneIds,
+        kitchenDestinations: normalizeKitchenDestinations(
+            session.kitchenDestinations || session.destinosKitchen || session.destinos_kitchen || []
+        ),
         resolvedAt: new Date().toISOString()
     };
 
@@ -164,7 +175,10 @@ function buildPolicyFromOperationalSession(user = {}, operationalSession = {}) {
         isAdmin,
         activeRoleIds: normalizeRoleIds(operationalSession.rol_trabajo_ids || activeRoles.map(role => role.id)),
         capabilities,
-        zoneIds
+        zoneIds,
+        kitchenDestinations: normalizeKitchenDestinations(
+            operationalSession.destinos_kitchen || user.destinos_kitchen || []
+        )
     };
 
     const allowedSections = Object.keys(SECTION_REQUIREMENTS).filter(section => canOpenSection(context, section));
@@ -308,6 +322,17 @@ function canReceiveRealtimeEvent(context = {}, payload = {}) {
 
     if (rule.anyCapabilities && !hasAnyCapability(context, rule.anyCapabilities)) return false;
 
+    if (scope === 'comandas') {
+        const allowedDestinations = normalizeKitchenDestinations(context.kitchenDestinations || []);
+        const eventDestinations = normalizeKitchenDestinations(
+            payload.destinations || payload.destinos || payload.destination || payload.destino || []
+        );
+        if (allowedDestinations.length && eventDestinations.length
+            && !eventDestinations.some(destination => allowedDestinations.includes(destination))) {
+            return false;
+        }
+    }
+
     if (rule.cashGlobal && hasCapability(context, CAPABILITIES.CASH_ACCESS)) {
         return true;
     }
@@ -328,6 +353,7 @@ module.exports = {
     REALTIME_SCOPE_RULES,
     normalizeNumericList,
     normalizeCodes,
+    normalizeKitchenDestinations,
     getSessionRoleIds,
     hasCapability,
     hasAnyCapability,

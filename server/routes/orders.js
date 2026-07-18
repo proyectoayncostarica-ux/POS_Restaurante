@@ -313,7 +313,8 @@ router.post('/', requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, res
                 orderIds: [Number(account.id)],
                 mesaIds: [Number(mesa_id)],
                 zoneIds: [Number(seat.zona_id)].filter(Boolean),
-                comandaIds: account.comanda_ids || [account.comanda_id].filter(Boolean)
+                comandaIds: account.comanda_ids || [account.comanda_id].filter(Boolean),
+                destinations: (account.comandas || []).map(command => command.destino).filter(Boolean)
             };
         }
 
@@ -376,7 +377,8 @@ router.post('/:id/products', requireCapability(CAPABILITIES.ORDERS_OPERATE), asy
                 orderIds: [Number(account.id)],
                 mesaIds: [Number(account.mesa_id)],
                 zoneIds: [Number(account.zona_id)].filter(Boolean),
-                comandaIds: result.comanda_ids || [result.comanda_id].filter(Boolean)
+                comandaIds: result.comanda_ids || [result.comanda_id].filter(Boolean),
+                destinations: (result.comandas || []).map(command => command.destino).filter(Boolean)
             };
         }
 
@@ -468,7 +470,8 @@ router.put('/:pedido_id/products/:producto_id', requireCapability(CAPABILITIES.O
                 orderIds: [Number(account.id)],
                 mesaIds: [Number(account.mesa_id)],
                 zoneIds: [Number(account.zona_id)].filter(Boolean),
-                comandaIds: totals.comanda_ids || [totals.comanda_id].filter(Boolean)
+                comandaIds: totals.comanda_ids || [totals.comanda_id].filter(Boolean),
+                destinations: (totals.comandas || []).map(command => command.destino).filter(Boolean)
             };
         }
 
@@ -624,7 +627,8 @@ router.put('/comandas/:id/print', requireCapability(CAPABILITIES.KITCHEN_OPERATE
             orderIds: [Number(command.pedido_id)].filter(Boolean),
             mesaIds: [Number(command.mesa_id)].filter(Boolean),
             zoneIds: [Number(command.zona_id_snapshot)].filter(Boolean),
-            comandaIds: [Number(command.id)]
+            comandaIds: [Number(command.id)],
+            destinations: [command.destino || 'cocina']
         };
         return res.json({
             success: true,

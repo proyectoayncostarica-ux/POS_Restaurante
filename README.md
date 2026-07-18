@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.3.0 · Dominio Kitchen / Comandas
+- **Línea de trabajo actual:** v3.3.1 · Trazabilidad operativa de comandas
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -1391,17 +1391,31 @@ La siguiente fase es `v3.3.1 · Trazabilidad operativa de comandas`, después de
 
 ## 31. Fix de inicialización de Kitchen · v3.3.0 fix1
 
-`v3.3.0 fix1` corrige el arranque de bases operativas actualizadas desde `v3.2.5` en dos puntos encadenados de la migración de `comandas`:
+`v3.3.0 fix1` corrige el arranque sobre bases actualizadas desde `v3.2.5`. La creación global de índices ya no ocurre antes de las migraciones: primero se normaliza el esquema legacy de `comandas` y después se crean índices como `idx_comandas_pedido`.
 
-- la creación global de índices se ejecuta únicamente después de `migrateSchema()`, evitando crear `idx_comandas_pedido` antes de que exista `pedido_id`;
-- antes de reconstruir claves foráneas legacy, las filas de `comandas` normalizan campos obligatorios agregados mediante migración. En particular, `solicitada_en` se completa desde `fecha_impresion` y, si no existe una fecha previa, desde `CURRENT_TIMESTAMP`.
+El fix no elimina ni recrea la base operativa, no borra historial y no modifica los contratos financieros. Documento técnico:
 
-La segunda protección es necesaria porque SQLite permite agregar `solicitada_en` como columna nullable durante `ALTER TABLE`, pero al reconstruir `comandas_new` el valor `NULL` se copia explícitamente y no activa el `DEFAULT CURRENT_TIMESTAMP` de la tabla nueva.
+- `docs/avance-v3.3.0-fix1-inicializacion-kitchen.md`
 
-La migración preserva las comandas existentes, no reemplaza `data/restaurant.db` y continúa siendo idempotente.
+La siguiente fase continúa siendo `v3.3.1 · Trazabilidad operativa de comandas`, después de validar operativamente y publicar este fix.
 
-Documento:
+
+## 32. Trazabilidad operativa de comandas · v3.3.1
+
+Kitchen incorpora transiciones operativas versionadas `pendiente → enviada → en_preparacion → lista → entregada`, con anulación controlada y motivo obligatorio. Cada transición conserva actor, timestamp y versión de concurrencia sin depender del estado de impresión.
+
+Se añade historial por comanda e ítem con snapshots antes/después, read model persistente para reconstruir el tablero después de reinicios y ordenamiento por antigüedad/prioridad operativa. El realtime de comandas conserva filtrado por capacidad y zona y admite restricción por destino `cocina` o `bar` cuando la sesión la define.
+
+Endpoints principales:
 
 ```text
-docs/avance-v3.3.0-fix1-inicializacion-kitchen.md
+GET /api/kitchen/board
+GET /api/kitchen/comandas/:id/history
+PUT /api/kitchen/comandas/:id/state
 ```
+
+Documento técnico:
+
+- `docs/avance-v3.3.1-trazabilidad-comandas.md`
+
+La siguiente fase es `v3.3.2 · Cuenta departamental y UI/UX de Kitchen`, después de la validación operativa y publicación segura de `v3.3.1`.

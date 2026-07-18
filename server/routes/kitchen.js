@@ -4,7 +4,8 @@ const { CAPABILITIES } = require('../security/capabilities');
 const {
     resolveAccessContext,
     evaluateMesaAccess,
-    canViewZone
+    canViewZone,
+    normalizeKitchenDestinations
 } = require('../services/operationalAccessService');
 const accountService = require('../services/accountService');
 const kitchenService = require('../services/kitchenService');
@@ -35,6 +36,14 @@ async function assertComandaVisible(req, comanda) {
         error.code = 'ZONE_NOT_ALLOWED';
         throw error;
     }
+    const allowedDestinations = normalizeKitchenDestinations(access.kitchenDestinations || []);
+    const commandDestination = String(comanda.destino || 'cocina').trim().toLowerCase();
+    if (allowedDestinations.length && !allowedDestinations.includes(commandDestination)) {
+        const error = new Error('No tienes acceso operativo a este destino de preparación.');
+        error.status = 403;
+        error.code = 'KITCHEN_DESTINATION_NOT_ALLOWED';
+        throw error;
+    }
     return access;
 }
 
@@ -51,6 +60,28 @@ router.get('/pending', requireCapability(CAPABILITIES.KITCHEN_OPERATE), async (r
     }
 });
 
+router.get('/board', requireCapability(CAPABILITIES.KITCHEN_OPERATE), async (req, res) => {
+    try {
+        const access = await resolveAccessContext(req);
+        const requestedDestination = req.query.destino || req.query.destination || null;
+        const allowedDestinations = normalizeKitchenDestinations(access.kitchenDestinations || []);
+        if (requestedDestination && allowedDestinations.length
+            && !allowedDestinations.includes(String(requestedDestination).trim().toLowerCase())) {
+            return res.status(403).json({
+                error: 'No tienes acceso operativo a este destino de preparación.',
+                code: 'KITCHEN_DESTINATION_NOT_ALLOWED'
+            });
+        }
+        const board = await kitchenService.getBoard({
+            destination: requestedDestination,
+            zoneIds: access.isAdmin ? null : access.zoneIds
+        });
+        return res.json({ success: true, data: board });
+    } catch (error) {
+        return sendRouteError(res, error, 'No fue posible consultar el tablero de preparación');
+    }
+});
+
 router.get('/comandas/:id', requireCapability(CAPABILITIES.KITCHEN_OPERATE), async (req, res) => {
     try {
         const command = await kitchenService.getComanda(req.params.id);
@@ -58,6 +89,43 @@ router.get('/comandas/:id', requireCapability(CAPABILITIES.KITCHEN_OPERATE), asy
         return res.json({ success: true, data: command });
     } catch (error) {
         return sendRouteError(res, error, 'No fue posible consultar la comanda');
+    }
+});
+
+router.get('/comandas/:id/history', requireCapability(CAPABILITIES.KITCHEN_OPERATE), async (req, res) => {
+    try {
+        const command = await kitchenService.getComanda(req.params.id);
+        await assertComandaVisible(req, command);
+        const history = await kitchenService.getHistory(command.id);
+        return res.json({ success: true, data: history });
+    } catch (error) {
+        return sendRouteError(res, error, 'No fue posible consultar la trazabilidad de la comanda');
+    }
+});
+
+router.put('/comandas/:id/state', requireCapability(CAPABILITIES.KITCHEN_OPERATE), async (req, res) => {
+    try {
+        const source = await kitchenService.getComanda(req.params.id);
+        await assertComandaVisible(req, source);
+        const command = await kitchenService.transitionState({
+            comandaId: source.id,
+            userId: req.session?.userId,
+            state: req.body?.estado_operativo || req.body?.state,
+            expectedVersion: req.body?.expectedVersion ?? req.body?.version,
+            reason: req.body?.motivo || req.body?.reason
+        });
+        res.locals.realtime = {
+            scope: 'comandas',
+            requiredAnyCapabilities: [CAPABILITIES.KITCHEN_OPERATE, CAPABILITIES.ORDERS_OPERATE],
+            orderIds: [Number(command.pedido_id)].filter(Boolean),
+            mesaIds: [Number(command.mesa_id)].filter(Boolean),
+            zoneIds: [Number(command.zona_id_snapshot || command.zona_id)].filter(Boolean),
+            comandaIds: [Number(command.id)],
+            destinations: [command.destino || 'cocina']
+        };
+        return res.json({ success: true, data: command });
+    } catch (error) {
+        return sendRouteError(res, error, 'No fue posible actualizar el estado operativo de la comanda');
     }
 });
 
@@ -92,7 +160,8 @@ router.post('/orders/:pedidoId/dispatch', requireCapability(CAPABILITIES.ORDERS_
             orderIds: [Number(account.id)],
             mesaIds: [Number(account.mesa_id)],
             zoneIds: [Number(account.zona_id)].filter(Boolean),
-            comandaIds: result.comanda_ids || []
+            comandaIds: result.comanda_ids || [],
+            destinations: (result.comandas || []).map(command => command.destino).filter(Boolean)
         };
         return res.json({ success: true, data: result });
     } catch (error) {
@@ -115,7 +184,8 @@ router.post('/comandas/:id/resend', requireCapability(CAPABILITIES.KITCHEN_OPERA
             orderIds: [Number(command.pedido_id)].filter(Boolean),
             mesaIds: [Number(command.mesa_id)].filter(Boolean),
             zoneIds: [Number(command.zona_id_snapshot)].filter(Boolean),
-            comandaIds: [Number(command.id)]
+            comandaIds: [Number(command.id)],
+            destinations: [command.destino || 'cocina']
         };
         return res.json({ success: true, data: command });
     } catch (error) {
@@ -138,7 +208,8 @@ router.put('/comandas/:id/print-state', requireCapability(CAPABILITIES.KITCHEN_O
             orderIds: [Number(command.pedido_id)].filter(Boolean),
             mesaIds: [Number(command.mesa_id)].filter(Boolean),
             zoneIds: [Number(command.zona_id_snapshot)].filter(Boolean),
-            comandaIds: [Number(command.id)]
+            comandaIds: [Number(command.id)],
+            destinations: [command.destino || 'cocina']
         };
         return res.json({ success: true, data: command });
     } catch (error) {

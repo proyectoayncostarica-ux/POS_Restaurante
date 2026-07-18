@@ -627,6 +627,14 @@ class Database {
                 zona_nombre_snapshot TEXT,
                 solicitada_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 enviada_en TEXT,
+                preparacion_iniciada_en TEXT,
+                lista_en TEXT,
+                entregada_en TEXT,
+                anulada_en TEXT,
+                actualizada_en TEXT,
+                prioridad INTEGER NOT NULL DEFAULT 0,
+                usuario_estado_id INTEGER,
+                usuario_estado_nombre_snapshot TEXT,
                 clave_idempotencia TEXT,
                 solicitud_fingerprint TEXT,
                 motivo TEXT,
@@ -635,7 +643,8 @@ class Database {
                 FOREIGN KEY (mesa_id) REFERENCES mesas (id) ON DELETE SET NULL,
                 FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE SET NULL,
                 FOREIGN KEY (comanda_origen_id) REFERENCES comandas (id) ON DELETE SET NULL,
-                FOREIGN KEY (usuario_solicitante_id) REFERENCES usuarios (id) ON DELETE SET NULL
+                FOREIGN KEY (usuario_solicitante_id) REFERENCES usuarios (id) ON DELETE SET NULL,
+                FOREIGN KEY (usuario_estado_id) REFERENCES usuarios (id) ON DELETE SET NULL
             )`,
 
             `CREATE TABLE IF NOT EXISTS comanda_items (
@@ -676,6 +685,25 @@ class Database {
                 detalle TEXT,
                 fecha TEXT NOT NULL,
                 FOREIGN KEY (comanda_id) REFERENCES comandas (id) ON DELETE CASCADE,
+                FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
+            )`,
+
+            `CREATE TABLE IF NOT EXISTS historial_comanda_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                comanda_item_id INTEGER,
+                comanda_id INTEGER NOT NULL,
+                pedido_producto_id INTEGER,
+                evento TEXT NOT NULL,
+                tipo_cambio TEXT,
+                antes_json TEXT,
+                despues_json TEXT,
+                motivo TEXT,
+                usuario_id INTEGER,
+                usuario_nombre_snapshot TEXT,
+                fecha TEXT NOT NULL,
+                FOREIGN KEY (comanda_item_id) REFERENCES comanda_items (id) ON DELETE SET NULL,
+                FOREIGN KEY (comanda_id) REFERENCES comandas (id) ON DELETE CASCADE,
+                FOREIGN KEY (pedido_producto_id) REFERENCES pedido_productos (id) ON DELETE SET NULL,
                 FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
             )`,
 
@@ -990,6 +1018,25 @@ class Database {
             FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
         )`);
 
+        await this.run(`CREATE TABLE IF NOT EXISTS historial_comanda_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            comanda_item_id INTEGER,
+            comanda_id INTEGER NOT NULL,
+            pedido_producto_id INTEGER,
+            evento TEXT NOT NULL,
+            tipo_cambio TEXT,
+            antes_json TEXT,
+            despues_json TEXT,
+            motivo TEXT,
+            usuario_id INTEGER,
+            usuario_nombre_snapshot TEXT,
+            fecha TEXT NOT NULL,
+            FOREIGN KEY (comanda_item_id) REFERENCES comanda_items (id) ON DELETE SET NULL,
+            FOREIGN KEY (comanda_id) REFERENCES comandas (id) ON DELETE CASCADE,
+            FOREIGN KEY (pedido_producto_id) REFERENCES pedido_productos (id) ON DELETE SET NULL,
+            FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
+        )`);
+
         await this.run(`CREATE TABLE IF NOT EXISTS solicitudes_kitchen (
             clave_idempotencia TEXT PRIMARY KEY,
             pedido_id INTEGER,
@@ -1016,6 +1063,14 @@ class Database {
             ['zona_nombre_snapshot', 'TEXT'],
             ['solicitada_en', 'TEXT'],
             ['enviada_en', 'TEXT'],
+            ['preparacion_iniciada_en', 'TEXT'],
+            ['lista_en', 'TEXT'],
+            ['entregada_en', 'TEXT'],
+            ['anulada_en', 'TEXT'],
+            ['actualizada_en', 'TEXT'],
+            ['prioridad', 'INTEGER NOT NULL DEFAULT 0'],
+            ['usuario_estado_id', 'INTEGER'],
+            ['usuario_estado_nombre_snapshot', 'TEXT'],
             ['clave_idempotencia', 'TEXT'],
             ['solicitud_fingerprint', 'TEXT'],
             ['motivo', 'TEXT'],
@@ -1034,6 +1089,18 @@ class Database {
         await this.run('CREATE INDEX IF NOT EXISTS idx_comanda_items_comanda ON comanda_items(comanda_id)');
         await this.run('CREATE INDEX IF NOT EXISTS idx_comanda_items_linea ON comanda_items(pedido_producto_id)');
         await this.run('CREATE INDEX IF NOT EXISTS idx_historial_comandas_comanda ON historial_comandas(comanda_id)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_historial_comanda_items_comanda ON historial_comanda_items(comanda_id, pedido_producto_id, fecha)');
+
+        await this.run(`
+            UPDATE comandas
+            SET actualizada_en = COALESCE(actualizada_en, solicitada_en, fecha_impresion, CURRENT_TIMESTAMP),
+                prioridad = CASE WHEN prioridad IS NULL OR prioridad < 0 THEN 0 ELSE prioridad END,
+                enviada_en = CASE
+                    WHEN estado_operativo IN ('enviada', 'en_preparacion', 'lista', 'entregada')
+                    THEN COALESCE(enviada_en, solicitada_en, fecha_impresion)
+                    ELSE enviada_en
+                END
+        `);
     }
 
     async migrateKitchenLegacy() {
@@ -1055,6 +1122,8 @@ class Database {
                     ELSE COALESCE(NULLIF(TRIM(estado_impresion), ''), 'pendiente')
                 END,
                 solicitada_en = COALESCE(solicitada_en, fecha_impresion, CURRENT_TIMESTAMP),
+                actualizada_en = COALESCE(actualizada_en, solicitada_en, fecha_impresion, CURRENT_TIMESTAMP),
+                prioridad = CASE WHEN prioridad IS NULL OR prioridad < 0 THEN 0 ELSE prioridad END,
                 origen = COALESCE(NULLIF(TRIM(origen), ''), 'legacy'),
                 version = COALESCE(version, 1)
         `);
@@ -2005,6 +2074,14 @@ class Database {
             zona_nombre_snapshot TEXT,
             solicitada_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             enviada_en TEXT,
+            preparacion_iniciada_en TEXT,
+            lista_en TEXT,
+            entregada_en TEXT,
+            anulada_en TEXT,
+            actualizada_en TEXT,
+            prioridad INTEGER NOT NULL DEFAULT 0,
+            usuario_estado_id INTEGER,
+            usuario_estado_nombre_snapshot TEXT,
             clave_idempotencia TEXT,
             solicitud_fingerprint TEXT,
             motivo TEXT,
@@ -2013,7 +2090,8 @@ class Database {
             FOREIGN KEY (mesa_id) REFERENCES mesas (id) ON DELETE SET NULL,
             FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE SET NULL,
             FOREIGN KEY (comanda_origen_id) REFERENCES comandas (id) ON DELETE SET NULL,
-            FOREIGN KEY (usuario_solicitante_id) REFERENCES usuarios (id) ON DELETE SET NULL
+            FOREIGN KEY (usuario_solicitante_id) REFERENCES usuarios (id) ON DELETE SET NULL,
+            FOREIGN KEY (usuario_estado_id) REFERENCES usuarios (id) ON DELETE SET NULL
         )`, [
             'id', 'mesa_id', 'productos_cocina', 'fecha_impresion', 'estado',
             'pedido_id', 'comanda_origen_id', 'numero_comanda', 'numero_secuencia',
@@ -2021,6 +2099,8 @@ class Database {
             'usuario_solicitante_id', 'usuario_solicitante_nombre_snapshot',
             'numero_cuenta_snapshot', 'mesa_numero_snapshot', 'mesa_tipo_snapshot',
             'zona_id_snapshot', 'zona_nombre_snapshot', 'solicitada_en', 'enviada_en',
+            'preparacion_iniciada_en', 'lista_en', 'entregada_en', 'anulada_en',
+            'actualizada_en', 'prioridad', 'usuario_estado_id', 'usuario_estado_nombre_snapshot',
             'clave_idempotencia', 'solicitud_fingerprint', 'motivo', 'origen', 'version'
         ]);
     }
@@ -2046,6 +2126,13 @@ class Database {
                     NULLIF(TRIM(fecha_impresion), ''),
                     CURRENT_TIMESTAMP
                 ),
+                actualizada_en = COALESCE(
+                    NULLIF(TRIM(actualizada_en), ''),
+                    NULLIF(TRIM(solicitada_en), ''),
+                    NULLIF(TRIM(fecha_impresion), ''),
+                    CURRENT_TIMESTAMP
+                ),
+                prioridad = CASE WHEN prioridad IS NULL OR prioridad < 0 THEN 0 ELSE prioridad END,
                 origen = COALESCE(NULLIF(TRIM(origen), ''), 'legacy'),
                 version = CASE WHEN version IS NULL OR version < 1 THEN 1 ELSE version END
             WHERE productos_cocina IS NULL
@@ -2055,6 +2142,8 @@ class Database {
                OR estado_operativo IS NULL OR TRIM(estado_operativo) = ''
                OR estado_impresion IS NULL OR TRIM(estado_impresion) = ''
                OR solicitada_en IS NULL OR TRIM(solicitada_en) = ''
+               OR actualizada_en IS NULL OR TRIM(actualizada_en) = ''
+               OR prioridad IS NULL OR prioridad < 0
                OR origen IS NULL OR TRIM(origen) = ''
                OR version IS NULL OR version < 1
         `);

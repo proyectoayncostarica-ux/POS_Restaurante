@@ -840,3 +840,16 @@ No se elimina ni reemplaza la base operativa y se conserva el historial de coman
 Documento de avance: `docs/avance-v3.3.0-fix1-inicializacion-kitchen.md`.
 
 Siguiente fase: `v3.3.1 · Trazabilidad operativa de comandas`, después de validar `npm test`, el arranque real sobre `data/restaurant.db` y publicar el fix.
+
+
+## v3.3.1 · Trazabilidad operativa de comandas
+
+Se implementan estados operativos independientes de Printing, timestamps por transición, actor responsable, control de versión, historial por comanda e ítem y snapshots antes/después de cambios de consumo.
+
+Kitchen expone un read model persistente mediante `/api/kitchen/board`, recuperable después de reiniciar el servidor. El tablero puede filtrarse por destino y zona, calcula minutos transcurridos y prioridad operativa y conserva mesa, zona, producto, presentación, observaciones, adicionales y solicitante humano.
+
+La mutación `PUT /api/kitchen/comandas/:id/state` exige versión esperada y registra cada transición. Las anulaciones requieren motivo. El realtime admite restricción por destino además de capacidad y zona.
+
+Documento de avance: `docs/avance-v3.3.1-trazabilidad-comandas.md`.
+
+Siguiente fase: `v3.3.2 · Cuenta departamental y UI/UX de Kitchen`, después de validar y publicar `v3.3.1`.

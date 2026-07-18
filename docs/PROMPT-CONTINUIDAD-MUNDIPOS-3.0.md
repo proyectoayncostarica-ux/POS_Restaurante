@@ -1,8 +1,8 @@
 # Prompt de continuidad canónico · MundiPOS 3.0
 
 **Actualizado:** 17 de julio de 2026
-**Estado funcional preparado para validación:** `v3.3.0`
-**Próxima fase funcional tras validación:** `v3.3.1 · Trazabilidad operativa de comandas`
+**Estado funcional preparado para validación:** `v3.3.1`
+**Próxima fase funcional tras validación:** `v3.3.2 · Cuenta departamental y UI/UX de Kitchen`
 **Repositorio local activo:** `C:\Repos\POS_Restaurante`
 
 > **Uso en un nuevo chat:** adjunta este archivo junto con un ZIP nuevo del repositorio actual y pega la sección **“Prompt listo para usar”** como primer mensaje. Este documento reemplaza el prompt de continuidad anterior. Conserva sus contratos útiles, corrige su estado obsoleto e incorpora la recuperación, normalización y limpieza realizadas el 17 de julio de 2026.
@@ -1467,3 +1467,44 @@ v3.3.0 fix1: corrige inicializacion de Kitchen sobre base legacy
 ```
 
 `v3.3.1` no debe comenzar hasta que este fix arranque correctamente sobre la base operativa, la suite completa pase y Git quede publicado de forma segura.
+
+
+---
+
+# 21. Estado implementado para validación · v3.3.1 Trazabilidad operativa de comandas
+
+`v3.3.1` amplía el dominio Kitchen sin adelantar la cuenta departamental ni la UI completa de `v3.3.2`.
+
+Contratos implementados:
+
+```text
+pendiente → enviada → en_preparacion → lista → entregada
+cualquier estado no terminal permitido → anulada con motivo
+Printing ≠ estado operativo
+```
+
+Cada cambio de estado usa versión esperada, actor operativo y timestamp. Las comandas conservan `enviada_en`, `preparacion_iniciada_en`, `lista_en`, `entregada_en`, `anulada_en` y `actualizada_en`.
+
+Se incorpora `historial_comanda_items` para registrar antes/después de envíos, ajustes, anulaciones y reenvíos. El read model `/api/kitchen/board` se reconstruye exclusivamente desde SQLite y no depende de memoria del proceso.
+
+Rutas nuevas:
+
+```text
+GET /api/kitchen/board
+GET /api/kitchen/comandas/:id/history
+PUT /api/kitchen/comandas/:id/state
+```
+
+Realtime conserva capacidad y zona y soporta destino `cocina`/`bar` cuando la sesión define `kitchenDestinations`.
+
+Documento:
+
+```text
+docs/avance-v3.3.1-trazabilidad-comandas.md
+```
+
+La siguiente fase, únicamente después de pruebas, validación operativa y Git seguro, es:
+
+```text
+v3.3.2 · Cuenta departamental y UI/UX de Kitchen
+```

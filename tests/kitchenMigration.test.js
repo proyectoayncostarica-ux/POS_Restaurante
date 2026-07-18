@@ -91,6 +91,16 @@ test('migra una comanda v3.2.5 antes de reconstruir FKs y crear indices de Kitch
 
     const migratedColumns = await context.db.getColumns('comandas');
     assert.ok(migratedColumns.includes('pedido_id'));
+    assert.ok(migratedColumns.includes('preparacion_iniciada_en'));
+    assert.ok(migratedColumns.includes('lista_en'));
+    assert.ok(migratedColumns.includes('entregada_en'));
+    assert.ok(migratedColumns.includes('anulada_en'));
+    assert.ok(migratedColumns.includes('actualizada_en'));
+    assert.ok(migratedColumns.includes('usuario_estado_id'));
+
+    const itemHistoryColumns = await context.db.getColumns('historial_comanda_items');
+    assert.ok(itemHistoryColumns.includes('antes_json'));
+    assert.ok(itemHistoryColumns.includes('despues_json'));
 
     const command = await context.db.get(
         'SELECT solicitada_en, mesa_id FROM comandas WHERE id = 1'

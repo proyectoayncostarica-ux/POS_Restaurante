@@ -45,6 +45,35 @@ const KITCHEN_PRINT_STATES = Object.freeze({
     FAILED: 'fallida'
 });
 
+const KITCHEN_STATE_TRANSITIONS = Object.freeze({
+    [KITCHEN_OPERATIONAL_STATES.PENDING]: Object.freeze([
+        KITCHEN_OPERATIONAL_STATES.SENT,
+        KITCHEN_OPERATIONAL_STATES.CANCELLED
+    ]),
+    [KITCHEN_OPERATIONAL_STATES.SENT]: Object.freeze([
+        KITCHEN_OPERATIONAL_STATES.IN_PREPARATION,
+        KITCHEN_OPERATIONAL_STATES.CANCELLED
+    ]),
+    [KITCHEN_OPERATIONAL_STATES.IN_PREPARATION]: Object.freeze([
+        KITCHEN_OPERATIONAL_STATES.READY,
+        KITCHEN_OPERATIONAL_STATES.CANCELLED
+    ]),
+    [KITCHEN_OPERATIONAL_STATES.READY]: Object.freeze([
+        KITCHEN_OPERATIONAL_STATES.DELIVERED,
+        KITCHEN_OPERATIONAL_STATES.CANCELLED
+    ]),
+    [KITCHEN_OPERATIONAL_STATES.DELIVERED]: Object.freeze([]),
+    [KITCHEN_OPERATIONAL_STATES.CANCELLED]: Object.freeze([])
+});
+
+const KITCHEN_STATE_TIMESTAMP_COLUMNS = Object.freeze({
+    [KITCHEN_OPERATIONAL_STATES.SENT]: 'enviada_en',
+    [KITCHEN_OPERATIONAL_STATES.IN_PREPARATION]: 'preparacion_iniciada_en',
+    [KITCHEN_OPERATIONAL_STATES.READY]: 'lista_en',
+    [KITCHEN_OPERATIONAL_STATES.DELIVERED]: 'entregada_en',
+    [KITCHEN_OPERATIONAL_STATES.CANCELLED]: 'anulada_en'
+});
+
 function normalizeDestination(value, fallbackKitchen = false) {
     const normalized = String(value || '').trim().toLowerCase();
     if (Object.values(KITCHEN_DESTINATIONS).includes(normalized)) return normalized;
@@ -102,6 +131,43 @@ function safeJsonParse(value, fallback) {
     } catch (error) {
         return fallback;
     }
+}
+
+function normalizeOperationalState(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!Object.values(KITCHEN_OPERATIONAL_STATES).includes(normalized)) {
+        throw new ValidationError('Estado operativo de Kitchen inválido', { state: normalized });
+    }
+    return normalized;
+}
+
+function normalizeExpectedVersion(value) {
+    const version = Number(value);
+    if (!Number.isSafeInteger(version) || version <= 0) {
+        throw new ValidationError('La versión esperada de la comanda es requerida');
+    }
+    return version;
+}
+
+function minutesSince(value, now = new Date()) {
+    const timestamp = Date.parse(value || '');
+    if (!Number.isFinite(timestamp)) return 0;
+    return Math.max(0, Math.floor((now.getTime() - timestamp) / 60000));
+}
+
+function serializeItemSnapshot(item = {}, overrides = {}) {
+    return {
+        pedido_producto_id: item.pedido_producto_id ? Number(item.pedido_producto_id) : null,
+        producto_id: item.producto_id ? Number(item.producto_id) : null,
+        presentacion_id: item.presentacion_id ? Number(item.presentacion_id) : null,
+        producto_nombre: item.producto_nombre_snapshot || item.producto_nombre_actual || null,
+        presentacion_nombre: item.presentacion_nombre_snapshot || null,
+        presentacion_cantidad: item.presentacion_cantidad_snapshot || null,
+        cantidad: Number(overrides.cantidad ?? item.cantidad_resultante_snapshot ?? item.cantidad ?? 0),
+        observacion: item.observacion_snapshot || null,
+        adicionales: normalizeAdditionalItems(item.adicionales_snapshot),
+        destino: overrides.destino || item.destino || null
+    };
 }
 
 function lineIdentityFingerprint(line = {}, destination = null) {
@@ -454,6 +520,46 @@ class KitchenService {
         }));
     }
 
+    async getLatestItemTrace({ accountId, lineId, destination }, client = this.db) {
+        if (!accountId || !lineId) return null;
+        return client.get(`
+            SELECT ci.*, c.destino, c.id AS comanda_id
+            FROM comanda_items ci
+            JOIN comandas c ON c.id = ci.comanda_id
+            WHERE c.pedido_id = ?
+              AND ci.pedido_producto_id = ?
+              AND COALESCE(c.destino, 'cocina') = ?
+              AND COALESCE(c.comanda_origen_id, 0) = 0
+            ORDER BY ci.id DESC
+            LIMIT 1
+        `, [Number(accountId), Number(lineId), normalizeDestination(destination, true)]);
+    }
+
+    async recordItemHistory({
+        commandId, commandItemId, lineId, event, changeType, before, after,
+        reason, actor, now
+    }, client = this.db) {
+        await client.run(`
+            INSERT INTO historial_comanda_items (
+                comanda_item_id, comanda_id, pedido_producto_id, evento, tipo_cambio,
+                antes_json, despues_json, motivo, usuario_id,
+                usuario_nombre_snapshot, fecha
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+            commandItemId || null,
+            commandId,
+            lineId || null,
+            event,
+            changeType || null,
+            before ? JSON.stringify(before) : null,
+            after ? JSON.stringify(after) : null,
+            reason || null,
+            actor?.id || null,
+            actor?.nombre || null,
+            now
+        ]);
+    }
+
     async createComandaForDestination({ account, requester, destination, changes, now, idempotencyKey, fingerprint }, client) {
         const sequence = await this.sequenceService.nextInTransaction(
             DOCUMENT_SEQUENCE_TYPES.KITCHEN,
@@ -468,10 +574,10 @@ class KitchenService {
                 estado_operativo, estado_impresion,
                 usuario_solicitante_id, usuario_solicitante_nombre_snapshot,
                 numero_cuenta_snapshot, mesa_numero_snapshot, mesa_tipo_snapshot,
-                zona_id_snapshot, zona_nombre_snapshot, solicitada_en,
-                clave_idempotencia, solicitud_fingerprint, origen, version
+                zona_id_snapshot, zona_nombre_snapshot, solicitada_en, actualizada_en,
+                prioridad, clave_idempotencia, solicitud_fingerprint, origen, version
             ) VALUES (?, ?, NULL, 'pendiente', ?, ?, ?, ?, 'pendiente', 'pendiente',
-                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'normalizada', 1)
+                      ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 'normalizada', 1)
         `, [
             account.mesa_id,
             JSON.stringify(legacyProjection),
@@ -487,12 +593,26 @@ class KitchenService {
             account.zona_id,
             account.zona_nombre,
             now,
+            now,
             idempotencyKey,
             fingerprint
         ]);
 
         for (const change of changes) {
-            await client.run(`
+            const previousItem = await this.getLatestItemTrace({
+                accountId: account.id,
+                lineId: change.line.id,
+                destination
+            }, client);
+            const beforeSnapshot = previousItem
+                ? serializeItemSnapshot(previousItem, {
+                    cantidad: change.tipo_cambio === KITCHEN_CHANGE_TYPES.CANCELLATION
+                        ? Number(previousItem.cantidad_resultante_snapshot || 0)
+                        : Number(previousItem.cantidad_resultante_snapshot || 0),
+                    destino: destination
+                })
+                : null;
+            const itemResult = await client.run(`
                 INSERT INTO comanda_items (
                     comanda_id, pedido_producto_id, producto_id, presentacion_id,
                     cantidad_delta, cantidad_resultante_snapshot, tipo_cambio,
@@ -519,6 +639,26 @@ class KitchenService {
                 change.motivo || null,
                 now
             ]);
+            const afterSnapshot = serializeItemSnapshot({
+                ...change.line,
+                pedido_producto_id: change.line.id,
+                destino: destination
+            }, {
+                cantidad: Number(change.cantidad_resultante_snapshot || 0),
+                destino: destination
+            });
+            await this.recordItemHistory({
+                commandId: command.id,
+                commandItemId: itemResult.id,
+                lineId: change.line.id,
+                event: change.tipo_cambio,
+                changeType: change.tipo_cambio,
+                before: beforeSnapshot,
+                after: afterSnapshot,
+                reason: change.motivo || null,
+                actor: requester,
+                now
+            }, client);
         }
 
         await client.run(`
@@ -669,7 +809,7 @@ class KitchenService {
             LEFT JOIN mesas m ON m.id = c.mesa_id
             LEFT JOIN zonas z ON z.id = COALESCE(c.zona_id_snapshot, m.zona_id)
             WHERE ${clauses.join(' AND ')}
-            ORDER BY COALESCE(c.solicitada_en, c.fecha_impresion), c.id
+            ORDER BY COALESCE(c.prioridad, 0) DESC, COALESCE(c.solicitada_en, c.fecha_impresion), c.id
         `, params);
 
         const result = [];
@@ -677,6 +817,215 @@ class KitchenService {
             result.push(await this.getComanda(row.id, client));
         }
         return result;
+    }
+
+    async getHistory(comandaId, client = this.db) {
+        const command = await this.getComanda(comandaId, client);
+        const commandEvents = await client.all(`
+            SELECT *
+            FROM historial_comandas
+            WHERE comanda_id = ?
+            ORDER BY fecha, id
+        `, [command.id]);
+        const itemEvents = await client.all(`
+            SELECT *
+            FROM historial_comanda_items
+            WHERE comanda_id = ?
+            ORDER BY fecha, id
+        `, [command.id]);
+
+        return {
+            comanda_id: command.id,
+            numero_comanda: command.numero_comanda,
+            destino: command.destino,
+            estado_operativo: command.estado_operativo,
+            version: Number(command.version || 1),
+            eventos_comanda: commandEvents.map(event => ({
+                ...event,
+                detalle: safeJsonParse(event.detalle, event.detalle)
+            })),
+            eventos_items: itemEvents.map(event => ({
+                ...event,
+                antes: safeJsonParse(event.antes_json, null),
+                despues: safeJsonParse(event.despues_json, null)
+            }))
+        };
+    }
+
+    async getBoard(filters = {}, client = this.db) {
+        const now = filters.now ? new Date(filters.now) : new Date();
+        if (Number.isNaN(now.getTime())) {
+            throw new ValidationError('La fecha de referencia del tablero es inválida');
+        }
+        const commands = await this.getPending(filters, client);
+        const data = [];
+
+        for (const command of commands) {
+            const elapsed = minutesSince(command.solicitada_en || command.fecha_impresion, now);
+            const configuredPriority = Math.max(0, Number(command.prioridad || 0));
+            const agePriority = elapsed >= 30 ? 3 : (elapsed >= 20 ? 2 : (elapsed >= 10 ? 1 : 0));
+            const history = await this.getHistory(command.id, client);
+            data.push({
+                id: Number(command.id),
+                numero_comanda: command.numero_comanda,
+                pedido_id: command.pedido_id ? Number(command.pedido_id) : null,
+                numero_cuenta: command.numero_cuenta_snapshot || null,
+                destino: normalizeDestination(command.destino, true),
+                estado_operativo: command.estado_operativo || KITCHEN_OPERATIONAL_STATES.PENDING,
+                estado_impresion: command.estado_impresion || KITCHEN_PRINT_STATES.PENDING,
+                version: Number(command.version || 1),
+                prioridad: configuredPriority,
+                prioridad_operativa: Math.max(configuredPriority, agePriority),
+                solicitada_en: command.solicitada_en || command.fecha_impresion || null,
+                enviada_en: command.enviada_en || null,
+                preparacion_iniciada_en: command.preparacion_iniciada_en || null,
+                lista_en: command.lista_en || null,
+                entregada_en: command.entregada_en || null,
+                anulada_en: command.anulada_en || null,
+                actualizada_en: command.actualizada_en || command.solicitada_en || null,
+                minutos_transcurridos: elapsed,
+                mesa: {
+                    id: command.mesa_id ? Number(command.mesa_id) : null,
+                    numero: command.mesa_numero ?? command.mesa_numero_snapshot ?? null,
+                    tipo: command.mesa_tipo ?? command.mesa_tipo_snapshot ?? null
+                },
+                zona: {
+                    id: command.zona_id ? Number(command.zona_id) : null,
+                    nombre: command.zona_nombre || command.zona_nombre_snapshot || null
+                },
+                usuario_solicitante: {
+                    id: command.usuario_solicitante_id ? Number(command.usuario_solicitante_id) : null,
+                    nombre: command.usuario_solicitante_nombre_snapshot || null
+                },
+                ultimo_actor: {
+                    id: command.usuario_estado_id ? Number(command.usuario_estado_id) : null,
+                    nombre: command.usuario_estado_nombre_snapshot || null
+                },
+                items: command.items.map(item => ({
+                    id: Number(item.id),
+                    pedido_producto_id: item.pedido_producto_id ? Number(item.pedido_producto_id) : null,
+                    producto: item.producto_nombre_snapshot,
+                    cantidad: Number(item.cantidad_delta || 0),
+                    cantidad_resultante: Number(item.cantidad_resultante_snapshot || 0),
+                    tipo_cambio: item.tipo_cambio,
+                    presentacion: item.presentacion_nombre_snapshot || null,
+                    presentacion_cantidad: item.presentacion_cantidad_snapshot || null,
+                    observacion: item.observacion_snapshot || null,
+                    adicionales: normalizeAdditionalItems(item.adicionales_snapshot),
+                    motivo: item.motivo || null,
+                    usuario_solicitante: item.usuario_solicitante_nombre_snapshot || null,
+                    creado_en: item.creado_en
+                })),
+                historial: history
+            });
+        }
+
+        data.sort((a, b) => {
+            if (b.prioridad_operativa !== a.prioridad_operativa) {
+                return b.prioridad_operativa - a.prioridad_operativa;
+            }
+            return String(a.solicitada_en || '').localeCompare(String(b.solicitada_en || ''));
+        });
+
+        return {
+            generado_en: now.toISOString(),
+            destino: filters.destination || filters.destino || null,
+            total: data.length,
+            comandas: data
+        };
+    }
+
+    async transitionState(input = {}) {
+        const comandaId = Number(input.comandaId ?? input.id);
+        const userId = Number(input.userId ?? input.usuario_id);
+        const targetState = normalizeOperationalState(input.state ?? input.estado_operativo);
+        const expectedVersion = normalizeExpectedVersion(input.expectedVersion ?? input.version);
+        const reason = normalizeOptionalText(input.reason ?? input.motivo, 300);
+        const now = input.now || new Date().toISOString();
+
+        if (targetState === KITCHEN_OPERATIONAL_STATES.CANCELLED && !reason) {
+            throw new ValidationError('El motivo de anulación es requerido');
+        }
+
+        return this.transactions.immediate(async tx => {
+            const command = await this.getComanda(comandaId, tx);
+            const currentState = normalizeOperationalState(
+                command.estado_operativo || KITCHEN_OPERATIONAL_STATES.PENDING
+            );
+            if (Number(command.version || 1) !== expectedVersion) {
+                throw new ConflictError('La comanda cambió mientras estaba abierta', {
+                    code: 'KITCHEN_VERSION_CONFLICT',
+                    comandaId,
+                    expectedVersion,
+                    currentVersion: Number(command.version || 1)
+                });
+            }
+            if (currentState === targetState) {
+                return { ...command, replayed: true };
+            }
+            const allowed = KITCHEN_STATE_TRANSITIONS[currentState] || [];
+            if (!allowed.includes(targetState)) {
+                throw new ConflictError('La transición de estado de Kitchen no está permitida', {
+                    code: 'KITCHEN_INVALID_STATE_TRANSITION',
+                    comandaId,
+                    currentState,
+                    targetState
+                });
+            }
+
+            const actor = await this.getRequester(userId, tx);
+            const timestampColumn = KITCHEN_STATE_TIMESTAMP_COLUMNS[targetState];
+            const assignments = [
+                'estado_operativo = ?',
+                'usuario_estado_id = ?',
+                'usuario_estado_nombre_snapshot = ?',
+                'actualizada_en = ?',
+                'version = version + 1'
+            ];
+            const params = [targetState, actor.id, actor.nombre, now];
+            if (timestampColumn) {
+                assignments.push(`${timestampColumn} = COALESCE(${timestampColumn}, ?)`);
+                params.push(now);
+            }
+            if (targetState === KITCHEN_OPERATIONAL_STATES.DELIVERED) {
+                assignments.push("estado = 'entregada'");
+            }
+            if (targetState === KITCHEN_OPERATIONAL_STATES.CANCELLED) {
+                assignments.push('motivo = COALESCE(?, motivo)');
+                params.push(reason);
+            }
+            params.push(comandaId, expectedVersion);
+
+            const updated = await tx.run(`
+                UPDATE comandas
+                SET ${assignments.join(', ')}
+                WHERE id = ? AND version = ?
+            `, params);
+            if (Number(updated.changes || 0) !== 1) {
+                throw new ConflictError('La comanda cambió durante la actualización', {
+                    code: 'KITCHEN_VERSION_CONFLICT',
+                    comandaId,
+                    expectedVersion
+                });
+            }
+
+            await tx.run(`
+                INSERT INTO historial_comandas (
+                    comanda_id, evento, estado_anterior, estado_nuevo,
+                    usuario_id, usuario_nombre_snapshot, detalle, fecha
+                ) VALUES (?, 'estado_operativo', ?, ?, ?, ?, ?, ?)
+            `, [
+                comandaId,
+                currentState,
+                targetState,
+                actor.id,
+                actor.nombre,
+                reason ? JSON.stringify({ motivo: reason }) : null,
+                now
+            ]);
+
+            return this.getComanda(comandaId, tx);
+        });
     }
 
     async resend(input = {}) {
@@ -707,10 +1056,10 @@ class KitchenService {
                     destino, estado_operativo, estado_impresion,
                     usuario_solicitante_id, usuario_solicitante_nombre_snapshot,
                     numero_cuenta_snapshot, mesa_numero_snapshot, mesa_tipo_snapshot,
-                    zona_id_snapshot, zona_nombre_snapshot, solicitada_en,
-                    motivo, origen, version
+                    zona_id_snapshot, zona_nombre_snapshot, solicitada_en, actualizada_en,
+                    prioridad, motivo, origen, version
                 ) VALUES (?, ?, NULL, 'pendiente', ?, ?, ?, ?, ?, 'pendiente', 'pendiente',
-                          ?, ?, ?, ?, ?, ?, ?, ?, ?, 'normalizada', 1)
+                          ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'normalizada', 1)
             `, [
                 source.mesa_id,
                 JSON.stringify(source.productos_cocina),
@@ -727,11 +1076,12 @@ class KitchenService {
                 source.zona_id_snapshot,
                 source.zona_nombre_snapshot,
                 now,
+                now,
                 reason
             ]);
 
             for (const item of source.items) {
-                await tx.run(`
+                const itemResult = await tx.run(`
                     INSERT INTO comanda_items (
                         comanda_id, pedido_producto_id, producto_id, presentacion_id,
                         cantidad_delta, cantidad_resultante_snapshot, tipo_cambio,
@@ -760,6 +1110,22 @@ class KitchenService {
                     reason,
                     now
                 ]);
+                const snapshot = serializeItemSnapshot(item, {
+                    cantidad: Number(item.cantidad_resultante_snapshot || 0),
+                    destino: source.destino || KITCHEN_DESTINATIONS.KITCHEN
+                });
+                await this.recordItemHistory({
+                    commandId: command.id,
+                    commandItemId: itemResult.id,
+                    lineId: item.pedido_producto_id || null,
+                    event: KITCHEN_CHANGE_TYPES.RESEND,
+                    changeType: item.tipo_cambio || KITCHEN_CHANGE_TYPES.RESEND,
+                    before: snapshot,
+                    after: snapshot,
+                    reason,
+                    actor: requester,
+                    now
+                }, tx);
             }
 
             await tx.run(`
@@ -815,5 +1181,6 @@ module.exports.KITCHEN_DESTINATIONS = KITCHEN_DESTINATIONS;
 module.exports.KITCHEN_CHANGE_TYPES = KITCHEN_CHANGE_TYPES;
 module.exports.KITCHEN_OPERATIONAL_STATES = KITCHEN_OPERATIONAL_STATES;
 module.exports.KITCHEN_PRINT_STATES = KITCHEN_PRINT_STATES;
+module.exports.KITCHEN_STATE_TRANSITIONS = KITCHEN_STATE_TRANSITIONS;
 module.exports.normalizeDestination = normalizeDestination;
 module.exports.normalizeAdditionalItems = normalizeAdditionalItems;
