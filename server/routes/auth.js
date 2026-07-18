@@ -662,9 +662,16 @@ function buildOperationalSession(req, user, rolesTrabajo = [], options = {}) {
         : normalizeCodes(activeRoles.flatMap(role => (role.capacidades || []).map(item => item.codigo || item)));
     syncSessionCapabilities(req, capabilities);
 
-    const onlyCashRoles = activeRoles.length > 0
-        && activeRoles.every(role => String(role.destino_inicial || '').toLowerCase() === 'cash');
-    const initialDestination = onlyCashRoles ? 'cash' : 'dashboard';
+    const roleDestinations = [...new Set(activeRoles
+        .map(role => String(role.destino_inicial || '').trim().toLowerCase())
+        .filter(Boolean))];
+    const initialDestination = roleDestinations.length === 1
+        ? roleDestinations[0]
+        : 'dashboard';
+    const kitchenDestinations = [...new Set(activeRoles
+        .map(role => String(role.slug || '').trim().toLowerCase())
+        .filter(slug => slug === 'cocina')
+        .map(() => 'cocina'))];
 
     return {
         activa: canOperate,
@@ -677,6 +684,7 @@ function buildOperationalSession(req, user, rolesTrabajo = [], options = {}) {
         roles_disponibles: selectableRoles,
         capacidades: capabilities,
         destino_inicial: initialDestination,
+        destinos_kitchen: kitchenDestinations,
         mensaje: blockedWithoutRole
             ? 'Este usuario no tiene un rol de trabajo activo disponible. Un administrador debe asignarlo antes de operar.'
             : null
@@ -689,6 +697,8 @@ function buildUserPayload(req, user, rolesTrabajo = [], operationalSession = nul
         id: Number(user.id || req.session.userId),
         nombre: user.nombre || req.session.userName,
         tipo: user.tipo || req.session.userType,
+        clase_cuenta: user.clase_cuenta || req.session.userAccountClass || 'humana',
+        cuenta_departamental_codigo: user.cuenta_departamental_codigo || req.session.userDepartmentCode || null,
         roles_trabajo: rolesTrabajo,
         capacidades: sessionPayload.capacidades || [],
         destino_inicial: sessionPayload.destino_inicial || 'dashboard',
@@ -818,6 +828,8 @@ router.post('/login', async (req, res) => {
         req.session.userName = user.nombre;
         req.session.userNombre = user.nombre; // compatibilidad con código viejo
         req.session.userType = user.tipo;
+        req.session.userAccountClass = user.clase_cuenta || 'humana';
+        req.session.userDepartmentCode = user.cuenta_departamental_codigo || null;
 
         const rolesTrabajo = await getUserWorkRoles(user.id);
         const sesionOperativa = buildOperationalSession(req, user, rolesTrabajo, { resetSelection: true });
@@ -874,7 +886,9 @@ router.get('/verify', async (req, res) => {
             const user = {
                 id: req.session.userId,
                 nombre: req.session.userName,
-                tipo: req.session.userType
+                tipo: req.session.userType,
+                clase_cuenta: req.session.userAccountClass || 'humana',
+                cuenta_departamental_codigo: req.session.userDepartmentCode || null
             };
             const rolesTrabajo = await getUserWorkRoles(req.session.userId);
             const sesionOperativa = buildOperationalSession(req, user, rolesTrabajo);

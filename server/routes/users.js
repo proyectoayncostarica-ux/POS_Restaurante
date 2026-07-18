@@ -58,7 +58,7 @@ function mapWorkRolesToUsers(users = [], links = []) {
 
 async function getUsersWithWorkRoles(whereSql = '', params = []) {
     const users = await database.all(`
-        SELECT id, nombre, tipo, activo, fecha_creacion
+        SELECT id, nombre, tipo, clase_cuenta, cuenta_departamental_codigo, activo, fecha_creacion
         FROM usuarios
         ${whereSql}
         ORDER BY fecha_creacion DESC
@@ -133,6 +133,7 @@ async function getAvailableWorkRoles() {
         FROM roles_trabajo rt
         LEFT JOIN rol_trabajo_zonas rtz ON rtz.rol_trabajo_id = rt.id
         LEFT JOIN zonas z ON z.id = rtz.zona_id
+        WHERE NOT (COALESCE(rt.es_sistema, 0) = 1 AND rt.slug = 'cocina')
         GROUP BY rt.id
         ORDER BY rt.activo DESC, rt.nombre ASC
     `);
@@ -196,6 +197,18 @@ async function validateUserWorkRoles(tipo, rawRoleIds = []) {
     return { roleIds };
 }
 
+async function getKitchenSystemRoleId() {
+    const role = await database.get(`
+        SELECT id
+        FROM roles_trabajo
+        WHERE slug = 'cocina'
+          AND activo = 1
+          AND COALESCE(es_sistema, 0) = 1
+        LIMIT 1
+    `);
+    return Number(role?.id || 0) || null;
+}
+
 async function replaceUserWorkRoles(userId, roleIds = []) {
     await database.run('DELETE FROM usuario_roles_trabajo WHERE usuario_id = ?', [userId]);
 
@@ -233,7 +246,8 @@ router.get('/work-roles', requireAdmin, async (req, res) => {
 router.get('/stats/summary', requireAdmin, async (req, res) => {
     try {
         const totalUsuarios = await database.get('SELECT COUNT(*) as count FROM usuarios WHERE activo = 1');
-        const usuariosBasicos = await database.get('SELECT COUNT(*) as count FROM usuarios WHERE tipo = ? AND activo = 1', ['basico']);
+        const usuariosBasicos = await database.get("SELECT COUNT(*) as count FROM usuarios WHERE tipo = 'basico' AND COALESCE(clase_cuenta, 'humana') = 'humana' AND activo = 1");
+        const cuentasDepartamentales = await database.get("SELECT COUNT(*) as count FROM usuarios WHERE COALESCE(clase_cuenta, 'humana') = 'departamental'");
         const administradores = await database.get('SELECT COUNT(*) as count FROM usuarios WHERE tipo = ? AND activo = 1', ['administrador']);
         const usuariosConRoles = await database.get(`
             SELECT COUNT(DISTINCT u.id) AS count
@@ -246,6 +260,7 @@ router.get('/stats/summary', requireAdmin, async (req, res) => {
             SELECT COUNT(*) AS count
             FROM usuarios u
             WHERE u.tipo = 'basico'
+              AND COALESCE(u.clase_cuenta, 'humana') = 'humana'
               AND u.activo = 1
               AND NOT EXISTS (
                   SELECT 1
@@ -256,7 +271,7 @@ router.get('/stats/summary', requireAdmin, async (req, res) => {
         `);
 
         const ultimosUsuarios = await database.all(`
-            SELECT nombre, tipo, fecha_creacion
+            SELECT nombre, tipo, clase_cuenta, cuenta_departamental_codigo, fecha_creacion
             FROM usuarios
             WHERE activo = 1
             ORDER BY fecha_creacion DESC
@@ -268,6 +283,7 @@ router.get('/stats/summary', requireAdmin, async (req, res) => {
             data: {
                 total_usuarios: totalUsuarios.count,
                 usuarios_basicos: usuariosBasicos.count,
+                cuentas_departamentales: cuentasDepartamentales.count,
                 administradores: administradores.count,
                 usuarios_con_roles: usuariosConRoles.count,
                 usuarios_estandar_sin_roles: usuariosEstandarSinRoles.count,
@@ -417,8 +433,19 @@ router.put('/:id', requireAdmin, async (req, res) => {
         const { id } = req.params;
         const nombre = normalizeString(req.body?.nombre);
         const password = String(req.body?.password || '');
-        const tipo = normalizeUserType(req.body?.tipo);
+        let tipo = normalizeUserType(req.body?.tipo);
         const activo = req.body?.activo !== undefined ? Number(req.body.activo) : 1;
+
+        // Verificar que el usuario existe antes de resolver reglas especiales.
+        const usuario = await database.get('SELECT * FROM usuarios WHERE id = ?', [id]);
+        if (!usuario) {
+            return res.status(404).json({ error: 'Usuario no encontrado' });
+        }
+
+        const isDepartmental = String(usuario.clase_cuenta || 'humana') === 'departamental';
+        if (isDepartmental) {
+            tipo = 'basico';
+        }
 
         if (!nombre || !tipo) {
             return res.status(400).json({ error: 'Nombre y rol de sistema son requeridos' });
@@ -428,15 +455,21 @@ router.put('/:id', requireAdmin, async (req, res) => {
             return res.status(400).json({ error: 'Rol de sistema inválido' });
         }
 
-        const rolValidation = await validateUserWorkRoles(tipo, req.body?.roles_trabajo_ids || req.body?.role_ids || req.body?.rol_trabajo_ids);
-        if (rolValidation.error) {
-            return res.status(400).json({ error: rolValidation.error });
-        }
-
-        // Verificar que el usuario existe
-        const usuario = await database.get('SELECT * FROM usuarios WHERE id = ?', [id]);
-        if (!usuario) {
-            return res.status(404).json({ error: 'Usuario no encontrado' });
+        let rolValidation;
+        if (isDepartmental) {
+            const kitchenRoleId = await getKitchenSystemRoleId();
+            if (!kitchenRoleId) {
+                return res.status(409).json({ error: 'El rol departamental de Cocina no está disponible' });
+            }
+            rolValidation = { roleIds: [kitchenRoleId] };
+        } else {
+            rolValidation = await validateUserWorkRoles(
+                tipo,
+                req.body?.roles_trabajo_ids || req.body?.role_ids || req.body?.rol_trabajo_ids
+            );
+            if (rolValidation.error) {
+                return res.status(400).json({ error: rolValidation.error });
+            }
         }
 
         // No permitir que el usuario se desactive a sí mismo
@@ -479,6 +512,8 @@ router.put('/:id', requireAdmin, async (req, res) => {
             req.session.userName = nombre;
             req.session.userNombre = nombre;
             req.session.userType = tipo;
+            req.session.userAccountClass = usuario.clase_cuenta || 'humana';
+            req.session.userDepartmentCode = usuario.cuenta_departamental_codigo || null;
         }
 
         // Registrar en historial
@@ -508,6 +543,12 @@ router.delete('/:id', requireAdmin, async (req, res) => {
         const usuario = await database.get('SELECT * FROM usuarios WHERE id = ?', [id]);
         if (!usuario) {
             return res.status(404).json({ error: 'Usuario no encontrado' });
+        }
+
+        if (String(usuario.clase_cuenta || 'humana') === 'departamental') {
+            return res.status(400).json({
+                error: 'Las cuentas departamentales no se eliminan. Puedes bloquearlas desde Editar Usuario.'
+            });
         }
 
         // No permitir que el usuario se elimine a sí mismo

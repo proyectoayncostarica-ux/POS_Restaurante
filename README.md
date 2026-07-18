@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.3.1 · Trazabilidad operativa de comandas
+- **Línea de trabajo actual:** v3.3.2 · Cuenta departamental y UI/UX de Kitchen
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -1419,3 +1419,16 @@ Documento técnico:
 - `docs/avance-v3.3.1-trazabilidad-comandas.md`
 
 La siguiente fase es `v3.3.2 · Cuenta departamental y UI/UX de Kitchen`, después de la validación operativa y publicación segura de `v3.3.1`.
+
+
+## 33. Cuenta departamental y UI/UX de Kitchen · v3.3.2
+
+`v3.3.2` incorpora una cuenta departamental de Cocina provisionada de forma idempotente, inicialmente bloqueada y sin credenciales predeterminadas expuestas. El rol de sistema `Cocina` conserva únicamente `kitchen.operate`, no requiere zona y dirige la sesión exclusivamente a `Kitchen`.
+
+El tablero visual consume el read model persistente de `v3.3.1`, muestra mesa/banco, zona, hora, tiempo transcurrido, solicitante humano, producto, cantidad, presentación, adicionales e indicaciones especiales. Las acciones de preparación usan control de versión y el estado visual permanece separado de Printing.
+
+La cuenta departamental puede activarse, bloquearse o recibir una nueva contraseña desde Usuarios, pero no puede adquirir otros roles ni eliminarse como un usuario humano.
+
+Documento de avance: `docs/avance-v3.3.2-cuenta-departamental-ui-kitchen.md`.
+
+Siguiente fase: `v3.4.0 · Núcleo y cola de Printing`, después de validar operativamente y publicar `v3.3.2`.

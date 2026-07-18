@@ -10,6 +10,7 @@
         orders: 'orders.operate',
         accounts: 'orders.operate',
         cash: 'cash.access',
+        kitchen: 'kitchen.operate',
         users: '__admin__',
         settings: '__admin__'
     });
@@ -54,6 +55,11 @@
         const session = user?.sesion_operativa || {};
         const activeRoles = Array.isArray(session.roles_trabajo_activos) ? session.roles_trabajo_activos : [];
         const admin = isAdmin(user);
+        const accountClass = String(user?.clase_cuenta || supplied.accountClass || supplied.account_class || 'humana').trim().toLowerCase();
+        const departmentCode = String(
+            user?.cuenta_departamental_codigo || supplied.departmentCode || supplied.department_code || ''
+        ).trim().toLowerCase() || null;
+        const departmental = accountClass === 'departamental';
         const capabilities = normalizeCodes(
             supplied.capabilities || supplied.capacidades || user?.capacidades || session.capacidades || []
         );
@@ -69,11 +75,18 @@
         return {
             userId: Number(user?.id || supplied.userId || 0) || null,
             isAdmin: admin,
+            isDepartmental: departmental,
+            accountClass,
+            departmentCode,
             capabilities,
-            zoneIds: admin ? null : zoneIds,
+            zoneIds: (admin || departmental) ? null : zoneIds,
             allowedSections,
             initialSection: supplied.initialSection || supplied.initial_section || user?.destino_inicial || session.destino_inicial || 'dashboard'
         };
+    }
+
+    function isDepartmentalAccount(user) {
+        return buildPolicy(user).isDepartmental === true;
     }
 
     function has(policyOrUser, capabilityCode) {
@@ -152,6 +165,7 @@
         SECTION_REQUIREMENTS,
         REALTIME_SCOPE_RULES,
         buildPolicy,
+        isDepartmentalAccount,
         has,
         hasAny,
         canOpen,

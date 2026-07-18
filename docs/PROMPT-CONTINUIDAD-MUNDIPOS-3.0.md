@@ -1,8 +1,8 @@
 # Prompt de continuidad canónico · MundiPOS 3.0
 
 **Actualizado:** 17 de julio de 2026
-**Estado funcional preparado para validación:** `v3.3.1`
-**Próxima fase funcional tras validación:** `v3.3.2 · Cuenta departamental y UI/UX de Kitchen`
+**Estado funcional preparado para validación:** `v3.3.2`
+**Próxima fase funcional tras validación:** `v3.4.0 · Núcleo y cola de Printing`
 **Repositorio local activo:** `C:\Repos\POS_Restaurante`
 
 > **Uso en un nuevo chat:** adjunta este archivo junto con un ZIP nuevo del repositorio actual y pega la sección **“Prompt listo para usar”** como primer mensaje. Este documento reemplaza el prompt de continuidad anterior. Conserva sus contratos útiles, corrige su estado obsoleto e incorpora la recuperación, normalización y limpieza realizadas el 17 de julio de 2026.
@@ -1508,3 +1508,39 @@ La siguiente fase, únicamente después de pruebas, validación operativa y Git 
 ```text
 v3.3.2 · Cuenta departamental y UI/UX de Kitchen
 ```
+
+
+# 22. Estado implementado para validación · v3.3.2 Cuenta departamental y UI/UX de Kitchen
+
+`v3.3.2` agrega la cuenta departamental de Cocina y el tablero visual operativo sin adelantar el dominio Printing.
+
+Contratos añadidos:
+
+- una cuenta departamental no representa a una persona ni puede asumir responsabilidad financiera o de mesa;
+- la cuenta `Cocina` se provisiona idempotentemente, queda inactiva hasta que un administrador defina una contraseña y la active, y no expone credenciales predeterminadas;
+- su único rol es el rol de sistema `Cocina`, sin zona obligatoria y con la única capacidad `kitchen.operate`;
+- su navegación inicial y exclusiva es `Kitchen`;
+- el solicitante humano original permanece inmutable en la comanda;
+- las acciones de estado se auditan con la identidad de la estación departamental;
+- el tablero visual es persistente e independiente de Printing.
+
+El tablero muestra hora, tiempo transcurrido, mesa/banco, zona, solicitante humano, producto, cantidad, presentación, adicionales, observaciones, destino y tipo de cambio. Realtime actualiza la vista activa y muestra el estado de reconexión; un refresco periódico sirve únicamente como recuperación.
+
+Archivos centrales:
+
+```text
+server/db/database.js
+server/routes/auth.js
+server/routes/users.js
+server/services/operationalAccessService.js
+public/js/services/operational-access.js
+public/js/components/kitchen.js
+public/js/components/users.js
+public/js/main.js
+public/css/style.css
+public/index.html
+```
+
+Documento de avance: `docs/avance-v3.3.2-cuenta-departamental-ui-kitchen.md`.
+
+La siguiente fase es `v3.4.0 · Núcleo y cola de Printing` únicamente después de pruebas específicas, suite completa, validación operativa y Git seguro de `v3.3.2`.

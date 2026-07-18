@@ -853,3 +853,16 @@ La mutación `PUT /api/kitchen/comandas/:id/state` exige versión esperada y reg
 Documento de avance: `docs/avance-v3.3.1-trazabilidad-comandas.md`.
 
 Siguiente fase: `v3.3.2 · Cuenta departamental y UI/UX de Kitchen`, después de validar y publicar `v3.3.1`.
+
+
+## v3.3.2 · Cuenta departamental y UI/UX de Kitchen
+
+Se incorpora la identidad departamental `Cocina`, diferenciada de las cuentas humanas mediante `usuarios.clase_cuenta` y `cuenta_departamental_codigo`. La cuenta se provisiona inactiva con secreto aleatorio no expuesto, usa únicamente el rol de sistema `Cocina` y la capacidad `kitchen.operate`.
+
+La navegación inicial y única de esta cuenta es `Kitchen`. El frontend activa un modo exclusivo sin header operativo, sidebar, Dashboard, Mesas, Cuentas, Caja, Menú, Usuarios ni Configuración. El tablero presenta órdenes persistentes en columnas Pendientes, En preparación y Listas, con actualización realtime, reconexión visible y refresco de respaldo.
+
+El administrador conserva control para activar/bloquear la cuenta y establecer una nueva contraseña. El backend impide eliminar la cuenta departamental o asignarle roles distintos de Cocina.
+
+Documento de avance: `docs/avance-v3.3.2-cuenta-departamental-ui-kitchen.md`.
+
+Siguiente fase: `v3.4.0 · Núcleo y cola de Printing`, después de validar y publicar `v3.3.2`.

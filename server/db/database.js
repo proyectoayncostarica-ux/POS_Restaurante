@@ -1,10 +1,12 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { AsyncLocalStorage } = require('async_hooks');
 const { APP_VERSION } = require('../config/appInfo');
 const {
+    CAPABILITIES,
     CAPABILITY_DEFINITIONS,
     CASHIER_CAPABILITIES,
     LEGACY_ROLE_BACKFILL
@@ -73,6 +75,8 @@ class Database {
                 nombre TEXT NOT NULL UNIQUE,
                 password TEXT NOT NULL,
                 tipo TEXT NOT NULL CHECK(tipo IN ('basico', 'administrador')),
+                clase_cuenta TEXT NOT NULL DEFAULT 'humana' CHECK(clase_cuenta IN ('humana', 'departamental')),
+                cuenta_departamental_codigo TEXT,
                 activo INTEGER NOT NULL DEFAULT 1,
                 fecha_creacion TEXT NOT NULL
             )`,
@@ -794,6 +798,20 @@ class Database {
     async migrateSchema() {
         await this.ensureColumn('usuarios', 'activo', "INTEGER NOT NULL DEFAULT 1");
         await this.ensureColumn('usuarios', 'fecha_creacion', "TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP");
+        await this.ensureColumn('usuarios', 'clase_cuenta', "TEXT NOT NULL DEFAULT 'humana'");
+        await this.ensureColumn('usuarios', 'cuenta_departamental_codigo', 'TEXT');
+        await this.run(`
+            UPDATE usuarios
+            SET clase_cuenta = 'humana'
+            WHERE clase_cuenta IS NULL
+               OR TRIM(clase_cuenta) = ''
+               OR clase_cuenta NOT IN ('humana', 'departamental')
+        `);
+        await this.run(`
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_usuarios_departamento_codigo
+            ON usuarios(cuenta_departamental_codigo)
+            WHERE cuenta_departamental_codigo IS NOT NULL
+        `);
 
         await this.ensureColumn('roles_trabajo', 'requiere_zona', 'INTEGER NOT NULL DEFAULT 1');
         await this.ensureColumn('roles_trabajo', 'es_sistema', 'INTEGER NOT NULL DEFAULT 0');
@@ -2732,8 +2750,95 @@ class Database {
         }
     }
 
+
+    async ensureKitchenDepartmentAccount() {
+        const now = new Date().toISOString();
+
+        let kitchenRole = await this.get("SELECT id FROM roles_trabajo WHERE slug = 'cocina'");
+        if (!kitchenRole) {
+            const result = await this.run(`
+                INSERT INTO roles_trabajo (
+                    nombre, slug, descripcion, activo,
+                    requiere_zona, es_sistema, destino_inicial,
+                    creado_en, actualizado_en
+                ) VALUES (
+                    'Cocina', 'cocina',
+                    'Estación departamental para operar exclusivamente el tablero de Kitchen.',
+                    1, 0, 1, 'kitchen', ?, ?
+                )
+            `, [now, now]);
+            kitchenRole = { id: result.id };
+        } else {
+            await this.run(`
+                UPDATE roles_trabajo
+                SET nombre = 'Cocina',
+                    descripcion = 'Estación departamental para operar exclusivamente el tablero de Kitchen.',
+                    activo = 1,
+                    requiere_zona = 0,
+                    es_sistema = 1,
+                    destino_inicial = 'kitchen',
+                    actualizado_en = ?
+                WHERE id = ?
+            `, [now, kitchenRole.id]);
+        }
+
+        await this.replaceRoleCapabilities(kitchenRole.id, [CAPABILITIES.KITCHEN_OPERATE]);
+
+        let kitchenAccount = await this.get(`
+            SELECT id, nombre, activo
+            FROM usuarios
+            WHERE clase_cuenta = 'departamental'
+              AND cuenta_departamental_codigo = 'cocina'
+            ORDER BY id
+            LIMIT 1
+        `);
+
+        if (!kitchenAccount) {
+            let accountName = 'Cocina';
+            const nameTaken = await this.get(
+                'SELECT id FROM usuarios WHERE LOWER(nombre) = LOWER(?)',
+                [accountName]
+            );
+            if (nameTaken) accountName = 'Cocina Departamental';
+
+            const generatedSecret = crypto.randomBytes(48).toString('base64url');
+            const hashedPassword = await bcrypt.hash(generatedSecret, 12);
+            const result = await this.run(`
+                INSERT INTO usuarios (
+                    nombre, password, tipo, clase_cuenta,
+                    cuenta_departamental_codigo, activo, fecha_creacion
+                ) VALUES (?, ?, 'basico', 'departamental', 'cocina', 0, ?)
+            `, [accountName, hashedPassword, now]);
+            kitchenAccount = { id: result.id, nombre: accountName, activo: 0 };
+        } else {
+            await this.run(`
+                UPDATE usuarios
+                SET tipo = 'basico',
+                    clase_cuenta = 'departamental',
+                    cuenta_departamental_codigo = 'cocina'
+                WHERE id = ?
+            `, [kitchenAccount.id]);
+        }
+
+        await this.run(
+            'DELETE FROM usuario_roles_trabajo WHERE usuario_id = ? AND rol_trabajo_id != ?',
+            [kitchenAccount.id, kitchenRole.id]
+        );
+        await this.run(`
+            INSERT OR IGNORE INTO usuario_roles_trabajo (
+                usuario_id, rol_trabajo_id, creado_en
+            ) VALUES (?, ?, ?)
+        `, [kitchenAccount.id, kitchenRole.id, now]);
+
+        return {
+            userId: Number(kitchenAccount.id),
+            roleId: Number(kitchenRole.id)
+        };
+    }
+
     async insertInitialData() {
         await this.ensureCapabilitiesAndCashierRole();
+        await this.ensureKitchenDepartmentAccount();
 
         const userCount = await this.get('SELECT COUNT(*) as count FROM usuarios');
         if ((!userCount || userCount.count === 0) && this.shouldSeedDemoUser()) {

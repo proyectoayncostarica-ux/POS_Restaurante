@@ -42,6 +42,14 @@ const Users = {
         return tipo === 'administrador' ? 'Administrador' : 'Estándar';
     },
 
+    isDepartmental(user = {}) {
+        return String(user.clase_cuenta || 'humana') === 'departamental';
+    },
+
+    accountClassLabel(user = {}) {
+        return this.isDepartmental(user) ? 'Cuenta departamental' : this.systemRoleLabel(user.tipo);
+    },
+
     roleIdsFromUser(user = {}) {
         return (Array.isArray(user.roles_trabajo) ? user.roles_trabajo : [])
             .map(role => Number(role.id))
@@ -109,6 +117,7 @@ const Users = {
             <div class="users-summary-grid">
                 <span class="badge badge-info">Total: ${this.stats.total_usuarios || 0}</span>
                 <span class="badge badge-success">Estándar: ${this.stats.usuarios_basicos || 0}</span>
+                <span class="badge badge-info">Departamentales: ${this.stats.cuentas_departamentales || 0}</span>
                 <span class="badge badge-warning">Administradores: ${this.stats.administradores || 0}</span>
                 <span class="badge badge-info">Con roles: ${this.stats.usuarios_con_roles || 0}</span>
                 ${Number(this.stats.usuarios_estandar_sin_roles || 0) > 0 ? `<span class="badge badge-danger">Estándar sin roles: ${this.stats.usuarios_estandar_sin_roles}</span>` : ''}
@@ -188,9 +197,10 @@ const Users = {
                                     ${user.id === currentUser.id ? '<span class="badge badge-info">Tú</span>' : ''}
                                 </td>
                                 <td>
-                                    <span class="badge badge-${user.tipo === 'administrador' ? 'warning' : 'info'}">
-                                        ${this.systemRoleLabel(user.tipo)}
+                                    <span class="badge badge-${this.isDepartmental(user) ? 'success' : (user.tipo === 'administrador' ? 'warning' : 'info')}">
+                                        ${this.accountClassLabel(user)}
                                     </span>
+                                    ${this.isDepartmental(user) ? '<small class="user-department-note">Acceso exclusivo a Kitchen</small>' : ''}
                                 </td>
                                 <td>${this.renderWorkRoleChips(user)}</td>
                                 <td>
@@ -204,7 +214,7 @@ const Users = {
                                         <button class="btn btn-secondary btn-sm" onclick="Users.showEditUserModal(${Number(user.id)})">
                                             <i class="fas fa-edit"></i>
                                         </button>
-                                        ${user.id !== currentUser.id ? `
+                                        ${user.id !== currentUser.id && !this.isDepartmental(user) ? `
                                             <button class="btn btn-danger btn-sm" onclick="Users.deleteUser(${Number(user.id)})">
                                                 <i class="fas fa-trash"></i>
                                             </button>
@@ -422,8 +432,9 @@ const Users = {
     showEditUserModal(userId) {
         const user = this.users.find(u => Number(u.id) === Number(userId));
         if (!user) return;
+        const isDepartmental = this.isDepartmental(user);
 
-        Utils.showModal('Editar Usuario', `
+        Utils.showModal(isDepartmental ? 'Configurar Cuenta de Cocina' : 'Editar Usuario', `
             <form id="edit-user-form">
                 <div class="form-group">
                     <label for="edit-user-nombre">Nombre de Usuario *</label>
@@ -434,14 +445,22 @@ const Users = {
                     <input type="password" id="edit-user-password" name="password" minlength="6">
                     <small class="text-muted">Dejar en blanco para mantener la contraseña actual</small>
                 </div>
-                <div class="form-group">
-                    <label for="edit-user-tipo">Rol de sistema *</label>
-                    <select id="edit-user-tipo" name="tipo" required onchange="Users.syncWorkRoleHint('edit-user-form')">
-                        <option value="basico" ${user.tipo === 'basico' ? 'selected' : ''}>Usuario Estándar</option>
-                        <option value="administrador" ${user.tipo === 'administrador' ? 'selected' : ''}>Administrador</option>
-                    </select>
-                </div>
-                ${this.renderWorkRolePicker(this.roleIdsFromUser(user), 'edit-user-form')}
+                ${isDepartmental ? `
+                    <input type="hidden" name="tipo" value="basico">
+                    <div class="users-workrole-note ok compact">
+                        <i class="fas fa-fire-burner"></i>
+                        <span>Cuenta departamental de Cocina. Su acceso está limitado al tablero Kitchen y su rol operativo no puede cambiarse.</span>
+                    </div>
+                ` : `
+                    <div class="form-group">
+                        <label for="edit-user-tipo">Rol de sistema *</label>
+                        <select id="edit-user-tipo" name="tipo" required onchange="Users.syncWorkRoleHint('edit-user-form')">
+                            <option value="basico" ${user.tipo === 'basico' ? 'selected' : ''}>Usuario Estándar</option>
+                            <option value="administrador" ${user.tipo === 'administrador' ? 'selected' : ''}>Administrador</option>
+                        </select>
+                    </div>
+                    ${this.renderWorkRolePicker(this.roleIdsFromUser(user), 'edit-user-form')}
+                `}
                 <div class="form-group">
                     <label>
                         <input type="checkbox" id="edit-user-activo" name="activo" ${user.activo ? 'checked' : ''}>
@@ -486,7 +505,8 @@ const Users = {
             roles_trabajo_ids: this.getSelectedWorkRoleIds(form)
         };
 
-        if (data.tipo === 'basico' && data.roles_trabajo_ids.length === 0) {
+        const user = this.users.find(item => Number(item.id) === Number(userId));
+        if (!this.isDepartmental(user) && data.tipo === 'basico' && data.roles_trabajo_ids.length === 0) {
             Utils.showNotification('Los usuarios estándar deben tener al menos un rol operativo', 'warning');
             return;
         }

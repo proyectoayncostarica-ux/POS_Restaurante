@@ -14,7 +14,7 @@
     <meta name="msapplication-starturl" content="/POS/">
     <title>MundiPOS</title>
     <link rel="manifest" href="/POS/manifest.webmanifest">
-    <link rel="stylesheet" href="/POS/css/style.css?v=3.3.1-kitchen-traceability">
+    <link rel="stylesheet" href="/POS/css/style.css?v=3.3.2-kitchen-ui">
     <link rel="icon" href="/POS/favicon.ico" type="image/x-icon">
     <link rel="shortcut icon" href="/POS/favicon.ico" type="image/x-icon">
     <link rel="apple-touch-icon" href="/POS/assets/icons/mundipos-icon-180.png">
@@ -196,6 +196,12 @@
             </a>
         </li>
         <li class="nav-item">
+            <a href="#" data-section="kitchen" class="nav-link">
+                <i class="fas fa-fire-burner"></i>
+                <span>Kitchen</span>
+            </a>
+        </li>
+        <li class="nav-item">
             <a href="#" data-section="users" class="nav-link">
                 <i class="fas fa-users"></i>
                 <span>Usuarios</span>
@@ -335,6 +341,10 @@
                 <!-- Contenido autorizado de Caja -->
             </section>
 
+            <section id="kitchen-section" class="content-section">
+                <!-- Tablero operativo Kitchen -->
+            </section>
+
             <section id="users-section" class="content-section">
                 <!-- Contenido de usuarios -->
             </section>
@@ -359,15 +369,16 @@
     </div>
 
     <!-- Scripts -->
-    <script src="js/services/operational-access.js?v=3.3.1-kitchen-traceability"></script>
-    <script src="js/main.js?v=3.3.1-kitchen-traceability"></script>
-    <script src="js/components/dashboard.js?v=3.3.1-kitchen-traceability"></script>
-    <script src="js/components/tables.js?v=3.3.1-kitchen-traceability"></script>
-    <script src="js/components/menu.js?v=3.3.1-kitchen-traceability"></script>
-    <script src="js/components/orders.js?v=3.3.1-kitchen-traceability"></script>
-    <script src="js/components/accounts.js?v=3.3.1-kitchen-traceability"></script>
-    <script src="js/components/cash.js?v=3.3.1-kitchen-traceability"></script>
-    <script src="js/components/users.js?v=3.3.1-kitchen-traceability"></script>
-    <script src="js/components/settings.js?v=3.3.1-kitchen-traceability"></script>
+    <script src="js/services/operational-access.js?v=3.3.2-kitchen-ui"></script>
+    <script src="js/main.js?v=3.3.2-kitchen-ui"></script>
+    <script src="js/components/dashboard.js?v=3.3.2-kitchen-ui"></script>
+    <script src="js/components/tables.js?v=3.3.2-kitchen-ui"></script>
+    <script src="js/components/menu.js?v=3.3.2-kitchen-ui"></script>
+    <script src="js/components/orders.js?v=3.3.2-kitchen-ui"></script>
+    <script src="js/components/accounts.js?v=3.3.2-kitchen-ui"></script>
+    <script src="js/components/cash.js?v=3.3.2-kitchen-ui"></script>
+    <script src="js/components/kitchen.js?v=3.3.2-kitchen-ui"></script>
+    <script src="js/components/users.js?v=3.3.2-kitchen-ui"></script>
+    <script src="js/components/settings.js?v=3.3.2-kitchen-ui"></script>
 </body>
 </html>

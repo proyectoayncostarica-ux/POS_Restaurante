@@ -31,6 +31,11 @@ const Access = {
     },
 
     applyNavigation() {
+        const policy = this.getPolicy();
+        const departmentalKitchen = policy.isDepartmental && policy.departmentCode === 'cocina';
+        document.body.classList.toggle('kitchen-department-mode', Boolean(departmentalKitchen));
+        document.getElementById('main-app')?.classList.toggle('kitchen-exclusive-app', Boolean(departmentalKitchen));
+
         document.querySelectorAll('[data-section]').forEach(link => {
             const section = link.getAttribute('data-section');
             const item = link.closest('.nav-item') || link;
@@ -458,9 +463,12 @@ const Auth = {
 
                 Utils.showNotification('Sesión iniciada correctamente', 'success');
 
-                // Cargar datos del dashboard y activar autorefresco
-                Dashboard.refreshData();
-                Dashboard.startAutoRefresh();
+                if (Access.canOpen('dashboard')) {
+                    Dashboard.refreshData();
+                    Dashboard.startAutoRefresh();
+                } else {
+                    Dashboard.stopAutoRefresh();
+                }
                 Realtime.reconnectForSession();
 
                 return true;
@@ -504,7 +512,9 @@ const Auth = {
         if (operationalScreen) operationalScreen.style.display = 'none';
         stopHeaderClock();
         Realtime.disconnect();
-        document.body.classList.remove('has-mobile-subnav');
+        if (typeof Kitchen !== 'undefined') Kitchen.stopTimers();
+        document.body.classList.remove('has-mobile-subnav', 'kitchen-department-mode');
+        document.getElementById('main-app')?.classList.remove('kitchen-exclusive-app');
         document.getElementById('mobile-subnav')?.classList.remove('is-visible');
         resetLoginForm();
         setLoginMode('login');
@@ -1363,6 +1373,9 @@ const Navigation = {
                 case 'cash':
                     await Cash.load();
                     break;
+                case 'kitchen':
+                    if (typeof Kitchen !== 'undefined') await Kitchen.load({ source: 'navigation' });
+                    break;
                 case 'users':
                     await Users.load();
                     break;
@@ -1667,10 +1680,13 @@ const Realtime = {
 
         this.source.addEventListener('connected', (event) => {
             this.isConnected = true;
+            if (typeof Kitchen !== 'undefined') Kitchen.updateConnectionStatus(true);
             this.handleServerEvent(event, false);
         });
 
         this.source.addEventListener('heartbeat', (event) => {
+            this.isConnected = true;
+            if (typeof Kitchen !== 'undefined') Kitchen.updateConnectionStatus(true);
             this.handleServerEvent(event, false);
         });
 
@@ -1680,6 +1696,7 @@ const Realtime = {
 
         this.source.onerror = () => {
             this.isConnected = false;
+            if (typeof Kitchen !== 'undefined') Kitchen.updateConnectionStatus(false);
             this.scheduleReconnect();
         };
     },
@@ -1701,6 +1718,7 @@ const Realtime = {
         }
 
         this.isConnected = false;
+        if (typeof Kitchen !== 'undefined') Kitchen.updateConnectionStatus(false);
     },
 
     scheduleReconnect() {
@@ -1804,6 +1822,11 @@ const Realtime = {
 
             if (currentSection === 'cash' && typeof Cash !== 'undefined') {
                 await Cash.load({ source: 'realtime', payload });
+                return;
+            }
+
+            if (currentSection === 'kitchen' && typeof Kitchen !== 'undefined') {
+                await Kitchen.load({ source: 'realtime', payload, silent: true });
                 return;
             }
 

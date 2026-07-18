@@ -14,6 +14,7 @@ const SECTION_REQUIREMENTS = Object.freeze({
     orders: CAPABILITIES.ORDERS_OPERATE,
     accounts: CAPABILITIES.ORDERS_OPERATE,
     cash: CAPABILITIES.CASH_ACCESS,
+    kitchen: CAPABILITIES.KITCHEN_OPERATE,
     users: '__admin__',
     settings: '__admin__'
 });
@@ -126,22 +127,43 @@ async function resolveAccessContext(source = {}, db = database, options = {}) {
     const session = source.session || source;
     const userId = Number(session.userId || source.userId || 0) || null;
     const userType = String(session.userType || source.userType || '').trim().toLowerCase();
+    const accountClass = String(
+        session.userAccountClass
+        || source.accountClass
+        || source.clase_cuenta
+        || 'humana'
+    ).trim().toLowerCase();
+    const departmentCode = String(
+        session.userDepartmentCode
+        || source.departmentCode
+        || source.cuenta_departamental_codigo
+        || ''
+    ).trim().toLowerCase() || null;
     const isAdmin = isAdminType(userType);
+    const isDepartmental = accountClass === 'departamental';
     const activeRoleIds = getSessionRoleIds(session);
     const capabilities = isAdmin
         ? allCapabilityCodes()
         : await getCapabilitiesForUser({ userId, userType, activeRoleIds }, db);
-    const zoneIds = await getPermittedZoneIds({ userId, userType, activeRoleIds }, db);
+    const zoneIds = isDepartmental
+        ? null
+        : await getPermittedZoneIds({ userId, userType, activeRoleIds }, db);
 
     const context = {
         userId,
         userType,
+        accountClass,
+        departmentCode,
         isAdmin,
+        isDepartmental,
         activeRoleIds,
         capabilities: normalizeCodes(capabilities),
         zoneIds,
         kitchenDestinations: normalizeKitchenDestinations(
-            session.kitchenDestinations || session.destinosKitchen || session.destinos_kitchen || []
+            session.kitchenDestinations
+            || session.destinosKitchen
+            || session.destinos_kitchen
+            || (departmentCode === 'cocina' ? ['cocina'] : [])
         ),
         resolvedAt: new Date().toISOString()
     };
@@ -155,14 +177,19 @@ async function resolveAccessContext(source = {}, db = database, options = {}) {
 
 function buildPolicyFromOperationalSession(user = {}, operationalSession = {}) {
     const userType = String(user.tipo || user.userType || '').trim().toLowerCase();
+    const accountClass = String(user.clase_cuenta || user.accountClass || 'humana').trim().toLowerCase();
+    const departmentCode = String(
+        user.cuenta_departamental_codigo || user.departmentCode || ''
+    ).trim().toLowerCase() || null;
     const isAdmin = isAdminType(userType);
+    const isDepartmental = accountClass === 'departamental';
     const activeRoles = Array.isArray(operationalSession.roles_trabajo_activos)
         ? operationalSession.roles_trabajo_activos
         : [];
     const capabilities = isAdmin
         ? allCapabilityCodes()
         : normalizeCodes(operationalSession.capacidades || user.capacidades || []);
-    const zoneIds = isAdmin ? null : [...new Set(activeRoles.flatMap(role =>
+    const zoneIds = (isAdmin || isDepartmental) ? null : [...new Set(activeRoles.flatMap(role =>
         (Array.isArray(role.zonas) ? role.zonas : [])
             .filter(zone => Number(zone?.activa ?? 1) === 1)
             .map(zone => Number(zone.id))
@@ -172,7 +199,10 @@ function buildPolicyFromOperationalSession(user = {}, operationalSession = {}) {
     const context = {
         userId: Number(user.id || 0) || null,
         userType,
+        accountClass,
+        departmentCode,
         isAdmin,
+        isDepartmental,
         activeRoleIds: normalizeRoleIds(operationalSession.rol_trabajo_ids || activeRoles.map(role => role.id)),
         capabilities,
         zoneIds,
@@ -202,7 +232,7 @@ function canOpenSection(context = {}, sectionName = '') {
 }
 
 function canViewZone(context = {}, zoneId) {
-    if (context.isAdmin) return true;
+    if (context.isAdmin || context.isDepartmental) return true;
     const numericZoneId = Number(zoneId || 0);
     if (!numericZoneId) return false;
     return Array.isArray(context.zoneIds) && context.zoneIds.includes(numericZoneId);
