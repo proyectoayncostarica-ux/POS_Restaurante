@@ -5,7 +5,8 @@ const { ValidationError, NotFoundError } = require('../errors/domainError');
 const DOCUMENT_SEQUENCE_TYPES = Object.freeze({
     PREINVOICE: 'prefactura',
     PAYMENT: 'pago',
-    CREDIT: 'credito'
+    CREDIT: 'credito',
+    KITCHEN: 'comanda'
 });
 
 const DOCUMENT_SEQUENCE_DEFINITIONS = Object.freeze({
@@ -19,6 +20,10 @@ const DOCUMENT_SEQUENCE_DEFINITIONS = Object.freeze({
     }),
     [DOCUMENT_SEQUENCE_TYPES.CREDIT]: Object.freeze({
         prefix: 'CR',
+        padding: 8
+    }),
+    [DOCUMENT_SEQUENCE_TYPES.KITCHEN]: Object.freeze({
+        prefix: 'CMD',
         padding: 8
     })
 });

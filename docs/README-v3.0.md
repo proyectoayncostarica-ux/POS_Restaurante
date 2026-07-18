@@ -810,3 +810,15 @@ Los créditos formalizados pueden mantener saldo en cartera; esto no impide libe
 Documento de avance: `docs/avance-v3.2.5-finalizacion-servicio.md`.
 
 Siguiente fase: `v3.3.0 · Dominio Kitchen / Comandas`.
+
+## v3.3.0 · Dominio Kitchen / Comandas
+
+Orders registra el consumo y solicita preparación. `kitchenService` recalcula desde SQLite qué cantidades de cada `pedido_productos.id` aún deben enviarse, ajustarse o anularse.
+
+La fase incorpora destinos `cocina` y `bar`, números `CMD-########`, ítems normalizados, observaciones, adicionales, solicitante humano, idempotencia, concurrencia y realtime por zona. El estado de impresión no modifica el estado operativo de preparación.
+
+Las columnas y rutas legacy permanecen como adaptadores. No se borra historial y las comandas conservan snapshots aunque la mesa deje de existir operativamente.
+
+Documento de avance: `docs/avance-v3.3.0-kitchen-comandas.md`.
+
+Siguiente fase: `v3.3.1 · Trazabilidad operativa de comandas`, después de validar y publicar `v3.3.0`.

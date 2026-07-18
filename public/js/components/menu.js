@@ -235,12 +235,14 @@ const Menu = {
                     <p class="text-muted">Seleccione primero un tipo/grupo de presentación.</p>
                 </div>
             </div>
-            <div class="form-group" id="contenedor-checkbox-cocina" style="display: none;">
-                <label>
-                    <input type="checkbox" id="product-es-cocina" name="es_cocina" onchange="Menu.validateCocinaCheckbox()">
-                    Es producto de cocina
-                </label>
-                <small class="text-muted">Solo productos de categoría "Comidas" y subcategorías relacionadas pueden marcarse como cocina</small>
+            <div class="form-group" id="contenedor-checkbox-cocina">
+                <label for="product-destino-preparacion">Destino de preparación</label>
+                <select id="product-destino-preparacion" name="destino_preparacion" onchange="Menu.validateCocinaCheckbox()">
+                    <option value="ninguno">No requiere preparación</option>
+                    <option value="cocina">Cocina</option>
+                    <option value="bar">Bar</option>
+                </select>
+                <small class="text-muted">Define a qué área se enviarán las solicitudes de este producto.</small>
                 <div id="cocina-validation-message" class="error-message" style="display: none;"></div>
             </div>
             <div class="form-group">
@@ -273,7 +275,7 @@ const Menu = {
         this.loadSubcategories(categoriaId, 'product-subcategoria');
 
         // Elementos del DOM
-        const checkCocina = document.getElementById("product-es-cocina");
+        const destinoPreparacion = document.getElementById("product-destino-preparacion");
         const contenedorCocina = document.getElementById("contenedor-checkbox-cocina");
 
         const checkPresentaciones = document.getElementById("product-tiene-presentaciones");
@@ -283,7 +285,7 @@ const Menu = {
         if (esComidas) {
             // Mostrar checkbox cocina
             if (contenedorCocina) contenedorCocina.style.display = "block";
-            if (checkCocina) checkCocina.checked = false;
+            if (destinoPreparacion && !destinoPreparacion.value) destinoPreparacion.value = 'ninguno';
 
             // Ocultar presentaciones
             if (checkPresentaciones) checkPresentaciones.checked = false;
@@ -293,8 +295,8 @@ const Menu = {
             if (contenedorSelectPresentaciones) contenedorSelectPresentaciones.style.display = "none";
         } else {
             // Ocultar checkbox cocina
-            if (contenedorCocina) contenedorCocina.style.display = "none";
-            if (checkCocina) checkCocina.checked = false;
+            if (contenedorCocina) contenedorCocina.style.display = "block";
+            if (destinoPreparacion && destinoPreparacion.value === 'cocina') destinoPreparacion.value = 'ninguno';
 
             // Mostrar presentaciones
             if (checkPresentaciones && checkPresentaciones.closest(".form-group"))
@@ -323,10 +325,10 @@ const Menu = {
     validateCocinaCheckbox() {
         const categoriaSelect = document.getElementById('product-categoria');
         const subcategoriaSelect = document.getElementById('product-subcategoria');
-        const cocinaCheckbox = document.getElementById('product-es-cocina');
+        const destinoSelect = document.getElementById('product-destino-preparacion');
         const validationMessage = document.getElementById('cocina-validation-message');
 
-        if (!categoriaSelect || !cocinaCheckbox) return;
+        if (!categoriaSelect || !destinoSelect) return;
 
         const categoria = this.categories.find(cat => cat.id == categoriaSelect.value);
         const subcategoria = subcategoriaSelect ? this.categories.find(cat => cat.id == subcategoriaSelect.value) : null;
@@ -334,17 +336,20 @@ const Menu = {
         const categoriaPermiteCocina = categoria && categoria.permite_cocina;
         const subcategoriaPermiteCocina = subcategoria && subcategoria.permite_cocina;
 
-        if (cocinaCheckbox.checked) {
-            const isValidForCocina = categoriaPermiteCocina && subcategoriaPermiteCocina;
+        const requiereCocina = destinoSelect.value === 'cocina';
+        if (requiereCocina) {
+            const isValidForKitchen = Boolean(categoriaPermiteCocina)
+                && (!subcategoria || Boolean(subcategoriaPermiteCocina));
 
-            if (!isValidForCocina) {
-                cocinaCheckbox.checked = false;
-                validationMessage.textContent = 'Esta combinación de categoría y subcategoría no permite productos de cocina.';
+            if (!isValidForKitchen) {
+                destinoSelect.value = 'ninguno';
+                validationMessage.textContent = 'Esta categoría o subcategoría no permite productos de cocina.';
                 validationMessage.style.display = 'block';
             } else {
                 validationMessage.style.display = 'none';
             }
         } else {
+            // El destino Bar se define por producto y no reutiliza la regla legacy permite_cocina.
             validationMessage.style.display = 'none';
         }
     },
@@ -360,7 +365,8 @@ const Menu = {
     const precio = parseFloat(formData.get("precio"));
     const categoria_id = parseInt(formData.get("categoria_id"));
     const subcategoria_id = parseInt(formData.get("subcategoria_id")) || null;
-    const es_cocina = formData.get("es_cocina") === "on";
+    const destino_preparacion = String(formData.get("destino_preparacion") || 'ninguno');
+    const es_cocina = destino_preparacion !== 'ninguno';
     const tiene_presentaciones = document.getElementById("product-tiene-presentaciones").checked;
     const tipo_presentacion_id = tiene_presentaciones
         ? parseInt(document.getElementById("product-tipo-presentacion")?.value || 0)
@@ -412,6 +418,7 @@ const Menu = {
         payload.append("categoria_id", categoria_id);
         if (subcategoria_id) payload.append("subcategoria_id", subcategoria_id);
         payload.append("es_cocina", es_cocina);
+        payload.append("destino_preparacion", destino_preparacion);
         payload.append("tiene_presentaciones", tiene_presentaciones);
         if (tipo_presentacion_id) payload.append("tipo_presentacion_id", tipo_presentacion_id);
         payload.append("activo", 1);
@@ -457,7 +464,8 @@ const Menu = {
 
     const mainCategories = this.categories.filter(cat => cat.tipo === 'principal' && (this.isActive(cat.activa) || cat.id === product.categoria_id));
     const subcategoria = this.categories.find(cat => cat.id === product.subcategoria_id);
-    const isCocina = product.es_cocina;
+    const destinoPreparacion = product.destino_preparacion || (Number(product.es_cocina) === 1 ? 'cocina' : 'ninguno');
+    const isCocina = destinoPreparacion === 'cocina';
     const tienePresentaciones = product.tiene_presentaciones;
 
     const readonlyAttr = (cond) => cond ? 'readonly' : '';
@@ -538,14 +546,15 @@ const Menu = {
 
             ` : ''}
 
-            ${isCocina ? `
             <div class="form-group">
-                <label>
-                    <input type="checkbox" id="edit-product-es-cocina" checked disabled>
-                    Es producto de cocina
-                </label>
-                <small class="text-muted">Este producto ya está marcado como cocina</small>
-            </div>` : ''}
+                <label for="edit-product-destino-preparacion">Destino de preparación</label>
+                <select id="edit-product-destino-preparacion" name="destino_preparacion">
+                    <option value="ninguno" ${destinoPreparacion === 'ninguno' ? 'selected' : ''}>No requiere preparación</option>
+                    <option value="cocina" ${destinoPreparacion === 'cocina' ? 'selected' : ''}>Cocina</option>
+                    <option value="bar" ${destinoPreparacion === 'bar' ? 'selected' : ''}>Bar</option>
+                </select>
+                <small class="text-muted">Los cambios posteriores generarán un ajuste operativo para Kitchen.</small>
+            </div>
 
             <div class="form-group">
                 <label>
@@ -617,11 +626,13 @@ const Menu = {
     const subcategoriaId = document.getElementById('edit-product-subcategoria')?.value
         ? parseInt(document.getElementById('edit-product-subcategoria').value)
         : null;
-    const esCocina = document.getElementById('edit-product-es-cocina')?.checked || false;
+    const destinoPreparacion = document.getElementById('edit-product-destino-preparacion')?.value || 'ninguno';
+    const esCocina = destinoPreparacion !== 'ninguno';
 
     formData.set('categoria_id', categoriaId);
     formData.set('subcategoria_id', subcategoriaId);
-    formData.set('es_cocina', esCocina ? 1 : 0); // Guardamos como 1 o 0
+    formData.set('es_cocina', esCocina ? 1 : 0);
+    formData.set('destino_preparacion', destinoPreparacion);
     formData.set('activo', document.getElementById('edit-product-activo')?.checked ? 1 : 0);
 
     const tienePresentaciones = document.getElementById('edit-product-tiene-presentaciones')?.checked;
@@ -1315,8 +1326,8 @@ const Menu = {
                 { clave_presentacion: 'PRE-3L', nombre: '3 litros', tipo: 'Tamaño', cantidad: '3 litros', clave_tipo: 'TIP-GASEOSAS', activo: 'SI' }
             ],
             products: [
-                { clave_producto: 'PROD-COCACOLA', nombre: 'Coca Cola', descripcion: 'Gaseosa Coca Cola', clave_categoria: 'CAT-BEBIDAS', clave_subcategoria: 'SUB-GASEOSAS', precio_base: '', tiene_presentaciones: 'SI', clave_tipo: 'TIP-GASEOSAS', es_cocina: 'NO', activo: 'SI' },
-                { clave_producto: 'PROD-HAMB-CLASICA', nombre: 'Hamburguesa Clásica', descripcion: 'Hamburguesa de la casa', clave_categoria: 'CAT-COMIDAS', clave_subcategoria: 'SUB-HAMBURGUESAS', precio_base: 3500, tiene_presentaciones: 'NO', clave_tipo: '', es_cocina: 'SI', activo: 'SI' }
+                { clave_producto: 'PROD-COCACOLA', nombre: 'Coca Cola', descripcion: 'Gaseosa Coca Cola', clave_categoria: 'CAT-BEBIDAS', clave_subcategoria: 'SUB-GASEOSAS', precio_base: '', tiene_presentaciones: 'SI', clave_tipo: 'TIP-GASEOSAS', destino_preparacion: 'bar', es_cocina: 'SI', activo: 'SI' },
+                { clave_producto: 'PROD-HAMB-CLASICA', nombre: 'Hamburguesa Clásica', descripcion: 'Hamburguesa de la casa', clave_categoria: 'CAT-COMIDAS', clave_subcategoria: 'SUB-HAMBURGUESAS', precio_base: 3500, tiene_presentaciones: 'NO', clave_tipo: '', destino_preparacion: 'cocina', es_cocina: 'SI', activo: 'SI' }
             ],
             productPresentations: [
                 { clave_producto: 'PROD-COCACOLA', clave_presentacion: 'PRE-350ML', precio: 700, activo: 'SI' },
@@ -1365,7 +1376,7 @@ const Menu = {
             subcategories: { clave_categoria: '', clave_subcategoria: `SUB-${next}`, nombre: '', permite_cocina: 'NO', activa: 'SI' },
             presentationTypes: { clave_tipo: `TIP-${next}`, nombre: '', clave_categoria: '', clave_subcategoria: '', descripcion: '', activo: 'SI' },
             presentations: { clave_presentacion: `PRE-${next}`, nombre: '', tipo: 'Tamaño', cantidad: '', clave_tipo: '', activo: 'SI' },
-            products: { clave_producto: `PROD-${next}`, nombre: '', descripcion: '', clave_categoria: '', clave_subcategoria: '', precio_base: '', tiene_presentaciones: 'NO', clave_tipo: '', es_cocina: 'NO', activo: 'SI' },
+            products: { clave_producto: `PROD-${next}`, nombre: '', descripcion: '', clave_categoria: '', clave_subcategoria: '', precio_base: '', tiene_presentaciones: 'NO', clave_tipo: '', destino_preparacion: 'ninguno', es_cocina: 'NO', activo: 'SI' },
             productPresentations: { clave_producto: '', clave_presentacion: '', precio: '', activo: 'SI' }
         };
 
@@ -1481,9 +1492,9 @@ const Menu = {
         return `
             <div class="menu-template-help">
                 <i class="fas fa-utensils"></i>
-                <div><strong>Luego crea productos.</strong><p>Si un producto no tiene presentaciones, coloca precio_base. Si tiene presentaciones, marca SI, asigna clave_tipo y define precios en el paso de presentaciones.</p></div>
+                <div><strong>Luego crea productos.</strong><p>Si un producto no tiene presentaciones, coloca precio_base. Define también si no requiere preparación o si se dirige a Cocina o Bar.</p></div>
             </div>
-            ${this.renderTemplateTable('products', 'Productos', ['clave_producto', 'nombre', 'descripcion', 'clave_categoria', 'clave_subcategoria', 'precio_base', 'tiene_presentaciones', 'clave_tipo', 'es_cocina', 'activo'], draft.products)}
+            ${this.renderTemplateTable('products', 'Productos', ['clave_producto', 'nombre', 'descripcion', 'clave_categoria', 'clave_subcategoria', 'precio_base', 'tiene_presentaciones', 'clave_tipo', 'destino_preparacion', 'activo'], draft.products)}
         `;
     },
 
@@ -1564,7 +1575,8 @@ const Menu = {
             precio: 'Precio',
             tiene_presentaciones: 'Tiene presentación',
             permite_cocina: 'Permite cocina',
-            es_cocina: 'Cocina',
+            destino_preparacion: 'Destino preparación',
+            es_cocina: 'Preparación legacy',
             activa: 'Activa',
             activo: 'Activo'
         };
@@ -1573,6 +1585,18 @@ const Menu = {
 
     renderTemplateField(field, value = '') {
         const safeValue = this.escapeHtml(value);
+        if (field === 'destino_preparacion') {
+            const destination = ['ninguno', 'cocina', 'bar'].includes(String(value || '').toLowerCase())
+                ? String(value).toLowerCase()
+                : 'ninguno';
+            return `
+                <select data-field="${field}">
+                    <option value="ninguno" ${destination === 'ninguno' ? 'selected' : ''}>Ninguno</option>
+                    <option value="cocina" ${destination === 'cocina' ? 'selected' : ''}>Cocina</option>
+                    <option value="bar" ${destination === 'bar' ? 'selected' : ''}>Bar</option>
+                </select>
+            `;
+        }
         const yesNoFields = ['permite_cocina', 'activa', 'activo', 'tiene_presentaciones', 'es_cocina'];
         if (yesNoFields.includes(field)) {
             return `
@@ -1874,7 +1898,8 @@ const Menu = {
         const categoriasPrincipales = categorias.filter(cat => cat.tipo === 'principal');
         const subcategorias = categorias.filter(cat => cat.tipo === 'subcategoria');
         const productosConPresentacion = productos.filter(product => Number(product.tiene_presentaciones) === 1 || Number(product.tipo_presentacion_id || 0) > 0).length;
-        const productosCocina = productos.filter(product => Number(product.es_cocina) === 1).length;
+        const productosCocina = productos.filter(product => (product.destino_preparacion || (Number(product.es_cocina) === 1 ? 'cocina' : 'ninguno')) === 'cocina').length;
+        const productosBar = productos.filter(product => product.destino_preparacion === 'bar').length;
         const inactiveProducts = this.countInactive(productos, 'activo');
         const inactiveCategories = this.countInactive(categorias, 'activa');
         const inactiveTypes = this.countInactive(tipos, 'activo');
@@ -1886,12 +1911,13 @@ const Menu = {
                 icon: 'fa-utensils',
                 label: 'Productos',
                 value: productos.length,
-                desktopDetail: `${productosConPresentacion} con presentación · ${productosCocina} cocina`,
+                desktopDetail: `${productosConPresentacion} con presentación · ${productosCocina} cocina · ${productosBar} bar`,
                 mobileTitle: 'Productos',
                 mobileDetail: `${productos.length} producto${productos.length === 1 ? '' : 's'} registrados.`,
                 mobileBreakdown: [
                     `${productosConPresentacion} con presentación`,
-                    `${productosCocina} de cocina`
+                    `${productosCocina} de cocina`,
+                    `${productosBar} de bar`
                 ]
             },
             estructura: {
@@ -2106,9 +2132,11 @@ const Menu = {
                     <td>${subcategoria}</td>
                     <td>${grupo}</td>
                     <td>
-                        ${Number(product.es_cocina) === 1
+                        ${(product.destino_preparacion || (Number(product.es_cocina) === 1 ? 'cocina' : 'ninguno')) === 'cocina'
                             ? '<span class="badge badge-warning"><i class="fas fa-fire"></i> Cocina</span>'
-                            : '<span class="badge badge-info">No</span>'
+                            : product.destino_preparacion === 'bar'
+                                ? '<span class="badge badge-info"><i class="fas fa-martini-glass"></i> Bar</span>'
+                                : '<span class="badge badge-secondary">Ninguno</span>'
                         }
                     </td>
                     <td>${this.renderStatusBadge(product.activo)}</td>

@@ -10,6 +10,7 @@ const Orders = {
     preinvoiceContext: null,
     preinvoiceDraft: null,
     preinvoiceSubmitting: false,
+    selectedInstructions: {},
 
     getOperationalPayload(response) {
         return response?.data || response || {};
@@ -102,16 +103,33 @@ const Orders = {
                     productoPayload.presentacion_id = parseInt(item.presentacion_id, 10);
                 }
 
+                const instructions = this.selectedInstructions?.[key] || {};
+                if (instructions.observacion) productoPayload.observacion = instructions.observacion;
+                if (instructions.adicionales) {
+                    productoPayload.adicionales = String(instructions.adicionales)
+                        .split(',')
+                        .map(value => value.trim())
+                        .filter(Boolean);
+                }
                 productos.push(productoPayload);
             } else {
                 const productoId = parseInt(key, 10);
                 const cantidad = parseInt(item, 10);
                 if (!productoId || !cantidad || cantidad <= 0) continue;
 
-                productos.push({
+                const productoPayload = {
                     producto_id: productoId,
                     cantidad
-                });
+                };
+                const instructions = this.selectedInstructions?.[key] || {};
+                if (instructions.observacion) productoPayload.observacion = instructions.observacion;
+                if (instructions.adicionales) {
+                    productoPayload.adicionales = String(instructions.adicionales)
+                        .split(',')
+                        .map(value => value.trim())
+                        .filter(Boolean);
+                }
+                productos.push(productoPayload);
             }
         }
 
@@ -431,6 +449,7 @@ const Orders = {
                         align: 'left',
                         onclick: () => {
                             Orders.selectedProducts = {};
+                            Orders.selectedInstructions = {};
                             Orders.updateOrderTotal();
                             Utils.hideModal();
                             setTimeout(() => {
@@ -497,6 +516,7 @@ const Orders = {
         const liberada = await Tables.cerrarMesa(numericMesaId);
         if (liberada) {
             this.selectedProducts = {};
+            this.selectedInstructions = {};
             this.mesaIdActual = null;
             await this.load();
         }
@@ -511,7 +531,7 @@ const Orders = {
             <select class="product-select" onchange="Orders.updateProductPrice(this)">
                 <option value="">Seleccione un producto</option>
                 ${this.products.map(product => `
-                    <option value="${product.id}" data-price="${product.precio}" data-cocina="${product.es_cocina}">
+                    <option value="${product.id}" data-price="${product.precio}" data-cocina="${product.es_cocina}" data-destino="${product.destino_preparacion || 'ninguno'}">
                         ${product.nombre} - ${Utils.formatCurrency(product.precio)}
                     </option>
                 `).join('')}
@@ -602,19 +622,14 @@ const Orders = {
     }
 
     if (response.data?.requiere_comanda) {
-      const confirmed = await Utils.confirm(
-        '¿Desea imprimir la comanda para cocina?',
-        'Comanda de Cocina'
-      );
-      if (confirmed) {
-        this.printComanda(response.data.comanda_id);
-      }
+      Utils.showNotification('La solicitud fue enviada al área de preparación.', 'info');
     }
 
     Utils.showNotification('Pedido creado exitosamente', 'success');
 
     // 🔄 Limpiar memoria temporal
     this.selectedProducts = {};
+    this.selectedInstructions = {};
     this.mesaIdActual = null;
     this.load();
 
@@ -778,6 +793,7 @@ const Orders = {
             this.mesaIdActual = order.mesa_id || null;
             if (!preserveSelection) {
                 this.selectedProducts = {};
+                this.selectedInstructions = {};
             }
 
             const tipoZona = order.zona?.toLowerCase() === 'bar'
@@ -816,6 +832,7 @@ const Orders = {
                     align: 'right',
                     onclick: () => {
                         Orders.selectedProducts = {};
+                        Orders.selectedInstructions = {};
                         Utils.hideModal();
                     }
                 }
@@ -843,7 +860,7 @@ const Orders = {
             <select class="product-select" onchange="Orders.updateProductPrice(this)">
                 <option value="">Seleccione un producto</option>
                 ${this.products.map(product => `
-                    <option value="${product.id}" data-price="${product.precio}" data-cocina="${product.es_cocina}">
+                    <option value="${product.id}" data-price="${product.precio}" data-cocina="${product.es_cocina}" data-destino="${product.destino_preparacion || 'ninguno'}">
                         ${product.nombre} - ${Utils.formatCurrency(product.precio)}
                     </option>
                 `).join('')}
@@ -892,18 +909,12 @@ const Orders = {
 
             Utils.hideModal();
             this.selectedProducts = {};
+            this.selectedInstructions = {};
             this.orderIdActual = null;
             this.modalContext = null;
 
             if (response.data.requiere_comanda) {
-                const confirmed = await Utils.confirm(
-                    '¿Desea imprimir la comanda para cocina?',
-                    'Comanda de Cocina'
-                );
-
-                if (confirmed) {
-                    this.printComanda(response.data.comanda_id);
-                }
+                Utils.showNotification('La solicitud fue enviada al área de preparación.', 'info');
             }
 
             Utils.showNotification('Productos agregados exitosamente', 'success');
@@ -915,8 +926,8 @@ const Orders = {
 
     // Imprimir comanda
     printComanda(comandaId) {
-        // Aquí se implementaría la lógica de impresión de comanda
-        Utils.showNotification('Comanda enviada a cocina', 'info');
+        // Adaptador temporal. Printing se implementará en v3.4.x.
+        Utils.showNotification('La solicitud ya está disponible en preparación.', 'info');
     },
 
     // Imprimir recibo
@@ -1829,9 +1840,11 @@ const Orders = {
                     ${this.productHasPresentations(product)
                         ? `<div class="badge badge-info badge-presentacion" title="Tiene presentaciones"><i class="fas fa-layer-group"></i></div>`
                         : ''}
-                    ${Number(product.es_cocina) === 1
-                        ? `<div class="badge badge-warning badge-cocina" title="Producto de cocina"><i class="fas fa-fire"></i></div>`
-                        : ''}
+                    ${(product.destino_preparacion || (Number(product.es_cocina) === 1 ? 'cocina' : 'ninguno')) === 'cocina'
+                        ? `<div class="badge badge-warning badge-cocina" title="Se prepara en Cocina"><i class="fas fa-fire"></i></div>`
+                        : product.destino_preparacion === 'bar'
+                            ? `<div class="badge badge-info badge-cocina" title="Se prepara en Bar"><i class="fas fa-martini-glass"></i></div>`
+                            : ''}
                 </div>
             `;
         }).join('');
@@ -2092,6 +2105,30 @@ const Orders = {
     },
 
 
+    setProductInstruction(productKey, field, value) {
+  this.selectedInstructions = this.selectedInstructions || {};
+  const key = String(productKey);
+  const current = this.selectedInstructions[key] || { observacion: '', adicionales: '' };
+  current[field] = String(value || '').slice(0, field === 'observacion' ? 500 : 300);
+  this.selectedInstructions[key] = current;
+    },
+
+    renderProductInstructionFields(productKey) {
+  const values = this.selectedInstructions?.[String(productKey)] || {};
+  return `
+    <div class="mt-2">
+      <label class="form-label small mb-1">Indicaciones especiales</label>
+      <textarea class="form-control form-control-sm" rows="2" maxlength="500"
+        placeholder="Ej.: sin salsa, término medio"
+        oninput="Orders.setProductInstruction('${String(productKey)}', 'observacion', this.value)">${this.escapeHtml(values.observacion || '')}</textarea>
+      <label class="form-label small mt-2 mb-1">Adicionales</label>
+      <input class="form-control form-control-sm" maxlength="300"
+        placeholder="Separar con comas: arroz adicional, queso"
+        value="${this.escapeHtml(values.adicionales || '')}"
+        oninput="Orders.setProductInstruction('${String(productKey)}', 'adicionales', this.value)">
+    </div>`;
+    },
+
     showOrderSummaryModal() {
   this.selectedProducts = this.selectedProducts || {};
 
@@ -2119,7 +2156,10 @@ const Orders = {
       const subtotal = item.precio * item.cantidad;
       contenido += `
         <tr id="row-prod-${key}">
-          <td>${item.nombre}</td>
+          <td>
+            <strong>${item.nombre}</strong>
+            ${this.renderProductInstructionFields(key)}
+          </td>
           <td class="prod-cantidad"><strong>${item.cantidad}</strong></td>
           <td class="prod-subtotal">${Utils.formatCurrency(subtotal)}</td>
           <td>
@@ -2143,7 +2183,10 @@ const Orders = {
 
       contenido += `
         <tr id="row-prod-${key}">
-          <td>${producto.nombre}</td>
+          <td>
+            <strong>${producto.nombre}</strong>
+            ${this.renderProductInstructionFields(key)}
+          </td>
           <td class="prod-cantidad"><strong>${item}</strong></td>
           <td class="prod-subtotal">${Utils.formatCurrency(subtotal)}</td>
           <td>
@@ -2202,6 +2245,7 @@ const Orders = {
         if (!confirmed) return;
 
         this.selectedProducts = {};
+        this.selectedInstructions = {};
         this.updateOrderTotal();
         Utils.hideModal();
         Utils.showNotification(isAddingToExistingOrder ? 'Productos seleccionados descartados' : 'Pedido cancelado', 'info');
@@ -2243,12 +2287,14 @@ const Orders = {
       item.cantidad -= 1;
     } else {
       delete this.selectedProducts[productoKey];
+      delete this.selectedInstructions?.[productoKey];
     }
   } else {
     if (item > 1) {
       this.selectedProducts[productoKey] -= 1;
     } else {
       delete this.selectedProducts[productoKey];
+      delete this.selectedInstructions?.[productoKey];
     }
   }
 
@@ -2336,6 +2382,7 @@ const Orders = {
   btnCancelar.innerHTML = "Cancelar";
   btnCancelar.onclick = () => {
     Orders.selectedProducts = {};
+    Orders.selectedInstructions = {};
     Utils.hideModal();
   };
 
@@ -2393,6 +2440,7 @@ const Orders = {
         if (!confirmed) return;
 
         Orders.selectedProducts = {};
+        Orders.selectedInstructions = {};
         Orders.updateOrderTotal();
         Utils.hideModal();
         setTimeout(() => {

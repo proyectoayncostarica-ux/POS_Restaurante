@@ -17,7 +17,8 @@ const OPERATIONAL_PREFIXES = [
     '/api/settings/reset-database',
     '/api/menu',
     '/api/users',
-    '/api/cash'
+    '/api/cash',
+    '/api/kitchen'
 ];
 
 const GLOBAL_SCOPES = new Set(['estructura']);
@@ -68,6 +69,7 @@ function getScope(req) {
         if (segments.includes('preinvoices')) return 'cuentas';
         return 'pedidos';
     }
+    if (resource === 'kitchen') return 'comandas';
     if (resource === 'accounts') return 'cuentas';
     if (resource === 'credits') return 'creditos';
     if (resource === 'menu') return 'menu';
@@ -345,6 +347,17 @@ async function inferMutationContext(req, scope) {
         const bodyZoneId = Number(req.body?.zona_id || req.body?.zonaId || 0);
         if (bodyZoneId > 0) context.zoneIds = [bodyZoneId];
         return context;
+    }
+
+    if (resource === 'kitchen') {
+        if (segments[1] === 'comandas') {
+            const comandaId = getNumericSegment(segments, 2);
+            if (comandaId) return getComandaRealtimeContext(comandaId);
+        }
+        if (segments[1] === 'orders') {
+            const orderId = getNumericSegment(segments, 2);
+            if (orderId) return getOrderRealtimeContext(orderId);
+        }
     }
 
     if (resource === 'orders') {

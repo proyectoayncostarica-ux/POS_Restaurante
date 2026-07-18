@@ -4,10 +4,12 @@ const requireCapability = require("../middleware/requireCapability");
 const { CAPABILITIES } = require("../security/capabilities");
 const {
     resolveAccessContext,
-    evaluateMesaAccess
+    evaluateMesaAccess,
+    canViewZone
 } = require('../services/operationalAccessService');
 
 const accountService = require('../services/accountService');
+const kitchenService = require('../services/kitchenService');
 const preinvoiceService = require('../services/preinvoiceService');
 const serviceFinalizationService = require('../services/serviceFinalizationService');
 const { DomainError } = require('../errors/domainError');
@@ -298,8 +300,22 @@ router.post('/', requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, res
         const account = await accountService.createAccount({
             mesaId: mesa_id,
             productos,
-            userId: req.session?.userId
+            userId: req.session?.userId,
+            idempotencyKey: req.get('Idempotency-Key')
+                || req.body?.clave_idempotencia
+                || req.body?.idempotencyKey
         });
+
+        if (account.requiere_comanda) {
+            res.locals.realtime = {
+                scope: 'comandas',
+                requiredAnyCapabilities: [CAPABILITIES.KITCHEN_OPERATE, CAPABILITIES.ORDERS_OPERATE],
+                orderIds: [Number(account.id)],
+                mesaIds: [Number(mesa_id)],
+                zoneIds: [Number(seat.zona_id)].filter(Boolean),
+                comandaIds: account.comanda_ids || [account.comanda_id].filter(Boolean)
+            };
+        }
 
         res.json({
             success: true,
@@ -316,6 +332,7 @@ router.post('/', requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, res
                 estado_operativo: account.estado_operativo,
                 estado_financiero: account.estado_financiero,
                 comanda_id: account.comanda_id,
+                comanda_ids: account.comanda_ids || [],
                 requiere_comanda: account.requiere_comanda
             }
         });
@@ -346,8 +363,22 @@ router.post('/:id/products', requireCapability(CAPABILITIES.ORDERS_OPERATE), asy
 
         const result = await accountService.addProducts(req.params.id, {
             productos: req.body?.productos,
-            userId: req.session?.userId
+            userId: req.session?.userId,
+            idempotencyKey: req.get('Idempotency-Key')
+                || req.body?.clave_idempotencia
+                || req.body?.idempotencyKey
         });
+
+        if (result.requiere_comanda) {
+            res.locals.realtime = {
+                scope: 'comandas',
+                requiredAnyCapabilities: [CAPABILITIES.KITCHEN_OPERATE, CAPABILITIES.ORDERS_OPERATE],
+                orderIds: [Number(account.id)],
+                mesaIds: [Number(account.mesa_id)],
+                zoneIds: [Number(account.zona_id)].filter(Boolean),
+                comandaIds: result.comanda_ids || [result.comanda_id].filter(Boolean)
+            };
+        }
 
         res.json({
             success: true,
@@ -363,6 +394,7 @@ router.post('/:id/products', requireCapability(CAPABILITIES.ORDERS_OPERATE), asy
                 aplica_servicio: result.aplica_servicio,
                 porcentaje_servicio: result.porcentaje_servicio,
                 comanda_id: result.comanda_id,
+                comanda_ids: result.comanda_ids || [],
                 requiere_comanda: result.requiere_comanda
             }
         });
@@ -422,9 +454,23 @@ router.put('/:pedido_id/products/:producto_id', requireCapability(CAPABILITIES.O
             req.body?.nuevo_producto_id,
             {
                 userId: req.session?.userId,
-                lowerPriceAuthorized
+                lowerPriceAuthorized,
+                idempotencyKey: req.get('Idempotency-Key')
+                    || req.body?.clave_idempotencia
+                    || req.body?.idempotencyKey
             }
         );
+
+        if (totals.requiere_comanda) {
+            res.locals.realtime = {
+                scope: 'comandas',
+                requiredAnyCapabilities: [CAPABILITIES.KITCHEN_OPERATE, CAPABILITIES.ORDERS_OPERATE],
+                orderIds: [Number(account.id)],
+                mesaIds: [Number(account.mesa_id)],
+                zoneIds: [Number(account.zona_id)].filter(Boolean),
+                comandaIds: totals.comanda_ids || [totals.comanda_id].filter(Boolean)
+            };
+        }
 
         res.json({
             success: true,
@@ -542,35 +588,51 @@ router.post("/:id/pay", requireCapability(CAPABILITIES.CASH_COLLECT), async (req
     }
 });
 
-// Obtener comandas pendientes
-router.get("/comandas/pending", requireCapability(CAPABILITIES.KITCHEN_OPERATE), async (req, res) => {
+// Adaptadores legacy: delegan al dominio Kitchen sin controlar preparación desde Printing.
+router.get('/comandas/pending', requireCapability(CAPABILITIES.KITCHEN_OPERATE), async (req, res) => {
     try {
-        const comandas = await database.all(`
-            SELECT c.*, m.numero as mesa_numero
-            FROM comandas c
-            JOIN mesas m ON c.mesa_id = m.id
-            WHERE c.estado = "pendiente"
-            ORDER BY c.fecha_impresion
-        `);
-
-        res.json({ success: true, data: comandas });
+        const access = await resolveAccessContext(req);
+        const comandas = await kitchenService.getPending({
+            zoneIds: access.isAdmin ? null : access.zoneIds
+        });
+        return res.json({ success: true, data: comandas });
     } catch (error) {
-        console.error("Error obteniendo comandas:", error);
-        res.status(500).json({ error: "Error interno del servidor" });
+        return sendRouteError(res, error, 'No fue posible consultar las órdenes de preparación');
     }
 });
 
-// Marcar comanda como impresa
-router.put("/comandas/:id/print", requireCapability(CAPABILITIES.KITCHEN_OPERATE), async (req, res) => {
+router.put('/comandas/:id/print', requireCapability(CAPABILITIES.KITCHEN_OPERATE), async (req, res) => {
     try {
-        const { id } = req.params;
+        const source = await kitchenService.getComanda(req.params.id);
+        const access = await resolveAccessContext(req);
+        const zoneId = Number(source.zona_id_snapshot || source.zona_id || 0);
+        if (!access.isAdmin && (!zoneId || !canViewZone(access, zoneId))) {
+            return res.status(403).json({
+                error: 'No tienes acceso operativo a la zona de esta comanda.',
+                code: 'ZONE_NOT_ALLOWED'
+            });
+        }
 
-        await database.run("UPDATE comandas SET estado = ? WHERE id = ?", ["impresa", id]);
-
-        res.json({ success: true, message: "Comanda marcada como impresa" });
+        const command = await kitchenService.markPrintState({
+            comandaId: source.id,
+            userId: req.session?.userId,
+            state: 'impresa'
+        });
+        res.locals.realtime = {
+            scope: 'comandas',
+            requiredAnyCapabilities: [CAPABILITIES.KITCHEN_OPERATE, CAPABILITIES.ORDERS_OPERATE],
+            orderIds: [Number(command.pedido_id)].filter(Boolean),
+            mesaIds: [Number(command.mesa_id)].filter(Boolean),
+            zoneIds: [Number(command.zona_id_snapshot)].filter(Boolean),
+            comandaIds: [Number(command.id)]
+        };
+        return res.json({
+            success: true,
+            message: 'Estado de impresión actualizado',
+            data: command
+        });
     } catch (error) {
-        console.error("Error marcando comanda como impresa:", error);
-        res.status(500).json({ error: "Error interno del servidor" });
+        return sendRouteError(res, error, 'No fue posible actualizar el estado de impresión');
     }
 });
 

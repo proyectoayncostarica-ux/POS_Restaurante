@@ -204,6 +204,7 @@ class Database {
                 categoria_id INTEGER NOT NULL,
                 subcategoria_id INTEGER,
                 es_cocina INTEGER NOT NULL DEFAULT 0,
+                destino_preparacion TEXT NOT NULL DEFAULT 'ninguno',
                 imagen TEXT,
                 tipo_presentacion_id INTEGER,
                 activo INTEGER NOT NULL DEFAULT 1,
@@ -320,9 +321,14 @@ class Database {
                 aplica_servicio_snapshot INTEGER NOT NULL DEFAULT 0,
                 porcentaje_servicio_snapshot REAL NOT NULL DEFAULT 0,
                 servicio_unitario_snapshot REAL NOT NULL DEFAULT 0,
+                observacion_snapshot TEXT,
+                adicionales_snapshot TEXT NOT NULL DEFAULT '[]',
+                usuario_solicitante_id INTEGER,
+                usuario_solicitante_nombre_snapshot TEXT,
                 FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE CASCADE,
                 FOREIGN KEY (producto_id) REFERENCES productos (id) ON DELETE RESTRICT,
-                FOREIGN KEY (presentacion_id) REFERENCES presentaciones (id) ON DELETE SET NULL
+                FOREIGN KEY (presentacion_id) REFERENCES presentaciones (id) ON DELETE SET NULL,
+                FOREIGN KEY (usuario_solicitante_id) REFERENCES usuarios (id) ON DELETE SET NULL
             )`,
 
             `CREATE TABLE IF NOT EXISTS secuencias_documentales (
@@ -598,11 +604,85 @@ class Database {
 
             `CREATE TABLE IF NOT EXISTS comandas (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                mesa_id INTEGER NOT NULL,
-                productos_cocina TEXT NOT NULL,
-                fecha_impresion TEXT NOT NULL,
-                estado TEXT NOT NULL CHECK(estado IN ('pendiente', 'impresa', 'entregada')),
-                FOREIGN KEY (mesa_id) REFERENCES mesas (id) ON DELETE CASCADE
+                mesa_id INTEGER,
+                productos_cocina TEXT NOT NULL DEFAULT '[]',
+                fecha_impresion TEXT,
+                estado TEXT NOT NULL DEFAULT 'pendiente' CHECK(estado IN ('pendiente', 'impresa', 'entregada')),
+                pedido_id INTEGER,
+                comanda_origen_id INTEGER,
+                numero_comanda TEXT UNIQUE,
+                numero_secuencia INTEGER UNIQUE,
+                destino TEXT NOT NULL DEFAULT 'cocina',
+                estado_operativo TEXT NOT NULL DEFAULT 'pendiente',
+                estado_impresion TEXT NOT NULL DEFAULT 'pendiente',
+                usuario_solicitante_id INTEGER,
+                usuario_solicitante_nombre_snapshot TEXT,
+                numero_cuenta_snapshot TEXT,
+                mesa_numero_snapshot INTEGER,
+                mesa_tipo_snapshot TEXT,
+                zona_id_snapshot INTEGER,
+                zona_nombre_snapshot TEXT,
+                solicitada_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                enviada_en TEXT,
+                clave_idempotencia TEXT,
+                solicitud_fingerprint TEXT,
+                motivo TEXT,
+                origen TEXT NOT NULL DEFAULT 'normalizada',
+                version INTEGER NOT NULL DEFAULT 1,
+                FOREIGN KEY (mesa_id) REFERENCES mesas (id) ON DELETE SET NULL,
+                FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE SET NULL,
+                FOREIGN KEY (comanda_origen_id) REFERENCES comandas (id) ON DELETE SET NULL,
+                FOREIGN KEY (usuario_solicitante_id) REFERENCES usuarios (id) ON DELETE SET NULL
+            )`,
+
+            `CREATE TABLE IF NOT EXISTS comanda_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                comanda_id INTEGER NOT NULL,
+                pedido_producto_id INTEGER,
+                producto_id INTEGER,
+                presentacion_id INTEGER,
+                cantidad_delta INTEGER NOT NULL DEFAULT 0,
+                cantidad_resultante_snapshot INTEGER NOT NULL DEFAULT 0,
+                tipo_cambio TEXT NOT NULL CHECK(tipo_cambio IN ('envio', 'ajuste', 'anulacion', 'reenvio', 'legacy')),
+                producto_nombre_snapshot TEXT NOT NULL,
+                presentacion_nombre_snapshot TEXT,
+                presentacion_cantidad_snapshot TEXT,
+                observacion_snapshot TEXT,
+                adicionales_snapshot TEXT NOT NULL DEFAULT '[]',
+                usuario_solicitante_id INTEGER,
+                usuario_solicitante_nombre_snapshot TEXT,
+                motivo TEXT,
+                creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                version INTEGER NOT NULL DEFAULT 1,
+                UNIQUE(comanda_id, pedido_producto_id, tipo_cambio),
+                FOREIGN KEY (comanda_id) REFERENCES comandas (id) ON DELETE CASCADE,
+                FOREIGN KEY (pedido_producto_id) REFERENCES pedido_productos (id) ON DELETE SET NULL,
+                FOREIGN KEY (producto_id) REFERENCES productos (id) ON DELETE SET NULL,
+                FOREIGN KEY (presentacion_id) REFERENCES presentaciones (id) ON DELETE SET NULL,
+                FOREIGN KEY (usuario_solicitante_id) REFERENCES usuarios (id) ON DELETE SET NULL
+            )`,
+
+            `CREATE TABLE IF NOT EXISTS historial_comandas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                comanda_id INTEGER NOT NULL,
+                evento TEXT NOT NULL,
+                estado_anterior TEXT,
+                estado_nuevo TEXT,
+                usuario_id INTEGER,
+                usuario_nombre_snapshot TEXT,
+                detalle TEXT,
+                fecha TEXT NOT NULL,
+                FOREIGN KEY (comanda_id) REFERENCES comandas (id) ON DELETE CASCADE,
+                FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
+            )`,
+
+            `CREATE TABLE IF NOT EXISTS solicitudes_kitchen (
+                clave_idempotencia TEXT PRIMARY KEY,
+                pedido_id INTEGER,
+                solicitud_fingerprint TEXT NOT NULL,
+                resultado_json TEXT NOT NULL,
+                creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE SET NULL
             )`,
 
             `CREATE TABLE IF NOT EXISTS pagos_creditos (
@@ -655,7 +735,13 @@ class Database {
             'CREATE INDEX IF NOT EXISTS idx_mesa_responsables_usuario ON mesa_responsables(usuario_id)',
             'CREATE INDEX IF NOT EXISTS idx_mesa_responsables_rol ON mesa_responsables(rol_trabajo_id)',
             'CREATE INDEX IF NOT EXISTS idx_cuentas_credito_fecha ON cuentas_credito(fecha)',
-            'CREATE INDEX IF NOT EXISTS idx_historial_fecha ON historial_transacciones(fecha)'
+            'CREATE INDEX IF NOT EXISTS idx_historial_fecha ON historial_transacciones(fecha)',
+            'CREATE INDEX IF NOT EXISTS idx_comandas_pedido ON comandas(pedido_id)',
+            'CREATE INDEX IF NOT EXISTS idx_comandas_operacion ON comandas(estado_operativo, destino, solicitada_en)',
+            'CREATE UNIQUE INDEX IF NOT EXISTS idx_comandas_idempotencia_destino ON comandas(clave_idempotencia, destino) WHERE clave_idempotencia IS NOT NULL',
+            'CREATE INDEX IF NOT EXISTS idx_comanda_items_comanda ON comanda_items(comanda_id)',
+            'CREATE INDEX IF NOT EXISTS idx_comanda_items_linea ON comanda_items(pedido_producto_id)',
+            'CREATE INDEX IF NOT EXISTS idx_historial_comandas_comanda ON historial_comandas(comanda_id)'
         ];
 
         for (const sql of indexes) {
@@ -702,6 +788,7 @@ class Database {
         await this.ensureColumn('categorias', 'activa', 'INTEGER NOT NULL DEFAULT 1');
         await this.ensureColumn('productos', 'imagen', 'TEXT');
         await this.ensureColumn('productos', 'tipo_presentacion_id', 'INTEGER');
+        await this.ensurePreparationDestinationColumn();
         await this.ensureColumn('productos', 'activo', 'INTEGER NOT NULL DEFAULT 1');
         await this.ensureColumn('presentaciones', 'tipo', "TEXT DEFAULT 'tamaño'");
         await this.ensureColumn('presentaciones', 'cantidad', 'TEXT');
@@ -736,6 +823,7 @@ class Database {
         await this.ensureColumn('pagos', 'aplica_servicio', 'INTEGER');
         await this.backfillOrderServiceTotals();
         await this.ensureConsumptionLineColumns();
+        await this.ensureKitchenSchema();
         await this.ensureColumn('cuentas_credito', 'pedido_id', 'INTEGER');
         await this.ensureColumn('cuentas_credito', 'usuario_origen', 'TEXT');
         await this.ensureColumn('cuentas_credito', 'autorizado_por', 'TEXT');
@@ -747,13 +835,30 @@ class Database {
         // asegurar las columnas v3 después de esa reconstrucción antes del backfill.
         await this.ensureGlobalAccountColumns();
         await this.ensureConsumptionLineColumns();
+        await this.ensureKitchenSchema();
         await this.ensurePreinvoiceSchema();
         await this.ensurePaymentSchema();
         await this.ensureCreditSchema();
         await this.migrateGlobalAccounts();
         await this.migrateConsumptionLines();
+        await this.migrateKitchenLegacy();
         await this.cleanupOrphanRows();
         console.log('Migraciones de esquema aplicadas/verificadas');
+    }
+
+    async ensurePreparationDestinationColumn() {
+        await this.ensureColumn('productos', 'destino_preparacion', "TEXT NOT NULL DEFAULT 'ninguno'");
+        await this.run(`
+            UPDATE productos
+            SET destino_preparacion = CASE
+                WHEN COALESCE(es_cocina, 0) = 1 THEN 'cocina'
+                ELSE 'ninguno'
+            END
+            WHERE destino_preparacion IS NULL
+               OR TRIM(destino_preparacion) = ''
+               OR destino_preparacion NOT IN ('ninguno', 'cocina', 'bar')
+               OR (destino_preparacion = 'ninguno' AND COALESCE(es_cocina, 0) = 1)
+        `);
     }
 
     async ensureConsumptionLineColumns() {
@@ -768,6 +873,10 @@ class Database {
         await this.ensureColumn('pedido_productos', 'aplica_servicio_snapshot', 'INTEGER NOT NULL DEFAULT 0');
         await this.ensureColumn('pedido_productos', 'porcentaje_servicio_snapshot', 'REAL NOT NULL DEFAULT 0');
         await this.ensureColumn('pedido_productos', 'servicio_unitario_snapshot', 'REAL NOT NULL DEFAULT 0');
+        await this.ensureColumn('pedido_productos', 'observacion_snapshot', 'TEXT');
+        await this.ensureColumn('pedido_productos', 'adicionales_snapshot', "TEXT NOT NULL DEFAULT '[]'");
+        await this.ensureColumn('pedido_productos', 'usuario_solicitante_id', 'INTEGER');
+        await this.ensureColumn('pedido_productos', 'usuario_solicitante_nombre_snapshot', 'TEXT');
     }
 
     async migrateConsumptionLines() {
@@ -833,6 +942,125 @@ class Database {
             await this.run(`
                 INSERT OR REPLACE INTO configuracion (clave, valor, version_app)
                 VALUES ('v3_consumption_line_backfill_done', ?, ?)
+            `, [new Date().toISOString(), APP_VERSION]);
+        }
+    }
+
+    async ensureKitchenSchema() {
+        await this.run(`CREATE TABLE IF NOT EXISTS comanda_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            comanda_id INTEGER NOT NULL,
+            pedido_producto_id INTEGER,
+            producto_id INTEGER,
+            presentacion_id INTEGER,
+            cantidad_delta INTEGER NOT NULL DEFAULT 0,
+            cantidad_resultante_snapshot INTEGER NOT NULL DEFAULT 0,
+            tipo_cambio TEXT NOT NULL CHECK(tipo_cambio IN ('envio', 'ajuste', 'anulacion', 'reenvio', 'legacy')),
+            producto_nombre_snapshot TEXT NOT NULL,
+            presentacion_nombre_snapshot TEXT,
+            presentacion_cantidad_snapshot TEXT,
+            observacion_snapshot TEXT,
+            adicionales_snapshot TEXT NOT NULL DEFAULT '[]',
+            usuario_solicitante_id INTEGER,
+            usuario_solicitante_nombre_snapshot TEXT,
+            motivo TEXT,
+            creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            version INTEGER NOT NULL DEFAULT 1,
+            UNIQUE(comanda_id, pedido_producto_id, tipo_cambio),
+            FOREIGN KEY (comanda_id) REFERENCES comandas (id) ON DELETE CASCADE,
+            FOREIGN KEY (pedido_producto_id) REFERENCES pedido_productos (id) ON DELETE SET NULL,
+            FOREIGN KEY (producto_id) REFERENCES productos (id) ON DELETE SET NULL,
+            FOREIGN KEY (presentacion_id) REFERENCES presentaciones (id) ON DELETE SET NULL,
+            FOREIGN KEY (usuario_solicitante_id) REFERENCES usuarios (id) ON DELETE SET NULL
+        )`);
+
+        await this.run(`CREATE TABLE IF NOT EXISTS historial_comandas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            comanda_id INTEGER NOT NULL,
+            evento TEXT NOT NULL,
+            estado_anterior TEXT,
+            estado_nuevo TEXT,
+            usuario_id INTEGER,
+            usuario_nombre_snapshot TEXT,
+            detalle TEXT,
+            fecha TEXT NOT NULL,
+            FOREIGN KEY (comanda_id) REFERENCES comandas (id) ON DELETE CASCADE,
+            FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
+        )`);
+
+        await this.run(`CREATE TABLE IF NOT EXISTS solicitudes_kitchen (
+            clave_idempotencia TEXT PRIMARY KEY,
+            pedido_id INTEGER,
+            solicitud_fingerprint TEXT NOT NULL,
+            resultado_json TEXT NOT NULL,
+            creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE SET NULL
+        )`);
+
+        const columns = [
+            ['pedido_id', 'INTEGER'],
+            ['comanda_origen_id', 'INTEGER'],
+            ['numero_comanda', 'TEXT'],
+            ['numero_secuencia', 'INTEGER'],
+            ['destino', "TEXT NOT NULL DEFAULT 'cocina'"],
+            ['estado_operativo', "TEXT NOT NULL DEFAULT 'pendiente'"],
+            ['estado_impresion', "TEXT NOT NULL DEFAULT 'pendiente'"],
+            ['usuario_solicitante_id', 'INTEGER'],
+            ['usuario_solicitante_nombre_snapshot', 'TEXT'],
+            ['numero_cuenta_snapshot', 'TEXT'],
+            ['mesa_numero_snapshot', 'INTEGER'],
+            ['mesa_tipo_snapshot', 'TEXT'],
+            ['zona_id_snapshot', 'INTEGER'],
+            ['zona_nombre_snapshot', 'TEXT'],
+            ['solicitada_en', 'TEXT'],
+            ['enviada_en', 'TEXT'],
+            ['clave_idempotencia', 'TEXT'],
+            ['solicitud_fingerprint', 'TEXT'],
+            ['motivo', 'TEXT'],
+            ['origen', "TEXT NOT NULL DEFAULT 'legacy'"],
+            ['version', 'INTEGER NOT NULL DEFAULT 1']
+        ];
+        for (const [column, definition] of columns) {
+            await this.ensureColumn('comandas', column, definition);
+        }
+
+        await this.run('CREATE INDEX IF NOT EXISTS idx_comandas_pedido ON comandas(pedido_id)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_comandas_operacion ON comandas(estado_operativo, destino, solicitada_en)');
+        await this.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_comandas_numero ON comandas(numero_comanda) WHERE numero_comanda IS NOT NULL');
+        await this.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_comandas_secuencia ON comandas(numero_secuencia) WHERE numero_secuencia IS NOT NULL');
+        await this.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_comandas_idempotencia_destino ON comandas(clave_idempotencia, destino) WHERE clave_idempotencia IS NOT NULL');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_comanda_items_comanda ON comanda_items(comanda_id)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_comanda_items_linea ON comanda_items(pedido_producto_id)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_historial_comandas_comanda ON historial_comandas(comanda_id)');
+    }
+
+    async migrateKitchenLegacy() {
+        if (!await this.tableExists('comandas')) return;
+
+        await this.run(`
+            UPDATE comandas
+            SET destino = COALESCE(NULLIF(TRIM(destino), ''), 'cocina'),
+                estado_operativo = CASE
+                    WHEN COALESCE(NULLIF(TRIM(origen), ''), 'legacy') = 'legacy'
+                         AND estado = 'entregada' THEN 'entregada'
+                    WHEN COALESCE(NULLIF(TRIM(origen), ''), 'legacy') = 'legacy'
+                         AND estado = 'impresa' THEN 'enviada'
+                    ELSE COALESCE(NULLIF(TRIM(estado_operativo), ''), 'pendiente')
+                END,
+                estado_impresion = CASE
+                    WHEN COALESCE(NULLIF(TRIM(origen), ''), 'legacy') = 'legacy'
+                         AND estado IN ('impresa', 'entregada') THEN 'impresa'
+                    ELSE COALESCE(NULLIF(TRIM(estado_impresion), ''), 'pendiente')
+                END,
+                solicitada_en = COALESCE(solicitada_en, fecha_impresion, CURRENT_TIMESTAMP),
+                origen = COALESCE(NULLIF(TRIM(origen), ''), 'legacy'),
+                version = COALESCE(version, 1)
+        `);
+
+        if (await this.tableExists('configuracion')) {
+            await this.run(`
+                INSERT OR REPLACE INTO configuracion (clave, valor, version_app)
+                VALUES ('v3_3_kitchen_schema_ready', ?, ?)
             `, [new Date().toISOString(), APP_VERSION]);
         }
     }
@@ -1613,16 +1841,23 @@ class Database {
             aplica_servicio_snapshot INTEGER NOT NULL DEFAULT 0,
             porcentaje_servicio_snapshot REAL NOT NULL DEFAULT 0,
             servicio_unitario_snapshot REAL NOT NULL DEFAULT 0,
+            observacion_snapshot TEXT,
+            adicionales_snapshot TEXT NOT NULL DEFAULT '[]',
+            usuario_solicitante_id INTEGER,
+            usuario_solicitante_nombre_snapshot TEXT,
             FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE CASCADE,
             FOREIGN KEY (producto_id) REFERENCES productos (id) ON DELETE RESTRICT,
-            FOREIGN KEY (presentacion_id) REFERENCES presentaciones (id) ON DELETE SET NULL
+            FOREIGN KEY (presentacion_id) REFERENCES presentaciones (id) ON DELETE SET NULL,
+            FOREIGN KEY (usuario_solicitante_id) REFERENCES usuarios (id) ON DELETE SET NULL
         )`, [
             'id', 'pedido_id', 'producto_id', 'cantidad', 'cantidad_asignada',
             'precio_unitario', 'precio_original', 'creado_en', 'actualizado_en',
             'version', 'presentacion_id', 'producto_nombre_snapshot',
             'presentacion_nombre_snapshot', 'presentacion_cantidad_snapshot',
             'aplica_servicio_snapshot', 'porcentaje_servicio_snapshot',
-            'servicio_unitario_snapshot'
+            'servicio_unitario_snapshot', 'observacion_snapshot',
+            'adicionales_snapshot', 'usuario_solicitante_id',
+            'usuario_solicitante_nombre_snapshot'
         ]);
 
         await this.rebuildTable('pagos', `CREATE TABLE pagos_new (
@@ -1741,12 +1976,44 @@ class Database {
 
         await this.rebuildTable('comandas', `CREATE TABLE comandas_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            mesa_id INTEGER NOT NULL,
-            productos_cocina TEXT NOT NULL,
-            fecha_impresion TEXT NOT NULL,
-            estado TEXT NOT NULL CHECK(estado IN ('pendiente', 'impresa', 'entregada')),
-            FOREIGN KEY (mesa_id) REFERENCES mesas (id) ON DELETE CASCADE
-        )`, ['id', 'mesa_id', 'productos_cocina', 'fecha_impresion', 'estado']);
+            mesa_id INTEGER,
+            productos_cocina TEXT NOT NULL DEFAULT '[]',
+            fecha_impresion TEXT,
+            estado TEXT NOT NULL DEFAULT 'pendiente' CHECK(estado IN ('pendiente', 'impresa', 'entregada')),
+            pedido_id INTEGER,
+            comanda_origen_id INTEGER,
+            numero_comanda TEXT UNIQUE,
+            numero_secuencia INTEGER UNIQUE,
+            destino TEXT NOT NULL DEFAULT 'cocina',
+            estado_operativo TEXT NOT NULL DEFAULT 'pendiente',
+            estado_impresion TEXT NOT NULL DEFAULT 'pendiente',
+            usuario_solicitante_id INTEGER,
+            usuario_solicitante_nombre_snapshot TEXT,
+            numero_cuenta_snapshot TEXT,
+            mesa_numero_snapshot INTEGER,
+            mesa_tipo_snapshot TEXT,
+            zona_id_snapshot INTEGER,
+            zona_nombre_snapshot TEXT,
+            solicitada_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            enviada_en TEXT,
+            clave_idempotencia TEXT,
+            solicitud_fingerprint TEXT,
+            motivo TEXT,
+            origen TEXT NOT NULL DEFAULT 'normalizada',
+            version INTEGER NOT NULL DEFAULT 1,
+            FOREIGN KEY (mesa_id) REFERENCES mesas (id) ON DELETE SET NULL,
+            FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE SET NULL,
+            FOREIGN KEY (comanda_origen_id) REFERENCES comandas (id) ON DELETE SET NULL,
+            FOREIGN KEY (usuario_solicitante_id) REFERENCES usuarios (id) ON DELETE SET NULL
+        )`, [
+            'id', 'mesa_id', 'productos_cocina', 'fecha_impresion', 'estado',
+            'pedido_id', 'comanda_origen_id', 'numero_comanda', 'numero_secuencia',
+            'destino', 'estado_operativo', 'estado_impresion',
+            'usuario_solicitante_id', 'usuario_solicitante_nombre_snapshot',
+            'numero_cuenta_snapshot', 'mesa_numero_snapshot', 'mesa_tipo_snapshot',
+            'zona_id_snapshot', 'zona_nombre_snapshot', 'solicitada_en', 'enviada_en',
+            'clave_idempotencia', 'solicitud_fingerprint', 'motivo', 'origen', 'version'
+        ]);
     }
 
     async rebuildTable(tableName, createNewSql, wantedColumns) {
@@ -1762,6 +2029,11 @@ class Database {
             currentSql.includes('pedidos_backup') ||
             currentSql.includes('references cuentas(') ||
             (tableName === 'cuentas_credito' && !currentSql.includes('references pedidos')) ||
+            (tableName === 'comandas' && (
+                currentSql.includes('mesa_id integer not null') ||
+                currentSql.includes('references mesas (id) on delete cascade') ||
+                currentSql.includes('references pedidos (id) on delete cascade')
+            )) ||
             !currentSql.includes(`${tableName} (`);
 
         if (!shouldRebuild) return;
@@ -1835,7 +2107,18 @@ class Database {
         await this.run(`DELETE FROM pedidos WHERE mesa_id NOT IN (SELECT id FROM mesas) OR usuario_id NOT IN (SELECT id FROM usuarios)`);
         await this.run(`DELETE FROM pedido_productos WHERE pedido_id NOT IN (SELECT id FROM pedidos)`);
         await this.run(`DELETE FROM pagos WHERE pedido_id NOT IN (SELECT id FROM pedidos)`);
-        await this.run(`DELETE FROM comandas WHERE mesa_id NOT IN (SELECT id FROM mesas)`);
+        await this.run(`UPDATE comandas SET mesa_id = NULL WHERE mesa_id IS NOT NULL AND mesa_id NOT IN (SELECT id FROM mesas)`);
+        await this.run(`UPDATE comandas SET pedido_id = NULL WHERE pedido_id IS NOT NULL AND pedido_id NOT IN (SELECT id FROM pedidos)`);
+        await this.run(`UPDATE comandas SET usuario_solicitante_id = NULL WHERE usuario_solicitante_id IS NOT NULL AND usuario_solicitante_id NOT IN (SELECT id FROM usuarios)`);
+        if (await this.tableExists('comanda_items')) {
+            await this.run(`UPDATE comanda_items SET pedido_producto_id = NULL WHERE pedido_producto_id IS NOT NULL AND pedido_producto_id NOT IN (SELECT id FROM pedido_productos)`);
+            await this.run(`UPDATE comanda_items SET producto_id = NULL WHERE producto_id IS NOT NULL AND producto_id NOT IN (SELECT id FROM productos)`);
+            await this.run(`UPDATE comanda_items SET presentacion_id = NULL WHERE presentacion_id IS NOT NULL AND presentacion_id NOT IN (SELECT id FROM presentaciones)`);
+            await this.run(`UPDATE comanda_items SET usuario_solicitante_id = NULL WHERE usuario_solicitante_id IS NOT NULL AND usuario_solicitante_id NOT IN (SELECT id FROM usuarios)`);
+        }
+        if (await this.tableExists('solicitudes_kitchen')) {
+            await this.run(`UPDATE solicitudes_kitchen SET pedido_id = NULL WHERE pedido_id IS NOT NULL AND pedido_id NOT IN (SELECT id FROM pedidos)`);
+        }
         await this.run(`UPDATE creditos SET cuenta_id = NULL WHERE cuenta_id IS NOT NULL AND cuenta_id NOT IN (SELECT id FROM cuentas_credito)`);
         await this.run(`UPDATE cuentas_credito SET pedido_id = NULL WHERE pedido_id IS NOT NULL AND pedido_id NOT IN (SELECT id FROM pedidos)`);
         await this.run(`UPDATE historial_transacciones SET usuario_id = NULL WHERE usuario_id IS NOT NULL AND usuario_id NOT IN (SELECT id FROM usuarios)`);

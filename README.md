@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.2.5 · Finalización del servicio y liberación integral
+- **Línea de trabajo actual:** v3.3.0 · Dominio Kitchen / Comandas
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -1372,3 +1372,19 @@ Documento técnico:
 - `docs/avance-v3.2.5-finalizacion-servicio.md`
 
 La siguiente fase es `v3.3.0 · Dominio Kitchen / Comandas`.
+
+## 30. Dominio Kitchen / Comandas · v3.3.0
+
+Orders conserva la cuenta global y las líneas de consumo, pero deja de construir directamente el contenido de las comandas. `kitchenService` consulta las líneas reales, usa `pedido_productos.id` como identidad y registra únicamente cantidades nuevas, ajustes o anulaciones.
+
+Las comandas se separan por destino `cocina` o `bar`, reciben número `CMD-########` y preservan mesa, zona, cuenta, producto, presentación, indicaciones, adicionales y usuario humano solicitante mediante snapshots. Las solicitudes son transaccionales, idempotentes y seguras ante concurrencia.
+
+El estado de impresión queda separado del estado operativo. Las rutas legacy continúan como adaptadores y no se elimina historial. Las comandas permanecen aunque una mesa operativa sea retirada.
+
+Menú permite configurar el destino de preparación y Orders captura indicaciones especiales y adicionales. La cuenta departamental y el tablero visual de Cocina permanecen en `v3.3.2`; los estados avanzados y la trazabilidad completa corresponden a `v3.3.1`; Printing continúa en `v3.4.x`.
+
+Documento técnico:
+
+- `docs/avance-v3.3.0-kitchen-comandas.md`
+
+La siguiente fase es `v3.3.1 · Trazabilidad operativa de comandas`, después de la validación operativa y publicación segura de `v3.3.0`.

@@ -70,6 +70,12 @@ function isActive(value) {
     return Number(value ?? 1) === 1;
 }
 
+function normalizePreparationDestination(value, legacyKitchen = false) {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (['ninguno', 'cocina', 'bar'].includes(normalized)) return normalized;
+    return legacyKitchen ? 'cocina' : 'ninguno';
+}
+
 function normalizeUserType(value = '') {
     return String(value || '').trim().toLowerCase();
 }
@@ -142,7 +148,8 @@ function uploadedPresentationImages(req) {
     return images;
 }
 
-async function validarCategoria(categoriaId, subcategoriaId, esCocina) {
+async function validarCategoria(categoriaId, subcategoriaId, destinoPreparacion = 'ninguno') {
+    const requiereCocina = destinoPreparacion === 'cocina';
     const categoria = await database.get('SELECT * FROM categorias WHERE id = ?', [categoriaId]);
     if (!categoria) {
         return 'Categoría no encontrada';
@@ -165,10 +172,10 @@ async function validarCategoria(categoriaId, subcategoriaId, esCocina) {
             return 'La subcategoría seleccionada está inactiva';
         }
 
-        if (esCocina && !subcategoria.permite_cocina && !categoria.permite_cocina) {
+        if (requiereCocina && !subcategoria.permite_cocina && !categoria.permite_cocina) {
             return 'Esta combinación de categoría/subcategoría no permite productos de cocina';
         }
-    } else if (esCocina && !categoria.permite_cocina) {
+    } else if (requiereCocina && !categoria.permite_cocina) {
         return 'Esta categoría no permite productos de cocina';
     }
 
@@ -475,6 +482,7 @@ async function buildOperationalMenuPayload(options = {}) {
             p.categoria_id,
             p.subcategoria_id,
             p.es_cocina,
+            p.destino_preparacion,
             p.imagen,
             p.tipo_presentacion_id,
             tp.nombre AS tipo_presentacion_nombre,
@@ -593,7 +601,14 @@ async function buildOperationalMenuPayload(options = {}) {
             tipo_presentacion_nombre: product.tipo_presentacion_nombre || null,
             categoria_operativa: categoriaNombre,
             es_cocina: Number(product.es_cocina) === 1 ? 1 : 0,
-            requiere_comanda: Number(product.es_cocina) === 1 ? 1 : 0,
+            destino_preparacion: normalizePreparationDestination(
+                product.destino_preparacion,
+                Number(product.es_cocina) === 1
+            ),
+            requiere_comanda: normalizePreparationDestination(
+                product.destino_preparacion,
+                Number(product.es_cocina) === 1
+            ) !== 'ninguno' ? 1 : 0,
             tiene_presentaciones: tienePresentacionesOperativas ? 1 : 0,
             tiene_presentaciones_configuradas: tienePresentacionesConfiguradas ? 1 : 0,
             precio_base: precioBase,
@@ -616,7 +631,7 @@ async function buildOperationalMenuPayload(options = {}) {
         : normalizedProducts.filter(product => product.disponible_operacion === 1);
 
     return {
-        version_contrato: 'v2.2.5M.8',
+        version_contrato: 'v3.3.0-kitchen',
         generado_en: new Date().toISOString(),
         categorias: buildOperationalCategoryList(categories, operationalProducts, includeEmptyCategories),
         productos: operationalProducts,
@@ -812,7 +827,7 @@ router.post('/presentation-types', requireMenuAdmin, async (req, res) => {
             return res.status(400).json({ error: 'Nombre y categoría son requeridos' });
         }
 
-        const categoriaError = await validarCategoria(categoriaId, subcategoriaId, false);
+        const categoriaError = await validarCategoria(categoriaId, subcategoriaId, 'ninguno');
         if (categoriaError) {
             return res.status(400).json({ error: categoriaError });
         }
@@ -863,7 +878,7 @@ router.put('/presentation-types/:id', requireMenuAdmin, async (req, res) => {
             return res.status(400).json({ error: 'Nombre y categoría son requeridos' });
         }
 
-        const categoriaError = await validarCategoria(categoriaId, subcategoriaId, false);
+        const categoriaError = await validarCategoria(categoriaId, subcategoriaId, 'ninguno');
         if (categoriaError) {
             return res.status(400).json({ error: categoriaError });
         }
@@ -974,7 +989,7 @@ router.get('/products', async (req, res) => {
     try {
         const includeInactive = shouldIncludeInactive(req);
         const products = await database.all(`
-            SELECT 
+            SELECT
                 p.*,
                 COALESCE(p.activo, 1) AS activo,
                 c.nombre as categoria_nombre,
@@ -1114,7 +1129,11 @@ router.post('/products', requireMenuAdmin, subirImagenesProducto, async (req, re
         const descripcion = req.body.descripcion || '';
         const categoriaId = parseNumber(req.body.categoria_id);
         const subcategoriaId = parseNumber(req.body.subcategoria_id, null);
-        const esCocina = parseBoolean(req.body.es_cocina);
+        const destinoPreparacion = normalizePreparationDestination(
+            req.body.destino_preparacion,
+            parseBoolean(req.body.es_cocina)
+        );
+        const esCocina = destinoPreparacion !== 'ninguno';
         const tienePresentaciones = parseBoolean(req.body.tiene_presentaciones);
         const tipoPresentacionId = tienePresentaciones ? parseNumber(req.body.tipo_presentacion_id, null) : null;
         const presentacionesSeleccionadas = parseArray(req.body.presentaciones_seleccionadas);
@@ -1143,7 +1162,7 @@ router.post('/products', requireMenuAdmin, subirImagenesProducto, async (req, re
             return res.status(400).json({ error: presentacionesValidadas.error });
         }
 
-        const categoriaError = await validarCategoria(categoriaId, subcategoriaId, esCocina);
+        const categoriaError = await validarCategoria(categoriaId, subcategoriaId, destinoPreparacion);
         if (categoriaError) {
             return res.status(400).json({ error: categoriaError });
         }
@@ -1152,9 +1171,15 @@ router.post('/products', requireMenuAdmin, subirImagenesProducto, async (req, re
         transactionStarted = true;
 
         const result = await database.run(
-            `INSERT INTO productos (nombre, descripcion, precio, categoria_id, subcategoria_id, es_cocina, imagen, tipo_presentacion_id, activo)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [nombre, descripcion, Number.isFinite(precio) ? precio : 0, categoriaId, subcategoriaId, esCocina ? 1 : 0, imagen, tipoPresentacionId, activo]
+            `INSERT INTO productos (
+                nombre, descripcion, precio, categoria_id, subcategoria_id,
+                es_cocina, destino_preparacion, imagen, tipo_presentacion_id, activo
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                nombre, descripcion, Number.isFinite(precio) ? precio : 0,
+                categoriaId, subcategoriaId, esCocina ? 1 : 0, destinoPreparacion,
+                imagen, tipoPresentacionId, activo
+            ]
         );
 
         const productoId = result.id;
@@ -1180,6 +1205,7 @@ router.post('/products', requireMenuAdmin, subirImagenesProducto, async (req, re
                 categoria_id: categoriaId,
                 subcategoria_id: subcategoriaId,
                 es_cocina: esCocina ? 1 : 0,
+                destino_preparacion: destinoPreparacion,
                 imagen,
                 tipo_presentacion_id: tipoPresentacionId,
                 tipo_presentacion_nombre: tipoPresentacionValidado.tipo?.nombre || null,
@@ -1209,7 +1235,14 @@ router.put('/products/:id', requireMenuAdmin, subirImagenesProducto, async (req,
         const descripcion = req.body.descripcion ?? producto.descripcion ?? '';
         const categoriaId = parseNumber(req.body.categoria_id, producto.categoria_id);
         const subcategoriaId = parseNumber(req.body.subcategoria_id, null);
-        const esCocina = parseBoolean(req.body.es_cocina);
+        const hasDestinationField = Object.prototype.hasOwnProperty.call(req.body, 'destino_preparacion');
+        const hasLegacyKitchenField = Object.prototype.hasOwnProperty.call(req.body, 'es_cocina');
+        const destinoPreparacion = hasDestinationField
+            ? normalizePreparationDestination(req.body.destino_preparacion, parseBoolean(req.body.es_cocina))
+            : hasLegacyKitchenField
+                ? normalizePreparationDestination(null, parseBoolean(req.body.es_cocina))
+                : normalizePreparationDestination(producto.destino_preparacion, parseBoolean(producto.es_cocina));
+        const esCocina = destinoPreparacion !== 'ninguno';
         const tienePresentaciones = parseBoolean(req.body.tiene_presentaciones) || req.body.presentaciones !== undefined;
         const tipoPresentacionId = tienePresentaciones
             ? parseNumber(req.body.tipo_presentacion_id, producto.tipo_presentacion_id || null)
@@ -1242,7 +1275,7 @@ router.put('/products/:id', requireMenuAdmin, subirImagenesProducto, async (req,
             return res.status(400).json({ error: presentacionesValidadas.error });
         }
 
-        const categoriaError = await validarCategoria(categoriaId, subcategoriaId, esCocina);
+        const categoriaError = await validarCategoria(categoriaId, subcategoriaId, destinoPreparacion);
         if (categoriaError) {
             return res.status(400).json({ error: categoriaError });
         }
@@ -1252,9 +1285,13 @@ router.put('/products/:id', requireMenuAdmin, subirImagenesProducto, async (req,
 
         await database.run(`
             UPDATE productos
-            SET nombre = ?, descripcion = ?, precio = ?, categoria_id = ?, subcategoria_id = ?, es_cocina = ?, imagen = ?, tipo_presentacion_id = ?, activo = ?
+            SET nombre = ?, descripcion = ?, precio = ?, categoria_id = ?, subcategoria_id = ?,
+                es_cocina = ?, destino_preparacion = ?, imagen = ?, tipo_presentacion_id = ?, activo = ?
             WHERE id = ?
-        `, [nombre, descripcion, precio, categoriaId, subcategoriaId, esCocina ? 1 : 0, imagen, tipoPresentacionId, activo, id]);
+        `, [
+            nombre, descripcion, precio, categoriaId, subcategoriaId,
+            esCocina ? 1 : 0, destinoPreparacion, imagen, tipoPresentacionId, activo, id
+        ]);
 
         await upsertProductPresentations(id, tienePresentaciones ? presentacionesValidadas.presentaciones : [], imagenesPorPresentacion);
 
@@ -1559,6 +1596,11 @@ function normalizeTemplateArray(value) {
     return Array.isArray(value) ? value : [];
 }
 
+function normalizeTemplatePreparationDestination(row = {}) {
+    const legacyKitchen = templateBool(row.es_cocina, 'NO') === 'SI';
+    return normalizePreparationDestination(row.destino_preparacion, legacyKitchen);
+}
+
 function normalizeMenuTemplateDraft(payload = {}) {
     const draft = payload.draft || payload || {};
 
@@ -1598,18 +1640,22 @@ function normalizeMenuTemplateDraft(payload = {}) {
             clave_tipo: templateText(row.clave_tipo),
             activo: templateBool(row.activo)
         })),
-        products: normalizeTemplateArray(draft.products || draft.productos).map((row, index) => ({
-            clave_producto: templateText(row.clave_producto || row.clave || `PROD-${index + 1}`),
-            nombre: templateText(row.nombre),
-            descripcion: templateText(row.descripcion),
-            clave_categoria: templateText(row.clave_categoria),
-            clave_subcategoria: templateText(row.clave_subcategoria),
-            precio_base: templateNumber(row.precio_base),
-            tiene_presentaciones: templateBool(row.tiene_presentaciones, 'NO'),
-            clave_tipo: templateText(row.clave_tipo),
-            es_cocina: templateBool(row.es_cocina, 'NO'),
-            activo: templateBool(row.activo)
-        })),
+        products: normalizeTemplateArray(draft.products || draft.productos).map((row, index) => {
+            const destination = normalizeTemplatePreparationDestination(row);
+            return {
+                clave_producto: templateText(row.clave_producto || row.clave || `PROD-${index + 1}`),
+                nombre: templateText(row.nombre),
+                descripcion: templateText(row.descripcion),
+                clave_categoria: templateText(row.clave_categoria),
+                clave_subcategoria: templateText(row.clave_subcategoria),
+                precio_base: templateNumber(row.precio_base),
+                tiene_presentaciones: templateBool(row.tiene_presentaciones, 'NO'),
+                clave_tipo: templateText(row.clave_tipo),
+                destino_preparacion: destination,
+                es_cocina: destination === 'ninguno' ? 'NO' : 'SI',
+                activo: templateBool(row.activo)
+            };
+        }),
         productPresentations: normalizeTemplateArray(draft.productPresentations || draft.producto_presentaciones).map((row) => ({
             clave_producto: templateText(row.clave_producto),
             clave_presentacion: templateText(row.clave_presentacion),
@@ -1900,7 +1946,7 @@ function buildMenuTemplateWorkbook(draft, validation) {
                 ['Claves', 'Use claves simples y únicas, por ejemplo CAT-BEBIDAS, SUB-GASEOSAS, TIP-GASEOSAS, PRE-350ML, PROD-COCACOLA.'],
                 ['Productos con presentación', 'Use tiene_presentaciones=SI, indique clave_tipo y cargue precios en 06_ProductoPresentaciones.'],
                 ['Productos sin presentación', 'Use tiene_presentaciones=NO y complete precio_base en 05_Productos.'],
-                ['Cocina', 'Use es_cocina=SI solo cuando la categoría/subcategoría lo permite en la app.'],
+                ['Preparación', 'Use destino_preparacion=ninguno, cocina o bar. La columna es_cocina se conserva para plantillas anteriores.'],
                 ['Validación generador', `${validation.errors.length} errores · ${validation.warnings.length} advertencias al generar.`]
             ]
         },
@@ -1926,8 +1972,8 @@ function buildMenuTemplateWorkbook(draft, validation) {
         },
         {
             name: '05_Productos',
-            widths: [24, 30, 42, 24, 24, 16, 22, 24, 16, 14],
-            rows: [['clave_producto', 'nombre', 'descripcion', 'clave_categoria', 'clave_subcategoria', 'precio_base', 'tiene_presentaciones', 'clave_tipo', 'es_cocina', 'activo'], ...draft.products.map(row => [row.clave_producto, row.nombre, row.descripcion, row.clave_categoria, row.clave_subcategoria, { value: row.precio_base, type: typeof row.precio_base === 'number' ? 'n' : 's' }, row.tiene_presentaciones, row.clave_tipo, row.es_cocina, row.activo])]
+            widths: [24, 30, 42, 24, 24, 16, 22, 24, 22, 16, 14],
+            rows: [['clave_producto', 'nombre', 'descripcion', 'clave_categoria', 'clave_subcategoria', 'precio_base', 'tiene_presentaciones', 'clave_tipo', 'destino_preparacion', 'es_cocina', 'activo'], ...draft.products.map(row => [row.clave_producto, row.nombre, row.descripcion, row.clave_categoria, row.clave_subcategoria, { value: row.precio_base, type: typeof row.precio_base === 'number' ? 'n' : 's' }, row.tiene_presentaciones, row.clave_tipo, row.destino_preparacion, row.es_cocina, row.activo])]
         },
         {
             name: '06_ProductoPresentaciones',
@@ -2307,6 +2353,18 @@ function validateTemplateImportRelations(draft) {
                 errors.push(`Productos fila ${index + 1}: la subcategoría ${row.clave_subcategoria} no pertenece a ${row.clave_categoria}.`);
             }
         }
+        if (row.destino_preparacion === 'cocina') {
+            const category = categoryByKey.get(normalizeLookupKey(row.clave_categoria));
+            const subcategory = row.clave_subcategoria
+                ? subcategoryByKey.get(normalizeLookupKey(row.clave_subcategoria))
+                : null;
+            const categoryAllowsKitchen = category?.permite_cocina === 'SI';
+            const subcategoryAllowsKitchen = subcategory?.permite_cocina === 'SI';
+            if ((!subcategory && !categoryAllowsKitchen)
+                || (subcategory && !categoryAllowsKitchen && !subcategoryAllowsKitchen)) {
+                errors.push(`Productos fila ${index + 1}: la categoría o subcategoría no permite destino cocina.`);
+            }
+        }
         if (row.tiene_presentaciones === 'SI') {
             const type = typeByKey.get(normalizeLookupKey(row.clave_tipo));
             if (!type) {
@@ -2464,7 +2522,8 @@ async function importMenuTemplateDraft(draft, userId) {
         if (!categoriaId) continue;
 
         const active = templateYesNoToBool(row.activo, true);
-        const cocina = templateYesNoToBool(row.es_cocina, false);
+        const destination = normalizeTemplatePreparationDestination(row);
+        const cocina = destination === 'ninguno' ? 0 : 1;
         const hasPresentations = row.tiene_presentaciones === 'SI';
         const price = hasPresentations ? 0 : Number(row.precio_base || 0);
         const existing = await findProductByName(row.nombre);
@@ -2472,16 +2531,25 @@ async function importMenuTemplateDraft(draft, userId) {
         if (existing) {
             await database.run(`
                 UPDATE productos
-                SET nombre = ?, descripcion = ?, precio = ?, categoria_id = ?, subcategoria_id = ?, es_cocina = ?, tipo_presentacion_id = ?, activo = ?
+                SET nombre = ?, descripcion = ?, precio = ?, categoria_id = ?, subcategoria_id = ?,
+                    es_cocina = ?, destino_preparacion = ?, tipo_presentacion_id = ?, activo = ?
                 WHERE id = ?
-            `, [row.nombre, row.descripcion || '', price, categoriaId, subcategoriaId, cocina, tipoPresentacionId, active, existing.id]);
+            `, [
+                row.nombre, row.descripcion || '', price, categoriaId, subcategoriaId,
+                cocina, destination, tipoPresentacionId, active, existing.id
+            ]);
             result.updated.productos += 1;
             result.maps.products[normalizeLookupKey(row.clave_producto)] = existing.id;
         } else {
             const inserted = await database.run(`
-                INSERT INTO productos (nombre, descripcion, precio, categoria_id, subcategoria_id, es_cocina, imagen, tipo_presentacion_id, activo)
-                VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
-            `, [row.nombre, row.descripcion || '', price, categoriaId, subcategoriaId, cocina, tipoPresentacionId, active]);
+                INSERT INTO productos (
+                    nombre, descripcion, precio, categoria_id, subcategoria_id,
+                    es_cocina, destino_preparacion, imagen, tipo_presentacion_id, activo
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+            `, [
+                row.nombre, row.descripcion || '', price, categoriaId, subcategoriaId,
+                cocina, destination, tipoPresentacionId, active
+            ]);
             result.created.productos += 1;
             result.maps.products[normalizeLookupKey(row.clave_producto)] = inserted.id;
         }

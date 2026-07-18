@@ -1,8 +1,8 @@
 # Prompt de continuidad canónico · MundiPOS 3.0
 
 **Actualizado:** 17 de julio de 2026
-**Estado funcional recuperado:** `v3.2.5`
-**Próxima fase funcional:** `v3.3.0 · Dominio Kitchen / Comandas`
+**Estado funcional preparado para validación:** `v3.3.0`
+**Próxima fase funcional tras validación:** `v3.3.1 · Trazabilidad operativa de comandas`
 **Repositorio local activo:** `C:\Repos\POS_Restaurante`
 
 > **Uso en un nuevo chat:** adjunta este archivo junto con un ZIP nuevo del repositorio actual y pega la sección **“Prompt listo para usar”** como primer mensaje. Este documento reemplaza el prompt de continuidad anterior. Conserva sus contratos útiles, corrige su estado obsoleto e incorpora la recuperación, normalización y limpieza realizadas el 17 de julio de 2026.
@@ -25,10 +25,10 @@ Debes trabajar de forma incremental, auditable y compatible con la operación re
 6. Confirma que `main` y `origin/main` están sincronizados y que el árbol está limpio.
 7. Atiende primero la higiene Git pendiente de los respaldos SQLite rastreados. No borres las copias locales y no reescribas el historial remoto ni uses force-push sin aprobación explícita.
 8. Ejecuta la suite completa sobre el `HEAD` real. Las 107 pruebas fueron confirmadas en el árbol funcional recuperado, pero deben revalidarse después de inspeccionar el commit intermedio y cualquier saneamiento Git.
-9. Solo después inicia la auditoría de `v3.3.0 · Dominio Kitchen / Comandas`.
-10. No generes código de Kitchen hasta presentar el diagnóstico del dominio actual, alcance, riesgos, migración y criterios de aceptación.
+9. Confirma que la implementación de `v3.3.0 · Dominio Kitchen / Comandas` coincide con su auditoría y documento de avance.
+10. No inicies `v3.3.1` hasta que `v3.3.0` pase pruebas nativas, validación operativa, documentación y Git seguro.
 
-Mantén sin cambios los contratos de cuenta global, división, Caja, Payments, créditos, finalización de servicio, impresión posterior al commit, autorización backend e idempotencia. No adelantes Printing, reportes o limpieza legacy.
+Mantén sin cambios los contratos de cuenta global, división, Caja, Payments, créditos, finalización de servicio, impresión posterior al commit, autorización backend e idempotencia. No adelantes la cuenta departamental o UI definitiva de `v3.3.2`, Printing, reportes o limpieza legacy.
 
 Trabaja en español. En tareas de PowerShell entrega un solo bloque por turno y espera la salida completa. Nunca uses `git add .`, `git add -A`, `git clean`, `git reset --hard`, `git commit -a`, `stash pop`, `stash apply`, `stash drop`, `npm audit fix --force` ni force-push sin autorización expresa.
 
@@ -1089,7 +1089,17 @@ No pidas todos los bloques a la vez si el usuario está trabajando de forma inte
 
 ---
 
-# 14. Próxima fase · v3.3.0 Dominio Kitchen / Comandas
+# 14. Estado implementado para validación · v3.3.0 Dominio Kitchen / Comandas
+
+La implementación candidata se documenta en:
+
+```text
+docs/auditoria-v3.3.0-kitchen-comandas.md
+docs/avance-v3.3.0-kitchen-comandas.md
+```
+
+Incluye `kitchenService`, modelo normalizado, destinos Cocina/Bar, deltas por línea, snapshots, usuario solicitante, idempotencia, concurrencia, realtime y adaptadores legacy. Aún requiere aplicación sobre el repositorio local, suite con `sqlite3@6.0.1`, pruebas manuales y publicación Git antes de iniciar `v3.3.1`.
+
 
 ## Objetivo
 
@@ -1101,9 +1111,9 @@ Kitchen calcula cambios no enviados y crea comandas.
 Printing imprime posteriormente, pero no decide contenido ni preparación.
 ```
 
-## Auditoría obligatoria previa
+## Auditoría completada
 
-Localiza y documenta:
+La auditoría publicada localizó y documentó:
 
 - tabla `comandas` y relacionadas;
 - almacenamiento actual de ítems, texto o JSON;
@@ -1122,11 +1132,11 @@ Localiza y documenta:
 - comportamiento tras reinicio;
 - condiciones de carrera en dos dispositivos.
 
-Presenta la auditoría antes de editar.
+La auditoría fue publicada antes de la implementación y debe conservarse como contrato técnico de la fase.
 
-## Alcance previsto
+## Alcance implementado
 
-Según el código real, implementar un servicio de dominio como:
+El código real incorpora el servicio de dominio:
 
 ```text
 server/services/kitchenService.js
@@ -1146,9 +1156,9 @@ Responsabilidades:
 - mantener idempotencia y concurrencia;
 - publicar realtime después del commit.
 
-## Modelo conceptual sugerido
+## Modelo implementado
 
-Sujeto a auditoría:
+La migración idempotente conserva los conceptos:
 
 ```text
 comandas
@@ -1182,9 +1192,9 @@ historial_comandas
 - metadata
 ```
 
-No impongas nombres si el esquema vigente ofrece una migración mejor; conserva los conceptos.
+Los nombres finales y su compatibilidad están documentados en `docs/avance-v3.3.0-kitchen-comandas.md`.
 
-## Casos obligatorios
+## Casos cubiertos y pendientes de validación nativa
 
 1. `Hamburguesa ×2`: envía exactamente dos unidades.
 2. Repetir envío sin cambios: no crea duplicado.

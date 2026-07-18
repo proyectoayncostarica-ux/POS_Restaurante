@@ -1,5 +1,6 @@
 const database = require('../db/database');
 const { TransactionService } = require('./transactionService');
+const kitchenServiceSingleton = require('./kitchenService');
 const {
     ValidationError,
     NotFoundError,
@@ -47,6 +48,15 @@ function isActive(value) {
     return Number(value ?? 1) === 1;
 }
 
+function normalizeOperationalNote(value, maxLength = 500) {
+    const normalized = String(value || '').trim().replace(/\s+/g, ' ');
+    if (!normalized) return null;
+    if (normalized.length > maxLength) {
+        throw new ValidationError('La indicación especial supera la longitud permitida', { maxLength });
+    }
+    return normalized;
+}
+
 function formatAccountNumber(id) {
     const accountId = Number(id);
     if (!Number.isSafeInteger(accountId) || accountId <= 0) {
@@ -76,6 +86,7 @@ class AccountService {
     constructor(options = {}) {
         this.db = options.db || database;
         this.transactions = options.transactions || new TransactionService(this.db);
+        this.kitchenService = options.kitchenService || kitchenServiceSingleton;
     }
 
     calculateService(subtotal, appliesService, percentage) {
@@ -231,6 +242,16 @@ class AccountService {
             precio_original: roundMoney(unitPrice),
             presentacion_id: presentationId,
             es_cocina: Number(product.es_cocina) === 1 ? 1 : 0,
+            destino_preparacion: this.kitchenService.normalizeDestination(
+                product.destino_preparacion,
+                Number(product.es_cocina) === 1
+            ),
+            observacion_snapshot: normalizeOperationalNote(
+                item.observacion ?? item.observation ?? item.indicacion_especial
+            ),
+            adicionales_snapshot: this.kitchenService.normalizeAdditionalItems(
+                item.adicionales ?? item.additionalItems
+            ),
             producto_nombre: product.nombre,
             presentacion_nombre: presentationName,
             presentacion_cantidad: presentationQuantity
@@ -951,6 +972,8 @@ class AccountService {
             await this.persistResponsibilitySnapshots(accountId, responsibilities, creatorUserId, tx);
 
             for (const item of validatedItems) {
+                item.usuario_solicitante_id = creatorUserId;
+                item.usuario_solicitante_nombre_snapshot = creatorResponsibility.usuario_nombre;
                 const lineSnapshot = this.buildConsumptionLineSnapshot(item, totals, now);
                 await tx.run(`
                     INSERT INTO pedido_productos (
@@ -959,8 +982,10 @@ class AccountService {
                         producto_nombre_snapshot, presentacion_nombre_snapshot,
                         presentacion_cantidad_snapshot, aplica_servicio_snapshot,
                         porcentaje_servicio_snapshot, servicio_unitario_snapshot,
+                        observacion_snapshot, adicionales_snapshot,
+                        usuario_solicitante_id, usuario_solicitante_nombre_snapshot,
                         creado_en, actualizado_en, version
-                    ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `, [
                     accountId,
                     item.producto_id,
@@ -974,21 +999,22 @@ class AccountService {
                     lineSnapshot.aplica_servicio_snapshot,
                     lineSnapshot.porcentaje_servicio_snapshot,
                     lineSnapshot.servicio_unitario_snapshot,
+                    item.observacion_snapshot,
+                    JSON.stringify(item.adicionales_snapshot),
+                    item.usuario_solicitante_id,
+                    item.usuario_solicitante_nombre_snapshot,
                     lineSnapshot.creado_en,
                     lineSnapshot.actualizado_en,
                     lineSnapshot.version
                 ]);
             }
 
-            const kitchenItems = validatedItems.filter(item => item.es_cocina === 1);
-            let kitchenTicketId = null;
-            if (kitchenItems.length > 0) {
-                const kitchen = await tx.run(`
-                    INSERT INTO comandas (mesa_id, productos_cocina, fecha_impresion, estado)
-                    VALUES (?, ?, ?, 'pendiente')
-                `, [mesaId, JSON.stringify(kitchenItems), now]);
-                kitchenTicketId = kitchen.id;
-            }
+            const kitchenResult = await this.kitchenService.requestDispatchInTransaction({
+                accountId,
+                userId: creatorUserId,
+                idempotencyKey: input.idempotencyKey || input.clave_idempotencia,
+                now
+            }, tx);
 
             const seatLabel = this.getSeatLabel(seat);
             await tx.run(`
@@ -1009,8 +1035,9 @@ class AccountService {
                 saldo_pendiente: totals.total_con_servicio,
                 estado_operativo: ACCOUNT_OPERATIONAL_STATES.OPEN,
                 estado_financiero: ACCOUNT_FINANCIAL_STATES.NO_DOCUMENTS,
-                comanda_id: kitchenTicketId,
-                requiere_comanda: kitchenItems.length > 0
+                comanda_id: kitchenResult.comanda_id,
+                comanda_ids: kitchenResult.comanda_ids,
+                requiere_comanda: kitchenResult.requiere_comanda
             };
         });
     }
@@ -1034,12 +1061,15 @@ class AccountService {
             if (!account) throw new ConflictError('Cuenta no encontrada o no está abierta', { accountId: id });
 
             const validatedItems = await this.validateProductItems(items, tx);
+            const requester = await this.kitchenService.getRequester(userId, tx);
             const linePolicy = {
                 aplica_servicio: Number(account.aplica_servicio || 0) === 1 ? 1 : 0,
                 porcentaje_servicio: account.porcentaje_servicio
             };
             let totalAdditional = 0;
             for (const item of validatedItems) {
+                item.usuario_solicitante_id = requester.id;
+                item.usuario_solicitante_nombre_snapshot = requester.nombre;
                 totalAdditional = addMoney(totalAdditional, multiplyMoney(item.precio_unitario, item.cantidad));
                 const lineSnapshot = this.buildConsumptionLineSnapshot(item, linePolicy, now);
                 const existing = await tx.get(`
@@ -1052,6 +1082,9 @@ class AccountService {
                       AND precio_unitario = ?
                       AND COALESCE(aplica_servicio_snapshot, 0) = ?
                       AND COALESCE(porcentaje_servicio_snapshot, 0) = ?
+                      AND COALESCE(observacion_snapshot, '') = COALESCE(?, '')
+                      AND COALESCE(adicionales_snapshot, '[]') = ?
+                      AND COALESCE(usuario_solicitante_id, 0) = ?
                     ORDER BY id DESC
                     LIMIT 1
                 `, [
@@ -1060,7 +1093,10 @@ class AccountService {
                     item.presentacion_id,
                     item.precio_unitario,
                     lineSnapshot.aplica_servicio_snapshot,
-                    lineSnapshot.porcentaje_servicio_snapshot
+                    lineSnapshot.porcentaje_servicio_snapshot,
+                    item.observacion_snapshot,
+                    JSON.stringify(item.adicionales_snapshot),
+                    requester.id
                 ]);
 
                 if (existing) {
@@ -1080,8 +1116,10 @@ class AccountService {
                             producto_nombre_snapshot, presentacion_nombre_snapshot,
                             presentacion_cantidad_snapshot, aplica_servicio_snapshot,
                             porcentaje_servicio_snapshot, servicio_unitario_snapshot,
+                            observacion_snapshot, adicionales_snapshot,
+                            usuario_solicitante_id, usuario_solicitante_nombre_snapshot,
                             creado_en, actualizado_en, version
-                        ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     `, [
                         id,
                         item.producto_id,
@@ -1095,6 +1133,10 @@ class AccountService {
                         lineSnapshot.aplica_servicio_snapshot,
                         lineSnapshot.porcentaje_servicio_snapshot,
                         lineSnapshot.servicio_unitario_snapshot,
+                        item.observacion_snapshot,
+                        JSON.stringify(item.adicionales_snapshot),
+                        requester.id,
+                        requester.nombre,
                         lineSnapshot.creado_en,
                         lineSnapshot.actualizado_en,
                         lineSnapshot.version
@@ -1102,15 +1144,12 @@ class AccountService {
                 }
             }
 
-            const kitchenItems = validatedItems.filter(item => item.es_cocina === 1);
-            let kitchenTicketId = null;
-            if (kitchenItems.length > 0) {
-                const kitchen = await tx.run(`
-                    INSERT INTO comandas (mesa_id, productos_cocina, fecha_impresion, estado)
-                    VALUES (?, ?, ?, 'pendiente')
-                `, [account.mesa_id, JSON.stringify(kitchenItems), now]);
-                kitchenTicketId = kitchen.id;
-            }
+            const kitchenResult = await this.kitchenService.requestDispatchInTransaction({
+                accountId: id,
+                userId,
+                idempotencyKey: input.idempotencyKey || input.clave_idempotencia,
+                now
+            }, tx);
 
             const totals = await this.synchronizeAccount(id, tx, { now });
             const seatLabel = this.getSeatLabel(account);
@@ -1127,8 +1166,9 @@ class AccountService {
             return {
                 total_adicional: totalAdditional,
                 ...totals,
-                comanda_id: kitchenTicketId,
-                requiere_comanda: kitchenItems.length > 0
+                comanda_id: kitchenResult.comanda_id,
+                comanda_ids: kitchenResult.comanda_ids,
+                requiere_comanda: kitchenResult.requiere_comanda
             };
         });
     }
@@ -1377,6 +1417,12 @@ class AccountService {
                 });
             }
 
+            const kitchenResult = await this.kitchenService.requestDispatchInTransaction({
+                accountId: Number(accountId),
+                userId,
+                idempotencyKey: options.idempotencyKey || options.clave_idempotencia,
+                now
+            }, tx);
             const totals = await this.synchronizeAccount(Number(accountId), tx, { now });
             const seatLabel = this.getSeatLabel(context.account);
             await tx.run(`
@@ -1389,7 +1435,12 @@ class AccountService {
                 now
             ]);
 
-            return totals;
+            return {
+                ...totals,
+                comanda_id: kitchenResult.comanda_id,
+                comanda_ids: kitchenResult.comanda_ids,
+                requiere_comanda: kitchenResult.requiere_comanda
+            };
         });
     }
 
