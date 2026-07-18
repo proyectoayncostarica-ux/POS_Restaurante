@@ -1408,3 +1408,62 @@ La primera respuesta debe demostrar comprensión y no comenzar a programar. Debe
 ```
 
 Después debe trabajar con evidencia real del ZIP y de la salida del usuario.
+
+
+---
+
+# 20. Hotfix posterior a v3.3.0 · fix1 de inicialización Kitchen
+
+Después de publicar `v3.3.0`, el arranque sobre la base operativa real procedente de `v3.2.5` expuso dos fallos encadenados de migración.
+
+Primer error:
+
+```text
+SQLITE_ERROR: no such column: pedido_id
+CREATE INDEX IF NOT EXISTS idx_comandas_pedido ON comandas(pedido_id)
+```
+
+Causa: `createIndexes()` se ejecutaba antes de `migrateSchema()`, cuando `comandas` todavía conservaba el esquema legacy.
+
+Segundo error, visible después de corregir el orden:
+
+```text
+SQLITE_CONSTRAINT: NOT NULL constraint failed: comandas_new.solicitada_en
+```
+
+Causa: `ensureKitchenSchema()` agrega `solicitada_en` como `TEXT` nullable para mantener compatibilidad con `ALTER TABLE`. Las filas legacy existentes quedan temporalmente con `NULL`. Durante `rebuildLegacyForeignKeys()`, la copia explícita de ese `NULL` hacia `comandas_new.solicitada_en NOT NULL` no utiliza el default de la tabla nueva.
+
+Corrección canónica `v3.3.0 fix1`:
+
+```text
+createTables
+→ migrateSchema
+  → ensureKitchenSchema
+  → normalizar campos obligatorios de comandas legacy
+  → rebuildLegacyForeignKeys
+→ createIndexes
+```
+
+Para `solicitada_en`, la normalización usa en este orden:
+
+```text
+solicitada_en existente
+→ fecha_impresion legacy
+→ CURRENT_TIMESTAMP como último fallback
+```
+
+No se debe eliminar, reemplazar ni reconstruir manualmente `data/restaurant.db`. La migración debe conservar el historial y ser idempotente incluso después de un intento de arranque parcialmente fallido.
+
+Documento:
+
+```text
+docs/avance-v3.3.0-fix1-inicializacion-kitchen.md
+```
+
+Commit esperado:
+
+```text
+v3.3.0 fix1: corrige inicializacion de Kitchen sobre base legacy
+```
+
+`v3.3.1` no debe comenzar hasta que este fix arranque correctamente sobre la base operativa, la suite completa pase y Git quede publicado de forma segura.

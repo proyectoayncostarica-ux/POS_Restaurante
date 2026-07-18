@@ -11,6 +11,7 @@ const LEGACY_KITCHEN_SCHEMA = [
     `CREATE TABLE mesas (
         id INTEGER PRIMARY KEY,
         numero INTEGER NOT NULL,
+        estado TEXT NOT NULL DEFAULT 'libre',
         tipo_asiento TEXT,
         zona_id INTEGER,
         zona TEXT
@@ -28,6 +29,8 @@ const LEGACY_KITCHEN_SCHEMA = [
     `CREATE TABLE pedidos (
         id INTEGER PRIMARY KEY,
         mesa_id INTEGER NOT NULL,
+        fecha TEXT NOT NULL,
+        estado TEXT NOT NULL,
         numero_cuenta TEXT,
         estado_operativo TEXT
     )`,
@@ -55,15 +58,61 @@ const LEGACY_KITCHEN_SCHEMA = [
     )`
 ];
 
+test('migra una comanda v3.2.5 antes de reconstruir FKs y crear indices de Kitchen', async t => {
+    const context = await createTestDatabase();
+    t.after(() => context.cleanup());
+    await applySqlStatements(context.db, LEGACY_KITCHEN_SCHEMA);
+
+    await context.db.run(`INSERT INTO mesas VALUES (1, 4, 'libre', 'mesa', NULL, 'salon')`);
+    await context.db.run(`
+        INSERT INTO comandas (
+            mesa_id, productos_cocina, fecha_impresion, estado
+        ) VALUES (1, '[{"producto_id":1,"cantidad":1}]', '2026-07-17T09:15:00.000Z', 'pendiente')
+    `);
+
+    // Reproduce el arranque real de una base v3.2.5: CREATE TABLE IF NOT EXISTS no
+    // altera comandas y la columna solicitada_en se agrega después mediante ALTER TABLE.
+    await context.db.createTables();
+
+    const legacyColumns = await context.db.getColumns('comandas');
+    assert.equal(legacyColumns.includes('pedido_id'), false);
+
+    await context.db.ensureKitchenSchema();
+
+    const partiallyMigrated = await context.db.get(
+        'SELECT solicitada_en FROM comandas WHERE id = 1'
+    );
+    assert.equal(partiallyMigrated.solicitada_en, null);
+
+    // La reconstrucción debe normalizar primero los NULL legacy. Antes del fix profundo,
+    // esta llamada fallaba con NOT NULL constraint failed: comandas_new.solicitada_en.
+    await context.db.rebuildLegacyForeignKeys();
+    await context.db.createIndexes();
+
+    const migratedColumns = await context.db.getColumns('comandas');
+    assert.ok(migratedColumns.includes('pedido_id'));
+
+    const command = await context.db.get(
+        'SELECT solicitada_en, mesa_id FROM comandas WHERE id = 1'
+    );
+    assert.equal(command.solicitada_en, '2026-07-17T09:15:00.000Z');
+    assert.equal(command.mesa_id, 1);
+
+    const indexes = await context.db.all(`PRAGMA index_list('comandas')`);
+    assert.ok(indexes.some(index => index.name === 'idx_comandas_pedido'));
+    assert.ok(indexes.some(index => index.name === 'idx_comandas_operacion'));
+});
+
+
 test('migra comandas legacy sin borrar sus datos ni confundir impresión con preparación', async t => {
     const context = await createTestDatabase();
     t.after(() => context.cleanup());
     await applySqlStatements(context.db, LEGACY_KITCHEN_SCHEMA);
 
     await context.db.run(`INSERT INTO usuarios VALUES (1, 'Salonero', 1)`);
-    await context.db.run(`INSERT INTO mesas VALUES (1, 7, 'mesa', NULL, 'salon')`);
+    await context.db.run(`INSERT INTO mesas VALUES (1, 7, 'libre', 'mesa', NULL, 'salon')`);
     await context.db.run(`INSERT INTO productos VALUES (1, 'Casado', 1)`);
-    await context.db.run(`INSERT INTO pedidos VALUES (1, 1, 'CTA-00000001', 'abierta')`);
+    await context.db.run(`INSERT INTO pedidos VALUES (1, 1, '2026-07-17T10:00:00.000Z', 'pendiente', 'CTA-00000001', 'abierta')`);
     await context.db.run(`
         INSERT INTO pedido_productos (
             pedido_id, producto_id, cantidad, precio_unitario,
@@ -116,9 +165,9 @@ test('la reconstrucción legacy conserva snapshots de Kitchen y evita borrar com
     await applySqlStatements(context.db, LEGACY_KITCHEN_SCHEMA);
 
     await context.db.run(`INSERT INTO usuarios VALUES (1, 'Salonero', 1)`);
-    await context.db.run(`INSERT INTO mesas VALUES (1, 9, 'mesa', NULL, 'salon')`);
+    await context.db.run(`INSERT INTO mesas VALUES (1, 9, 'libre', 'mesa', NULL, 'salon')`);
     await context.db.run(`INSERT INTO productos VALUES (1, 'Arroz con pollo', 1)`);
-    await context.db.run(`INSERT INTO pedidos VALUES (1, 1, 'CTA-00000009', 'abierta')`);
+    await context.db.run(`INSERT INTO pedidos VALUES (1, 1, '2026-07-17T11:00:00.000Z', 'pendiente', 'CTA-00000009', 'abierta')`);
     await context.db.run(`
         INSERT INTO pedido_productos (
             pedido_id, producto_id, cantidad, precio_unitario,

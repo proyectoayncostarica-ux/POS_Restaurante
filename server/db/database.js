@@ -58,6 +58,9 @@ class Database {
         await this.run('PRAGMA foreign_keys = OFF');
         await this.createTables();
         await this.migrateSchema();
+        // Los indices que dependen de columnas agregadas por migracion deben crearse
+        // unicamente despues de normalizar el esquema legacy.
+        await this.createIndexes();
         await this.insertInitialData();
         await this.ensureDynamicModelConsistency();
         await this.run('PRAGMA foreign_keys = ON');
@@ -703,7 +706,6 @@ class Database {
             await this.run(sql);
         }
 
-        await this.createIndexes();
         console.log('Tablas base verificadas correctamente');
     }
 
@@ -1782,6 +1784,13 @@ class Database {
     }
 
     async rebuildLegacyForeignKeys() {
+        // Las columnas agregadas mediante ALTER TABLE pueden quedar en NULL en filas
+        // legacy. La reconstrucción copia valores explícitos, por lo que los DEFAULT
+        // de la tabla nueva no se aplican a esos NULL. Normalizamos primero los campos
+        // NOT NULL de comandas para que una base real parcialmente migrada pueda
+        // reconstruirse sin perder historial ni violar restricciones.
+        await this.normalizeKitchenRowsForLegacyRebuild();
+
         await this.rebuildTable('pedidos', `CREATE TABLE pedidos_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             mesa_id INTEGER NOT NULL,
@@ -2014,6 +2023,41 @@ class Database {
             'zona_id_snapshot', 'zona_nombre_snapshot', 'solicitada_en', 'enviada_en',
             'clave_idempotencia', 'solicitud_fingerprint', 'motivo', 'origen', 'version'
         ]);
+    }
+
+    async normalizeKitchenRowsForLegacyRebuild() {
+        if (!await this.tableExists('comandas')) return;
+
+        const columns = await this.getColumns('comandas');
+        if (!columns.includes('solicitada_en')) return;
+
+        await this.run(`
+            UPDATE comandas
+            SET productos_cocina = COALESCE(productos_cocina, '[]'),
+                estado = CASE
+                    WHEN estado IN ('pendiente', 'impresa', 'entregada') THEN estado
+                    ELSE 'pendiente'
+                END,
+                destino = COALESCE(NULLIF(TRIM(destino), ''), 'cocina'),
+                estado_operativo = COALESCE(NULLIF(TRIM(estado_operativo), ''), 'pendiente'),
+                estado_impresion = COALESCE(NULLIF(TRIM(estado_impresion), ''), 'pendiente'),
+                solicitada_en = COALESCE(
+                    NULLIF(TRIM(solicitada_en), ''),
+                    NULLIF(TRIM(fecha_impresion), ''),
+                    CURRENT_TIMESTAMP
+                ),
+                origen = COALESCE(NULLIF(TRIM(origen), ''), 'legacy'),
+                version = CASE WHEN version IS NULL OR version < 1 THEN 1 ELSE version END
+            WHERE productos_cocina IS NULL
+               OR estado IS NULL
+               OR estado NOT IN ('pendiente', 'impresa', 'entregada')
+               OR destino IS NULL OR TRIM(destino) = ''
+               OR estado_operativo IS NULL OR TRIM(estado_operativo) = ''
+               OR estado_impresion IS NULL OR TRIM(estado_impresion) = ''
+               OR solicitada_en IS NULL OR TRIM(solicitada_en) = ''
+               OR origen IS NULL OR TRIM(origen) = ''
+               OR version IS NULL OR version < 1
+        `);
     }
 
     async rebuildTable(tableName, createNewSql, wantedColumns) {

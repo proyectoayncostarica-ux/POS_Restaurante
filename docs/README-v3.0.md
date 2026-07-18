@@ -822,3 +822,21 @@ Las columnas y rutas legacy permanecen como adaptadores. No se borra historial y
 Documento de avance: `docs/avance-v3.3.0-kitchen-comandas.md`.
 
 Siguiente fase: `v3.3.1 · Trazabilidad operativa de comandas`, después de validar y publicar `v3.3.0`.
+
+
+## v3.3.0 fix1 · Inicialización segura de Kitchen sobre bases legacy
+
+Se corrige el arranque detectado al migrar una base operativa real procedente de `v3.2.5`.
+
+El incidente tenía dos fallos consecutivos:
+
+1. `createIndexes()` intentaba crear `idx_comandas_pedido` antes de que `migrateSchema()` agregara `pedido_id`.
+2. Después de corregir ese orden, una comanda legacy podía llegar a `rebuildLegacyForeignKeys()` con `solicitada_en = NULL`. Al copiar esa fila a `comandas_new`, SQLite rechazaba el valor explícito porque la nueva columna es `NOT NULL`.
+
+El flujo corregido mantiene `createTables → migrateSchema → createIndexes` y, dentro de la reconstrucción legacy, normaliza primero los campos obligatorios de `comandas`. `solicitada_en` conserva `fecha_impresion` cuando existe y usa `CURRENT_TIMESTAMP` solo como último fallback.
+
+No se elimina ni reemplaza la base operativa y se conserva el historial de comandas.
+
+Documento de avance: `docs/avance-v3.3.0-fix1-inicializacion-kitchen.md`.
+
+Siguiente fase: `v3.3.1 · Trazabilidad operativa de comandas`, después de validar `npm test`, el arranque real sobre `data/restaurant.db` y publicar el fix.

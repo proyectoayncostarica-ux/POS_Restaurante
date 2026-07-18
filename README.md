@@ -1388,3 +1388,20 @@ Documento técnico:
 - `docs/avance-v3.3.0-kitchen-comandas.md`
 
 La siguiente fase es `v3.3.1 · Trazabilidad operativa de comandas`, después de la validación operativa y publicación segura de `v3.3.0`.
+
+## 31. Fix de inicialización de Kitchen · v3.3.0 fix1
+
+`v3.3.0 fix1` corrige el arranque de bases operativas actualizadas desde `v3.2.5` en dos puntos encadenados de la migración de `comandas`:
+
+- la creación global de índices se ejecuta únicamente después de `migrateSchema()`, evitando crear `idx_comandas_pedido` antes de que exista `pedido_id`;
+- antes de reconstruir claves foráneas legacy, las filas de `comandas` normalizan campos obligatorios agregados mediante migración. En particular, `solicitada_en` se completa desde `fecha_impresion` y, si no existe una fecha previa, desde `CURRENT_TIMESTAMP`.
+
+La segunda protección es necesaria porque SQLite permite agregar `solicitada_en` como columna nullable durante `ALTER TABLE`, pero al reconstruir `comandas_new` el valor `NULL` se copia explícitamente y no activa el `DEFAULT CURRENT_TIMESTAMP` de la tabla nueva.
+
+La migración preserva las comandas existentes, no reemplaza `data/restaurant.db` y continúa siendo idempotente.
+
+Documento:
+
+```text
+docs/avance-v3.3.0-fix1-inicializacion-kitchen.md
+```
