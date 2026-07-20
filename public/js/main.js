@@ -173,41 +173,76 @@ const INTERNAL_SUBNAV = {
 // API Base URL
 const API_BASE = '/api';
 const MUNDIPOS_CLIENT_ID = getOrCreateClientId();
+const MUNDIPOS_BUILD_TRACK = '3.5.1';
 
 // Utilidades
 const Utils = {
     // Realizar peticiones HTTP
     async request(url, options = {}) {
+        const requestOptions = { ...options };
+        delete requestOptions.retryOnNetworkError;
+        delete requestOptions.retryDelayMs;
+
         try {
             const fetchOptions = {
                 credentials: 'include',
-                ...options
+                ...requestOptions
             };
 
-            const headers = { ...(options.headers || {}) };
-            const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+            const headers = { ...(requestOptions.headers || {}) };
+            const isFormData = typeof FormData !== 'undefined' && requestOptions.body instanceof FormData;
 
             if (!isFormData && !headers['Content-Type']) {
                 headers['Content-Type'] = 'application/json';
             }
 
             headers['X-MundiPOS-Client'] = MUNDIPOS_CLIENT_ID;
+            headers['X-MundiPOS-Version'] = MUNDIPOS_BUILD_TRACK;
             fetchOptions.headers = headers;
 
             const response = await fetch(API_BASE + url, fetchOptions);
+            const serverTrack = response.headers.get('X-MundiPOS-Version');
+            if (serverTrack && serverTrack !== MUNDIPOS_BUILD_TRACK && typeof Realtime !== 'undefined') {
+                Realtime.signalVersionObsolete({ clientTrack: MUNDIPOS_BUILD_TRACK, serverTrack });
+            }
+
             const contentType = response.headers.get('content-type') || '';
             const data = contentType.includes('application/json')
                 ? await response.json()
                 : { success: response.ok, message: await response.text() };
 
             if (!response.ok) {
-                throw new Error(data.error || data.message || 'Error en la petición');
+                const error = new Error(data.error || data.message || 'Error en la petición');
+                error.status = response.status;
+                error.code = data.code || null;
+                error.details = data.details || null;
+                error.isNetworkError = false;
+                throw error;
             }
 
             return data;
         } catch (error) {
+            if (error && error.status === undefined) error.isNetworkError = true;
             console.error('Error en petición:', error);
             throw error;
+        }
+    },
+
+    async requestIdempotent(url, options = {}) {
+        const headers = { ...(options.headers || {}) };
+        const idempotencyKey = headers['Idempotency-Key'] || headers['X-Idempotency-Key'];
+        if (!idempotencyKey) {
+            throw new Error('Una operación recuperable requiere Idempotency-Key.');
+        }
+
+        const retryDelayMs = Number(options.retryDelayMs || 450);
+        try {
+            return await this.request(url, options);
+        } catch (error) {
+            const retryable = error?.isNetworkError === true || Number(error?.status || 0) >= 500;
+            if (!retryable) throw error;
+            await new Promise(resolve => window.setTimeout(resolve, retryDelayMs));
+            return this.request(url, options);
         }
     },
 
@@ -1667,8 +1702,12 @@ const Realtime = {
     source: null,
     reconnectTimer: null,
     refreshTimer: null,
+    recoveryTimer: null,
     isConnected: false,
-    lastEventId: 0,
+    lastEventId: Number(sessionStorage.getItem('mundipos:last-event-id') || 0),
+    serverInstanceId: sessionStorage.getItem('mundipos:server-instance-id') || '',
+    needsRecovery: false,
+    versionObsoleteNotified: false,
 
     connect() {
         if (!currentUser || typeof EventSource === 'undefined') return;
@@ -1676,13 +1715,35 @@ const Realtime = {
 
         this.disconnect(false);
 
-        const url = `${API_BASE}/realtime/events?clientId=${encodeURIComponent(MUNDIPOS_CLIENT_ID)}`;
-        this.source = new EventSource(url, { withCredentials: true });
+        const params = new URLSearchParams({
+            clientId: MUNDIPOS_CLIENT_ID,
+            clientTrack: MUNDIPOS_BUILD_TRACK,
+            lastEventId: String(this.lastEventId || 0)
+        });
+        if (this.serverInstanceId) params.set('serverInstanceId', this.serverInstanceId);
+
+        this.source = new EventSource(`${API_BASE}/realtime/events?${params.toString()}`, { withCredentials: true });
 
         this.source.addEventListener('connected', (event) => {
+            const wasDisconnected = this.needsRecovery || !this.isConnected;
             this.isConnected = true;
             if (typeof Kitchen !== 'undefined') Kitchen.updateConnectionStatus(true);
-            this.handleServerEvent(event, false);
+            const payload = this.handleServerEvent(event, false);
+            if (!payload) return;
+
+            const serverChanged = Boolean(this.serverInstanceId && payload.serverInstanceId && this.serverInstanceId !== payload.serverInstanceId);
+            if (payload.serverInstanceId) {
+                this.serverInstanceId = payload.serverInstanceId;
+                sessionStorage.setItem('mundipos:server-instance-id', payload.serverInstanceId);
+            }
+            if (payload.serverTrack && payload.serverTrack !== MUNDIPOS_BUILD_TRACK) {
+                this.signalVersionObsolete(payload);
+            }
+
+            if (payload.recoveryRequired || serverChanged || wasDisconnected) {
+                this.scheduleRecovery(payload.recoveryReason || (serverChanged ? 'server-restarted' : 'reconnected'));
+            }
+            this.needsRecovery = false;
         });
 
         this.source.addEventListener('heartbeat', (event) => {
@@ -1695,8 +1756,14 @@ const Realtime = {
             this.handleServerEvent(event, true);
         });
 
+        this.source.addEventListener('version-obsolete', (event) => {
+            const payload = this.handleServerEvent(event, false);
+            if (payload) this.signalVersionObsolete(payload);
+        });
+
         this.source.onerror = () => {
             this.isConnected = false;
+            this.needsRecovery = true;
             if (typeof Kitchen !== 'undefined') Kitchen.updateConnectionStatus(false);
             this.scheduleReconnect();
         };
@@ -1711,6 +1778,10 @@ const Realtime = {
         if (this.refreshTimer) {
             clearTimeout(this.refreshTimer);
             this.refreshTimer = null;
+        }
+        if (this.recoveryTimer) {
+            clearTimeout(this.recoveryTimer);
+            this.recoveryTimer = null;
         }
 
         if (this.source) {
@@ -1733,6 +1804,7 @@ const Realtime = {
     },
 
     reconnectForSession() {
+        this.needsRecovery = true;
         this.disconnect(true);
         window.setTimeout(() => this.connect(), 120);
     },
@@ -1746,14 +1818,18 @@ const Realtime = {
 
     handleServerEvent(event, shouldRefresh) {
         const payload = this.parseEvent(event);
-        if (!payload) return;
+        if (!payload) return null;
 
-        if (payload.id && payload.id <= this.lastEventId) return;
-        if (payload.id) this.lastEventId = payload.id;
+        if (payload.id && payload.id <= this.lastEventId) return payload;
+        if (payload.id) {
+            this.lastEventId = payload.id;
+            sessionStorage.setItem('mundipos:last-event-id', String(payload.id));
+        }
 
         if (shouldRefresh && this.isPayloadRelevant(payload)) {
             this.scheduleOperationalRefresh(payload);
         }
+        return payload;
     },
 
     parseEvent(event) {
@@ -1762,6 +1838,44 @@ const Realtime = {
         } catch (error) {
             console.warn('MundiPOS realtime: evento inválido', error);
             return null;
+        }
+    },
+
+    signalVersionObsolete(payload = {}) {
+        document.body.classList.add('mundipos-version-obsolete');
+        if (this.versionObsoleteNotified) return;
+        this.versionObsoleteNotified = true;
+        const serverTrack = payload.serverTrack || 'más reciente';
+        Utils.showNotification(
+            `Hay una versión nueva de MundiPOS (${serverTrack}). Recarga la aplicación antes de continuar operando.`,
+            'warning'
+        );
+        if (typeof PWA !== 'undefined' && PWA.registration) {
+            PWA.registration.update().catch(() => null);
+        }
+    },
+
+    scheduleRecovery(reason = 'reconnected') {
+        if (!currentUser) return;
+        if (this.recoveryTimer) clearTimeout(this.recoveryTimer);
+        this.recoveryTimer = setTimeout(() => {
+            this.recoveryTimer = null;
+            this.recoverOperationalState(reason);
+        }, 180);
+    },
+
+    async recoverOperationalState(reason = 'reconnected') {
+        if (!currentUser) return;
+        try {
+            await Utils.request('/realtime/state');
+            await this.refreshVisibleOperation({
+                scope: 'recuperacion',
+                global: true,
+                recovery: true,
+                recoveryReason: reason
+            });
+        } catch (error) {
+            console.warn('MundiPOS realtime: recuperación operativa incompleta', error);
         }
     },
 
@@ -1800,44 +1914,44 @@ const Realtime = {
 
             if (typeof Dashboard !== 'undefined') {
                 if (currentSection === 'dashboard') {
-                    await Dashboard.refreshData({ source: 'realtime', silent: true, payload });
+                    await Dashboard.refreshData({ source: payload.recovery ? 'recovery' : 'realtime', silent: true, payload });
                 } else if (typeof Dashboard.markStale === 'function') {
                     Dashboard.markStale();
                 }
             }
 
             if (currentSection === 'tables' && typeof Tables !== 'undefined') {
-                await Tables.load({ source: 'realtime', payload });
+                await Tables.load({ source: payload.recovery ? 'recovery' : 'realtime', payload });
                 return;
             }
 
             if (currentSection === 'orders' && typeof Orders !== 'undefined') {
-                await Orders.load({ source: 'realtime', payload });
+                await Orders.load({ source: payload.recovery ? 'recovery' : 'realtime', payload });
                 return;
             }
 
             if (currentSection === 'accounts' && typeof Accounts !== 'undefined') {
-                await Accounts.load({ source: 'realtime', payload });
+                await Accounts.load({ source: payload.recovery ? 'recovery' : 'realtime', payload });
                 return;
             }
 
             if (currentSection === 'cash' && typeof Cash !== 'undefined') {
-                await Cash.load({ source: 'realtime', payload });
+                await Cash.load({ source: payload.recovery ? 'recovery' : 'realtime', payload, preserveSelection: true });
                 return;
             }
 
             if (currentSection === 'kitchen' && typeof Kitchen !== 'undefined') {
-                await Kitchen.load({ source: 'realtime', payload, silent: true });
+                await Kitchen.load({ source: payload.recovery ? 'recovery' : 'realtime', payload, silent: true });
                 return;
             }
 
-            if (currentSection === 'users' && scope === 'usuarios' && typeof Users !== 'undefined') {
-                await Users.load({ source: 'realtime', payload });
+            if (currentSection === 'users' && (scope === 'usuarios' || payload.recovery) && typeof Users !== 'undefined') {
+                await Users.load({ source: payload.recovery ? 'recovery' : 'realtime', payload });
                 return;
             }
 
-            if (currentSection === 'menu' && scope === 'menu' && typeof Menu !== 'undefined') {
-                await Menu.load({ source: 'realtime', payload });
+            if (currentSection === 'menu' && (scope === 'menu' || payload.recovery) && typeof Menu !== 'undefined') {
+                await Menu.load({ source: payload.recovery ? 'recovery' : 'realtime', payload });
             }
         } catch (error) {
             console.warn('MundiPOS realtime: no se pudo refrescar la vista activa', error);

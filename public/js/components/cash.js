@@ -539,7 +539,7 @@ const Cash = {
         }
 
         try {
-            const response = await Utils.request(`/cash/preinvoices/${preinvoiceId}/payments`, {
+            const response = await Utils.requestIdempotent(`/cash/preinvoices/${preinvoiceId}/payments`, {
                 method: 'POST',
                 headers: { 'Idempotency-Key': idempotencyKey },
                 body: JSON.stringify(payload)

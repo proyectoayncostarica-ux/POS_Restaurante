@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { STABILITY_TRACK } = require('../config/appInfo');
 const database = require('../db/database');
 const {
     resolveAccessContext,
@@ -7,6 +8,8 @@ const {
 
 const clients = new Map();
 let eventCounter = 0;
+const serverInstanceId = typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const serverStartedAt = new Date().toISOString();
 
 const MUTATION_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const OPERATIONAL_PREFIXES = [
@@ -18,7 +21,8 @@ const OPERATIONAL_PREFIXES = [
     '/api/menu',
     '/api/users',
     '/api/cash',
-    '/api/kitchen'
+    '/api/kitchen',
+    '/api/printing'
 ];
 
 const GLOBAL_SCOPES = new Set(['estructura']);
@@ -75,6 +79,7 @@ function getScope(req) {
     if (resource === 'menu') return 'menu';
     if (resource === 'users') return 'usuarios';
     if (resource === 'cash') return 'caja';
+    if (resource === 'printing') return 'impresion';
     if (resource === 'settings' && second === 'reset-database') return 'sistema';
 
     return 'operacion';
@@ -188,6 +193,9 @@ function broadcast(eventName, payload = {}) {
 function eventsHandler(req, res) {
     const requestedId = String(req.query.clientId || '').trim();
     const clientId = requestedId || createClientId();
+    const clientTrack = String(req.query.clientTrack || req.get('X-MundiPOS-Version') || '').trim();
+    const previousServerInstanceId = String(req.query.serverInstanceId || '').trim();
+    const previousEventId = Number(req.query.lastEventId || 0) || 0;
     const sessionSnapshot = {
         userId: req.session?.userId || null,
         userName: req.session?.userName || null,
@@ -223,12 +231,32 @@ function eventsHandler(req, res) {
 
     refreshClientContext(clientId, sessionSnapshot).catch(() => null);
 
+    const connectedEventId = ++eventCounter;
+    const serverRestarted = Boolean(previousServerInstanceId && previousServerInstanceId !== serverInstanceId);
+    const eventGap = previousEventId > 0 && previousEventId < connectedEventId - 1;
+
     sendEvent(res, 'connected', {
-        id: ++eventCounter,
+        id: connectedEventId,
         at: new Date().toISOString(),
         clientId,
-        connected: true
+        connected: true,
+        serverTrack: STABILITY_TRACK,
+        serverInstanceId,
+        serverStartedAt,
+        recoveryRequired: serverRestarted || eventGap,
+        recoveryReason: serverRestarted ? 'server-restarted' : (eventGap ? 'event-gap' : null)
     });
+
+    if (clientTrack && clientTrack !== STABILITY_TRACK) {
+        sendEvent(res, 'version-obsolete', {
+            id: ++eventCounter,
+            at: new Date().toISOString(),
+            clientTrack,
+            serverTrack: STABILITY_TRACK,
+            serverInstanceId,
+            action: 'reload-required'
+        });
+    }
 
     req.on('close', () => {
         clearInterval(heartbeat);
@@ -388,6 +416,13 @@ async function inferMutationContext(req, scope) {
         return { global: true, requiredAnyCapabilities: ['cash.access'] };
     }
 
+    if (resource === 'printing') {
+        return {
+            global: true,
+            requiredAnyCapabilities: ['printing.retry', 'printing.configure']
+        };
+    }
+
     if (resource === 'menu') {
         return { global: true, requiredAnyCapabilities: ['orders.operate'] };
     }
@@ -469,13 +504,33 @@ function operationMutationNotifier(req, res, next) {
     return next();
 }
 
+function getRealtimeState() {
+    return {
+        serverTrack: STABILITY_TRACK,
+        serverInstanceId,
+        serverStartedAt,
+        eventCursor: eventCounter,
+        connectedClients: clients.size
+    };
+}
+
+function stateHandler(req, res) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.json({
+        success: true,
+        data: getRealtimeState()
+    });
+}
+
 function getClientCount() {
     return clients.size;
 }
 
 module.exports = {
     eventsHandler,
+    stateHandler,
     operationMutationNotifier,
     broadcast,
+    getRealtimeState,
     getClientCount
 };

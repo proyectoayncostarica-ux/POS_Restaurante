@@ -15,7 +15,7 @@ const usersRouteSource = read('server/routes/users.js');
 test('Kitchen tiene sección, componente y navegación autorizada', () => {
     assert.match(indexSource, /id="kitchen-section"/);
     assert.match(indexSource, /data-section="kitchen"/);
-    assert.match(indexSource, /components\/kitchen\.js\?v=3\.5\.0-dashboard-reports/);
+    assert.match(indexSource, /components\/kitchen\.js\?v=3\.5\.1-realtime-recovery/);
     assert.match(accessSource, /kitchen:\s*'kitchen\.operate'/);
     assert.match(mainSource, /case 'kitchen'/);
     assert.match(mainSource, /Kitchen\.load/);

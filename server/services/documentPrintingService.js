@@ -31,6 +31,25 @@ function normalizeText(value, field, maxLength = 160) {
     return text;
 }
 
+
+function broadcastPrintingState(job = {}) {
+    try {
+        const realtime = require('../utils/realtime');
+        realtime.broadcast('operation-change', {
+            type: 'printing-change',
+            scope: 'impresion',
+            global: true,
+            requiredAnyCapabilities: ['printing.retry', 'printing.configure'],
+            printingJobIds: job?.id ? [Number(job.id)] : [],
+            documentType: job?.documento_tipo || null,
+            documentId: job?.documento_id || null,
+            printingState: job?.estado || null
+        });
+    } catch (error) {
+        console.warn('MundiPOS Printing: no se pudo emitir cambio realtime.', error);
+    }
+}
+
 function stripInternalFields(value) {
     if (Array.isArray(value)) return value.map(stripInternalFields);
     if (!value || typeof value !== 'object') return value;
@@ -186,7 +205,9 @@ class DocumentPrintingService {
             maxAttempts: options.maxAttempts || 3,
             now: options.now
         });
-        return this.resolveBrowserOutput(job, options);
+        const resolved = await this.resolveBrowserOutput(job, options);
+        broadcastPrintingState(resolved);
+        return resolved;
     }
 
     async enqueueReprintDescriptor(descriptor, options = {}) {
@@ -196,7 +217,9 @@ class DocumentPrintingService {
             maxAttempts: options.maxAttempts || 3,
             now: options.now
         });
-        return this.resolveBrowserOutput(job, options);
+        const resolved = await this.resolveBrowserOutput(job, options);
+        broadcastPrintingState(resolved);
+        return resolved;
     }
 
     async enqueuePreinvoice(preinvoiceOrId, options = {}) {

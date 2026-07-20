@@ -1,8 +1,8 @@
 # Prompt de continuidad canónico · MundiPOS 3.0
 
 **Actualizado:** 18 de julio de 2026
-**Estado funcional preparado para validación:** `v3.5.0`
-**Próxima fase funcional:** `v3.5.0 · Dashboard y reportes financieros consolidados`
+**Estado funcional preparado para validación:** `v3.5.1`
+**Próxima fase funcional:** `v3.6.0 · Limpieza legacy y orden estructural`
 **Repositorio local activo:** `C:\Repos\POS_Restaurante`
 
 > **Uso en un nuevo chat:** adjunta este archivo junto con un ZIP nuevo del repositorio actual y pega la sección **“Prompt listo para usar”** como primer mensaje. Este documento reemplaza el prompt de continuidad anterior. Conserva sus contratos útiles, corrige su estado obsoleto e incorpora la recuperación, normalización y limpieza realizadas el 17 de julio de 2026.
@@ -1669,3 +1669,24 @@ server/services/dashboardReportService.js
 Documento de avance: `docs/avance-v3.5.0-dashboard-reportes-financieros.md`.
 
 Dinámica temporal acordada: las verificaciones finales y Git de las fases acumuladas se realizarán posteriormente, en orden y fase por fase. La siguiente fase de código es `v3.5.1 · Realtime y recuperación operativa` únicamente cuando el usuario confirme explícitamente que continúe.
+
+
+# 27. Estado implementado para validación · v3.5.1 Realtime y recuperación operativa
+
+`v3.5.1` coordina Cuentas, Caja, Dashboard, Zonas, Kitchen y Printing sin convertir SSE en fuente de verdad.
+
+Contratos añadidos:
+
+- cada conexión realtime identifica versión e instancia del servidor;
+- reinicios/huecos fuerzan recuperación desde APIs persistidas;
+- `GET /api/realtime/state` expone el estado técnico de sincronización;
+- cliente y servidor intercambian `X-MundiPOS-Version` y una versión obsoleta se señaliza para recarga;
+- Caja reintenta una respuesta ambigua de cobro únicamente con la misma clave idempotente;
+- errores 4xx no se reintentan automáticamente;
+- Printing emite cambios pendientes/fallidos/completados desde el estado persistido de sus trabajos;
+- responsables continúan actualizándose mediante eventos dirigidos, sin polling agresivo;
+- Dashboard, Caja, Orders, Accounts y Kitchen recuperan estado consultando sus read models.
+
+Documento de avance: `docs/avance-v3.5.1-realtime-recuperacion-operativa.md`.
+
+Dinámica temporal acordada: las verificaciones finales y Git de las fases acumuladas se realizarán posteriormente, en orden y fase por fase. La siguiente fase de código es `v3.6.0 · Limpieza legacy y orden estructural` únicamente cuando el usuario confirme explícitamente que continúe.

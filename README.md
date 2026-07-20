@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.5.0 · Dashboard y reportes financieros consolidados
+- **Línea de trabajo actual:** v3.5.1 · Realtime y recuperación operativa
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -85,6 +85,17 @@ No se continúa con la siguiente subfase hasta que la subfase actual esté compr
 ```
 
 ## Registro de cambios canónico
+
+### v3.5.1 · Realtime y recuperación operativa
+
+- **Objetivo:** usar realtime como señal de cambio y recuperar siempre desde los read models persistidos.
+- **Reconexión:** detecta reinicios/huecos mediante identidad de instancia y cursor, y recarga la vista activa desde backend.
+- **Caja:** un cobro con respuesta ambigua puede reintentarse una vez usando exactamente la misma clave idempotente.
+- **Versionado:** servidor y cliente intercambian `X-MundiPOS-Version`; una SPA/PWA obsoleta queda señalizada para recarga.
+- **Printing:** emite estados persistidos de trabajos pendientes, fallidos o completados sin modificar documentos de negocio.
+- **Polling:** no se añade polling agresivo para responsables; los eventos dirigidos disparan refrescos autorizados.
+- **Documento:** `docs/avance-v3.5.1-realtime-recuperacion-operativa.md`.
+- **Siguiente fase:** `v3.6.0 · Limpieza legacy y orden estructural`, únicamente cuando el usuario autorice continuar.
 
 ### v3.5.0 · Dashboard y reportes financieros consolidados
 

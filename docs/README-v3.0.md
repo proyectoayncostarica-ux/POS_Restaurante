@@ -923,3 +923,14 @@ La interfaz de Dashboard incorpora un panel de reportes de solo lectura con cuat
 Documento de avance: `docs/avance-v3.5.0-dashboard-reportes-financieros.md`.
 
 Siguiente fase: `v3.5.1 · Realtime y recuperación operativa`, únicamente después de autorización explícita para continuar.
+
+
+## v3.5.1 · Realtime y recuperación operativa
+
+Realtime pasa a funcionar explícitamente como señal de invalidación. La base de datos y los read models siguen siendo la fuente de verdad. Cada conexión identifica la instancia del servidor y la versión técnica; después de una reconexión, reinicio o hueco detectado, la vista activa vuelve a consultar sus APIs persistidas.
+
+Caja utiliza reintento idempotente únicamente para respuestas ambiguas de red/servidor y conserva la misma `Idempotency-Key`. Printing emite estados de sus trabajos sin acoplarlos a estados financieros u operativos. El cliente detecta versiones PWA/SPA obsoletas mediante `X-MundiPOS-Version` y señal SSE.
+
+Documento de avance: `docs/avance-v3.5.1-realtime-recuperacion-operativa.md`.
+
+Siguiente fase: `v3.6.0 · Limpieza legacy y orden estructural`, únicamente después de autorización explícita para continuar.

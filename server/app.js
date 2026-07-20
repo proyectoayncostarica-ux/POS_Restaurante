@@ -9,7 +9,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const session = require('express-session');
 const database = require('./db/database');
-const { APP_NAME, APP_VERSION } = require('./config/appInfo');
+const { APP_NAME, APP_VERSION, STABILITY_TRACK } = require('./config/appInfo');
 const realtime = require('./utils/realtime');
 const printingService = require('./services/printingService');
 
@@ -233,6 +233,13 @@ app.get('/api/public/branding', async (req, res) => {
     }
 });
 
+// Identidad técnica para detectar clientes PWA/SPA obsoletos sin confiar solo en caché.
+app.use('/api', (req, res, next) => {
+    res.setHeader('X-MundiPOS-Version', STABILITY_TRACK);
+    res.setHeader('X-MundiPOS-App', APP_NAME);
+    next();
+});
+
 // Middleware de autenticación
 const requireAuth = (req, res, next) => {
     if (req.session && req.session.userId) {
@@ -244,6 +251,7 @@ const requireAuth = (req, res, next) => {
 // Rutas de la API
 app.use('/api/auth', authRoutes);
 app.get('/api/realtime/events', requireAuth, realtime.eventsHandler);
+app.get('/api/realtime/state', requireAuth, realtime.stateHandler);
 app.use('/api', requireAuth, realtime.operationMutationNotifier);
 app.use('/api/dashboard', requireAuth, dashboardRoutes);
 app.use('/api/tables', requireAuth, tablesRoutes);

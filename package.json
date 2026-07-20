@@ -1,6 +1,6 @@
 {
   "name": "mundipos",
-  "version": "3.5.0",
+  "version": "3.5.1",
   "description": "MundiPOS - sistema POS local para restaurante/bar",
   "main": "server/app.js",
   "scripts": {
@@ -27,7 +27,8 @@
     "test:kitchen": "node --test --test-concurrency=1 tests/kitchenMigration.test.js tests/kitchenService.test.js tests/kitchenTraceability.test.js tests/kitchenDepartmentAccount.test.js tests/kitchenAccess.test.js tests/kitchenUiWorkflow.test.js tests/kitchenUiContract.test.js",
     "test:printing": "node --test --test-concurrency=1 tests/printingMigration.test.js tests/printingService.test.js tests/printingCoreContract.test.js tests/printingDocumentsIntegration.test.js tests/printerConfiguration.test.js tests/printerSettingsUiContract.test.js",
     "test:printers": "node --test --test-concurrency=1 tests/printerConfiguration.test.js tests/printerSettingsUiContract.test.js",
-    "test:dashboard-report": "node --test --test-concurrency=1 tests/dashboardFinancialReport.test.js tests/financialReadService.test.js"
+    "test:dashboard-report": "node --test --test-concurrency=1 tests/dashboardFinancialReport.test.js tests/financialReadService.test.js",
+    "test:realtime-recovery": "node --test --test-concurrency=1 tests/realtimeRecovery.test.js tests/paymentRecoveryUi.test.js"
   },
   "keywords": [
     "restaurant",
