@@ -1427,6 +1427,7 @@ const Orders = {
                 `${data.cuenta?.numero_cuenta || 'Cuenta'} finalizada. ${data.puesto?.tipo || 'Mesa'} ${data.puesto?.numero || ''} liberado.`,
                 'success'
             );
+            Utils.hideModal();
             this.serviceFinalizationContext = null;
             await this.load();
             if (typeof Dashboard !== 'undefined' && typeof Dashboard.load === 'function') {
