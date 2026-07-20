@@ -720,6 +720,59 @@ class Database {
                 FOREIGN KEY (pedido_id) REFERENCES pedidos (id) ON DELETE SET NULL
             )`,
 
+            `CREATE TABLE IF NOT EXISTS plantillas_documento (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                codigo TEXT NOT NULL UNIQUE,
+                nombre TEXT NOT NULL,
+                tipo_documento TEXT NOT NULL,
+                formato TEXT NOT NULL DEFAULT 'html',
+                contenido TEXT NOT NULL,
+                version INTEGER NOT NULL DEFAULT 1,
+                activa INTEGER NOT NULL DEFAULT 1,
+                creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )`,
+
+            `CREATE TABLE IF NOT EXISTS trabajos_impresion (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                documento_tipo TEXT NOT NULL,
+                documento_id TEXT NOT NULL,
+                documento_numero TEXT,
+                copia INTEGER NOT NULL DEFAULT 1 CHECK(copia > 0),
+                plantilla_codigo TEXT,
+                adaptador TEXT NOT NULL DEFAULT 'navegador_pdf',
+                payload_json TEXT NOT NULL,
+                payload_fingerprint TEXT NOT NULL,
+                estado TEXT NOT NULL DEFAULT 'pendiente' CHECK(estado IN ('pendiente', 'procesando', 'completado', 'fallido', 'cancelado')),
+                intentos INTEGER NOT NULL DEFAULT 0 CHECK(intentos >= 0),
+                max_intentos INTEGER NOT NULL DEFAULT 3 CHECK(max_intentos > 0),
+                ultimo_error TEXT,
+                disponible_desde TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                resultado_json TEXT,
+                creado_por_usuario_id INTEGER,
+                creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                completado_en TEXT,
+                UNIQUE(documento_tipo, documento_id, copia),
+                FOREIGN KEY (plantilla_codigo) REFERENCES plantillas_documento (codigo) ON DELETE SET NULL,
+                FOREIGN KEY (creado_por_usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
+            )`,
+
+            `CREATE TABLE IF NOT EXISTS intentos_impresion (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trabajo_impresion_id INTEGER NOT NULL,
+                numero_intento INTEGER NOT NULL CHECK(numero_intento > 0),
+                estado TEXT NOT NULL DEFAULT 'procesando' CHECK(estado IN ('procesando', 'completado', 'fallido')),
+                adaptador TEXT NOT NULL,
+                iniciado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                finalizado_en TEXT,
+                error_codigo TEXT,
+                error_mensaje TEXT,
+                resultado_json TEXT,
+                UNIQUE(trabajo_impresion_id, numero_intento),
+                FOREIGN KEY (trabajo_impresion_id) REFERENCES trabajos_impresion (id) ON DELETE CASCADE
+            )`,
+
             `CREATE TABLE IF NOT EXISTS pagos_creditos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 credito_id INTEGER NOT NULL,
@@ -775,7 +828,11 @@ class Database {
             'CREATE UNIQUE INDEX IF NOT EXISTS idx_comandas_idempotencia_destino ON comandas(clave_idempotencia, destino) WHERE clave_idempotencia IS NOT NULL',
             'CREATE INDEX IF NOT EXISTS idx_comanda_items_comanda ON comanda_items(comanda_id)',
             'CREATE INDEX IF NOT EXISTS idx_comanda_items_linea ON comanda_items(pedido_producto_id)',
-            'CREATE INDEX IF NOT EXISTS idx_historial_comandas_comanda ON historial_comandas(comanda_id)'
+            'CREATE INDEX IF NOT EXISTS idx_historial_comandas_comanda ON historial_comandas(comanda_id)',
+            'CREATE INDEX IF NOT EXISTS idx_trabajos_impresion_estado ON trabajos_impresion(estado, disponible_desde, creado_en)',
+            'CREATE INDEX IF NOT EXISTS idx_trabajos_impresion_documento ON trabajos_impresion(documento_tipo, documento_id)',
+            'CREATE INDEX IF NOT EXISTS idx_intentos_impresion_trabajo ON intentos_impresion(trabajo_impresion_id, numero_intento)',
+            'CREATE INDEX IF NOT EXISTS idx_plantillas_documento_tipo ON plantillas_documento(tipo_documento, activa)'
         ];
 
         for (const sql of indexes) {
@@ -872,6 +929,7 @@ class Database {
         await this.backfillOrderServiceTotals();
         await this.ensureConsumptionLineColumns();
         await this.ensureKitchenSchema();
+        await this.ensurePrintingSchema();
         await this.ensureColumn('cuentas_credito', 'pedido_id', 'INTEGER');
         await this.ensureColumn('cuentas_credito', 'usuario_origen', 'TEXT');
         await this.ensureColumn('cuentas_credito', 'autorizado_por', 'TEXT');
@@ -990,6 +1048,73 @@ class Database {
             await this.run(`
                 INSERT OR REPLACE INTO configuracion (clave, valor, version_app)
                 VALUES ('v3_consumption_line_backfill_done', ?, ?)
+            `, [new Date().toISOString(), APP_VERSION]);
+        }
+    }
+
+    async ensurePrintingSchema() {
+        await this.run(`CREATE TABLE IF NOT EXISTS plantillas_documento (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            codigo TEXT NOT NULL UNIQUE,
+            nombre TEXT NOT NULL,
+            tipo_documento TEXT NOT NULL,
+            formato TEXT NOT NULL DEFAULT 'html',
+            contenido TEXT NOT NULL,
+            version INTEGER NOT NULL DEFAULT 1,
+            activa INTEGER NOT NULL DEFAULT 1,
+            creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`);
+
+        await this.run(`CREATE TABLE IF NOT EXISTS trabajos_impresion (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            documento_tipo TEXT NOT NULL,
+            documento_id TEXT NOT NULL,
+            documento_numero TEXT,
+            copia INTEGER NOT NULL DEFAULT 1 CHECK(copia > 0),
+            plantilla_codigo TEXT,
+            adaptador TEXT NOT NULL DEFAULT 'navegador_pdf',
+            payload_json TEXT NOT NULL,
+            payload_fingerprint TEXT NOT NULL,
+            estado TEXT NOT NULL DEFAULT 'pendiente' CHECK(estado IN ('pendiente', 'procesando', 'completado', 'fallido', 'cancelado')),
+            intentos INTEGER NOT NULL DEFAULT 0 CHECK(intentos >= 0),
+            max_intentos INTEGER NOT NULL DEFAULT 3 CHECK(max_intentos > 0),
+            ultimo_error TEXT,
+            disponible_desde TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            resultado_json TEXT,
+            creado_por_usuario_id INTEGER,
+            creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            completado_en TEXT,
+            UNIQUE(documento_tipo, documento_id, copia),
+            FOREIGN KEY (plantilla_codigo) REFERENCES plantillas_documento (codigo) ON DELETE SET NULL,
+            FOREIGN KEY (creado_por_usuario_id) REFERENCES usuarios (id) ON DELETE SET NULL
+        )`);
+
+        await this.run(`CREATE TABLE IF NOT EXISTS intentos_impresion (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            trabajo_impresion_id INTEGER NOT NULL,
+            numero_intento INTEGER NOT NULL CHECK(numero_intento > 0),
+            estado TEXT NOT NULL DEFAULT 'procesando' CHECK(estado IN ('procesando', 'completado', 'fallido')),
+            adaptador TEXT NOT NULL,
+            iniciado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            finalizado_en TEXT,
+            error_codigo TEXT,
+            error_mensaje TEXT,
+            resultado_json TEXT,
+            UNIQUE(trabajo_impresion_id, numero_intento),
+            FOREIGN KEY (trabajo_impresion_id) REFERENCES trabajos_impresion (id) ON DELETE CASCADE
+        )`);
+
+        await this.run('CREATE INDEX IF NOT EXISTS idx_trabajos_impresion_estado ON trabajos_impresion(estado, disponible_desde, creado_en)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_trabajos_impresion_documento ON trabajos_impresion(documento_tipo, documento_id)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_intentos_impresion_trabajo ON intentos_impresion(trabajo_impresion_id, numero_intento)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_plantillas_documento_tipo ON plantillas_documento(tipo_documento, activa)');
+
+        if (await this.tableExists('configuracion')) {
+            await this.run(`
+                INSERT OR REPLACE INTO configuracion (clave, valor, version_app)
+                VALUES ('v3_4_printing_core_ready', ?, ?)
             `, [new Date().toISOString(), APP_VERSION]);
         }
     }

@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.3.2 · Cuenta departamental y UI/UX de Kitchen
+- **Línea de trabajo actual:** v3.4.0 · Núcleo y cola de Printing
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -85,6 +85,19 @@ No se continúa con la siguiente subfase hasta que la subfase actual esté compr
 ```
 
 ## Registro de cambios canónico
+
+### v3.4.0 · Núcleo y cola de Printing
+
+- **Objetivo:** crear la infraestructura transversal de impresión sin mezclarla con Orders, Caja, Créditos o Kitchen.
+- **Persistencia:** se incorporan `trabajos_impresion`, `intentos_impresion` y `plantillas_documento`.
+- **Regla central:** el documento de negocio existe antes del trabajo de impresión; un fallo del adaptador nunca revierte ni repite la operación de negocio.
+- **Idempotencia:** un trabajo se identifica por `documento_tipo + documento_id + copia`; repetir la misma solicitud devuelve el trabajo existente y cambiar el payload produce conflicto.
+- **Cola:** soporta estados persistentes, toma transaccional del trabajo, intentos auditables, límite de intentos, reintento explícito y recuperación de trabajos interrumpidos al reiniciar.
+- **Adaptador inicial:** `navegador_pdf`, orientado a vista previa/impresión desde navegador y base para salida PDF, sin afirmar impresión física de dispositivo.
+- **Plantillas:** Printing recibe payload canónico y renderiza; no recalcula totales ni reglas del dominio.
+- **API interna:** `/api/printing` expone consulta/procesamiento/reintento de cola y vista previa/plantillas bajo capacidades `printing.retry` y `printing.configure`.
+- **Documento:** `docs/avance-v3.4.0-printing-core-queue.md`.
+- **Siguiente fase:** `v3.4.1 · Integración transversal de documentos`, después de pruebas, validación operativa y publicación segura de `v3.4.0`.
 
 ### v2.2.4.1 · Auditoría técnica y mapa de impacto
 

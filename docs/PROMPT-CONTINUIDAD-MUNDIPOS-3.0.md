@@ -1,8 +1,8 @@
 # Prompt de continuidad canónico · MundiPOS 3.0
 
-**Actualizado:** 17 de julio de 2026
-**Estado funcional preparado para validación:** `v3.3.2`
-**Próxima fase funcional tras validación:** `v3.4.0 · Núcleo y cola de Printing`
+**Actualizado:** 18 de julio de 2026
+**Estado funcional preparado para validación:** `v3.4.0`
+**Próxima fase funcional tras validación:** `v3.4.1 · Integración transversal de documentos`
 **Repositorio local activo:** `C:\Repos\POS_Restaurante`
 
 > **Uso en un nuevo chat:** adjunta este archivo junto con un ZIP nuevo del repositorio actual y pega la sección **“Prompt listo para usar”** como primer mensaje. Este documento reemplaza el prompt de continuidad anterior. Conserva sus contratos útiles, corrige su estado obsoleto e incorpora la recuperación, normalización y limpieza realizadas el 17 de julio de 2026.
@@ -17,18 +17,16 @@ Debes trabajar de forma incremental, auditable y compatible con la operación re
 
 ## Orden obligatorio antes de modificar código
 
-1. Lee por completo este archivo.
-2. Inspecciona el ZIP más reciente del repositorio.
-3. Lee los documentos canónicos indicados aquí, en el orden establecido.
-4. Verifica `git status`, rama, commits, versión, dependencias, esquema, pruebas y código actual.
-5. Audita expresamente el commit `a39555a Pwndiente`; su contenido no quedó identificado durante el traspaso y no debe asumirse inocuo.
-6. Confirma que `main` y `origin/main` están sincronizados y que el árbol está limpio.
-7. Atiende primero la higiene Git pendiente de los respaldos SQLite rastreados. No borres las copias locales y no reescribas el historial remoto ni uses force-push sin aprobación explícita.
-8. Ejecuta la suite completa sobre el `HEAD` real. Las 107 pruebas fueron confirmadas en el árbol funcional recuperado, pero deben revalidarse después de inspeccionar el commit intermedio y cualquier saneamiento Git.
-9. Confirma que la implementación de `v3.3.0 · Dominio Kitchen / Comandas` coincide con su auditoría y documento de avance.
-10. No inicies `v3.3.1` hasta que `v3.3.0` pase pruebas nativas, validación operativa, documentación y Git seguro.
+1. Lee por completo este archivo y los documentos canónicos de la fase.
+2. Parte del `HEAD` publicado `329e89bc5b4352e11a4b59847c411fd447e872a7` o de un commit posterior confirmado por el usuario.
+3. Confirma rama `main`, sincronización con `origin/main` y árbol limpio antes de aplicar una nueva entrega.
+4. Mantén `data/restaurant.db` local, ignorada y fuera de cualquier ZIP o commit.
+5. Trabaja con el flujo rápido aprobado: implementación → pruebas específicas → suite completa → validación operativa → Git seguro.
+6. La fase actual es `v3.4.0 · Núcleo y cola de Printing`; `v3.4.1` integrará los documentos canónicos de cada dominio y `v3.4.2` añadirá `Configuración → Impresoras`.
+7. Printing debe persistir trabajos e intentos sin recalcular negocio. Una falla de dispositivo no revierte ni duplica el documento origen.
+8. No uses staging global: los commits se preparan con rutas explícitas y solo después de la validación operativa.
 
-Mantén sin cambios los contratos de cuenta global, división, Caja, Payments, créditos, finalización de servicio, impresión posterior al commit, autorización backend e idempotencia. No adelantes la cuenta departamental o UI definitiva de `v3.3.2`, Printing, reportes o limpieza legacy.
+Mantén sin cambios los contratos de cuenta global, división, Caja, Payments, créditos, finalización de servicio, impresión posterior al commit, autorización backend e idempotencia. No adelantes la integración documental de `v3.4.1`, la configuración de impresoras de `v3.4.2`, reportes o limpieza legacy.
 
 Trabaja en español. En tareas de PowerShell entrega un solo bloque por turno y espera la salida completa. Nunca uses `git add .`, `git add -A`, `git clean`, `git reset --hard`, `git commit -a`, `stash pop`, `stash apply`, `stash drop`, `npm audit fix --force` ni force-push sin autorización expresa.
 
@@ -1544,3 +1542,34 @@ public/index.html
 Documento de avance: `docs/avance-v3.3.2-cuenta-departamental-ui-kitchen.md`.
 
 La siguiente fase es `v3.4.0 · Núcleo y cola de Printing` únicamente después de pruebas específicas, suite completa, validación operativa y Git seguro de `v3.3.2`.
+
+# 23. Estado implementado para validación · v3.4.0 Núcleo y cola de Printing
+
+`v3.4.0` crea el servicio transversal Printing sin integrar todavía los documentos específicos de Orders, Caja, Créditos o Kitchen.
+
+Contratos añadidos:
+
+- `trabajos_impresion` persiste cada copia antes de ejecutar un adaptador;
+- `intentos_impresion` conserva cada ejecución, error y resultado;
+- `plantillas_documento` versiona contenido reutilizable;
+- la identidad idempotente es `documento_tipo + documento_id + copia`;
+- el payload canónico se guarda con fingerprint y no puede cambiar para la misma identidad;
+- un fallo de adaptador deja el trabajo fallido sin revertir el documento de negocio;
+- los reintentos reutilizan el mismo trabajo y respetan `max_intentos`;
+- trabajos abandonados en `procesando` se recuperan al iniciar el servidor;
+- el adaptador inicial `navegador_pdf` produce vista previa HTML y deja preparada la extensión a drivers térmicos.
+
+Rutas internas:
+
+```text
+GET  /api/printing/jobs
+GET  /api/printing/jobs/:id
+POST /api/printing/jobs/:id/process
+POST /api/printing/jobs/:id/retry
+POST /api/printing/preview
+PUT  /api/printing/templates/:code
+```
+
+Documento de avance: `docs/avance-v3.4.0-printing-core-queue.md`.
+
+La siguiente fase es `v3.4.1 · Integración transversal de documentos` únicamente después de pruebas específicas, suite completa, validación operativa y Git seguro de `v3.4.0`.

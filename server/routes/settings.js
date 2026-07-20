@@ -460,8 +460,11 @@ router.post('/reset-database', requireAdmin, async (req, res) => {
         const historialCount = await database.get('SELECT COUNT(*) as count FROM historial_transacciones');
         const comandasCount = await database.get('SELECT COUNT(*) as count FROM comandas');
         const pagosCreditosCount = await database.get('SELECT COUNT(*) as count FROM pagos_creditos');
+        const trabajosImpresionCount = await database.get('SELECT COUNT(*) as count FROM trabajos_impresion');
 
         // Eliminar datos del sistema (en orden para respetar claves foráneas)
+        await database.run('DELETE FROM intentos_impresion');
+        await database.run('DELETE FROM trabajos_impresion');
         await database.run('DELETE FROM pedido_productos');
         await database.run('DELETE FROM pagos');
         await database.run('DELETE FROM comandas');
@@ -482,7 +485,9 @@ router.post('/reset-database', requireAdmin, async (req, res) => {
                 'pedido_productos',
                 'comandas',
                 'historial_transacciones',
-                'mesa_responsables'
+                'mesa_responsables',
+                'trabajos_impresion',
+                'intentos_impresion'
             )
         `);
 
@@ -495,13 +500,14 @@ router.post('/reset-database', requireAdmin, async (req, res) => {
             [
                 'restablecer_base_datos',
                 req.session.userId,
-                `Base de datos restablecida. Eliminados: ${pedidosCount.count} pedidos, ${pagosCount.count} pagos, ${creditosCount.count} créditos, ${historialCount.count} registros de historial, ${comandasCount.count} comandas, ${pagosCreditosCount.count} pagos de créditos. Respaldo creado: ${backupName}`,
+                `Base de datos restablecida. Eliminados: ${pedidosCount.count} pedidos, ${pagosCount.count} pagos, ${creditosCount.count} créditos, ${historialCount.count} registros de historial, ${comandasCount.count} comandas, ${pagosCreditosCount.count} pagos de créditos, ${trabajosImpresionCount.count} trabajos de impresión. Respaldo creado: ${backupName}`,
                 new Date().toISOString()
             ]
         );
 
         const totalEliminados = pedidosCount.count + pagosCount.count + creditosCount.count +
-                               historialCount.count + comandasCount.count + pagosCreditosCount.count;
+                               historialCount.count + comandasCount.count + pagosCreditosCount.count +
+                               trabajosImpresionCount.count;
 
         res.json({
             success: true,
@@ -515,6 +521,7 @@ router.post('/reset-database', requireAdmin, async (req, res) => {
                     historial_eliminado: historialCount.count,
                     comandas_eliminadas: comandasCount.count,
                     pagos_creditos_eliminados: pagosCreditosCount.count,
+                    trabajos_impresion_eliminados: trabajosImpresionCount.count,
                     mesas_restablecidas: true
                 }
             }

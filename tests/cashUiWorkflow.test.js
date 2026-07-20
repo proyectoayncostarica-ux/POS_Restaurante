@@ -57,9 +57,9 @@ test('interfaz de Caja tiene distribución adaptable para PC y móvil', () => {
 });
 
 
-test('PWA conserva Caja dentro del caché vigente de v3.3.2', () => {
-    assert.match(serviceWorkerSource, /v3\.3\.2-kitchen-ui/);
-    assert.match(serviceWorkerSource, /components\/cash\.js\?v=3\.3\.2-kitchen-ui/);
+test('PWA conserva Caja dentro del caché vigente de v3.4.0', () => {
+    assert.match(serviceWorkerSource, /v3\.4\.0-printing-core/);
+    assert.match(serviceWorkerSource, /components\/cash\.js\?v=3\.4\.0-printing-core/);
 });
 
 test('modal de Caja permite efectivo, tarjeta y pago mixto con cálculo de vuelto', () => {

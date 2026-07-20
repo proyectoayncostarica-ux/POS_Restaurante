@@ -866,3 +866,17 @@ El administrador conserva control para activar/bloquear la cuenta y establecer u
 Documento de avance: `docs/avance-v3.3.2-cuenta-departamental-ui-kitchen.md`.
 
 Siguiente fase: `v3.4.0 · Núcleo y cola de Printing`, después de validar y publicar `v3.3.2`.
+
+## v3.4.0 · Núcleo y cola de Printing
+
+Printing se incorpora como servicio interno transversal. Los dominios de negocio continúan siendo responsables de persistir sus documentos y entregar datos canónicos; Printing solo conserva el snapshot recibido, crea el trabajo, ejecuta el adaptador y registra cada intento.
+
+La cola usa `trabajos_impresion`, `intentos_impresion` y `plantillas_documento`. La identidad idempotente de una copia es `documento_tipo + documento_id + copia`. Un fallo de impresión deja el trabajo en estado fallido y conserva el documento de negocio intacto. Los reintentos reutilizan el mismo trabajo y agregan nuevos intentos auditables.
+
+El primer adaptador es `navegador_pdf`, que genera una salida HTML apta para vista previa y flujo navegador/PDF. La arquitectura permite registrar adaptadores posteriores para impresoras térmicas sin mover lógica de negocio a Printing.
+
+Al iniciar el servidor se recuperan trabajos que quedaron abandonados en `procesando` después de una interrupción. La recuperación cierra el intento interrumpido como fallido y devuelve el trabajo a `pendiente`.
+
+Documento de avance: `docs/avance-v3.4.0-printing-core-queue.md`.
+
+Siguiente fase: `v3.4.1 · Integración transversal de documentos`, después de validar y publicar `v3.4.0`.

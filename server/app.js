@@ -11,6 +11,7 @@ const session = require('express-session');
 const database = require('./db/database');
 const { APP_NAME, APP_VERSION } = require('./config/appInfo');
 const realtime = require('./utils/realtime');
+const printingService = require('./services/printingService');
 
 // Importar rutas
 const authRoutes = require('./routes/auth');
@@ -24,6 +25,7 @@ const usersRoutes = require('./routes/users');
 const settingsRoutes = require('./routes/settings');
 const cashRoutes = require('./routes/cash');
 const kitchenRoutes = require('./routes/kitchen');
+const printingRoutes = require('./routes/printing');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -253,6 +255,7 @@ app.use('/api/users', requireAuth, usersRoutes);
 app.use('/api/settings', requireAuth, settingsRoutes);
 app.use('/api/cash', requireAuth, cashRoutes);
 app.use('/api/kitchen', requireAuth, kitchenRoutes);
+app.use('/api/printing', requireAuth, printingRoutes);
 
 // Ruta principal - servir index.html sin redirecciones para evitar bucles en navegadores móviles con caché PWA vieja.
 app.get('/POS/*', sendAppIndex);
@@ -265,7 +268,11 @@ app.use((err, req, res, next) => {
 
 // Inicializar la base de datos y arrancar el servidor
 if (require.main === module) {
-    database.initializeDatabase().then(() => {
+    database.initializeDatabase().then(async () => {
+        const recovery = await printingService.recoverStale({ olderThanMinutes: 10 });
+        if (recovery.recuperados > 0) {
+            console.log(`Printing: ${recovery.recuperados} trabajo(s) interrumpido(s) devueltos a la cola`);
+        }
         const { server, protocol } = createHttpServer();
 
         server.listen(PORT, HOST, () => {
