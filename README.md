@@ -5,11 +5,11 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 ## Identidad y versión actual
 
 - **Nombre oficial de la app:** MundiPOS
-- **Versión visible/funcional de la app:** 3.0
-- **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.7.0 · Pruebas cruzadas y cierre MundiPOS 3.0
+- **Versión visible/funcional de la app:** 3.7
+- **Estado de producto:** MundiPOS 3.0 cerrado, validado y publicado; base estable para definir la futura Etapa 4
+- **Línea de trabajo actual:** v3.7.0-fix1 · Cierre validado y publicado de MundiPOS 3.0
 
-Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
+La versión visible para usuarios, configuración pública y metadata base de la app es **3.7**. La modernización MundiPOS 3.0 reorganizó internamente Cuentas, Pagos, Comandas e Impresiones, preservando los contratos operativos y financieros canónicos. La etapa 3 queda cerrada técnicamente en **v3.7.0-fix1**.
 
 ## Control de versionado del proyecto
 
@@ -23,7 +23,8 @@ Este proyecto se trabajará con versionado trazable por etapa, fase y fix.
 | v2.0 | Operativa | Versión funcional con módulos, permisos y operatividad base. |
 | v2.1 | Estabilidad | Etapa cerrada: estabilidad visual, navegación, PWA y base técnica. |
 | v2.2 | Estabilización funcional | Etapa cerrada: Dashboard, zonas, roles, permisos y normalización base de Menú. |
-| v3.0 | Arquitectura modular | Etapa actual: separar internamente Cuentas, Pagos, Comandas e Impresiones sin cambiar la operación visible. |
+| v3.0 | Arquitectura modular | Etapa cerrada: Cuentas, Pagos, Comandas, Printing, Dashboard y Realtime normalizados y validados transversalmente. |
+| v4 | Pendiente de definición | Etapa no iniciada. El usuario aún no ha entregado las instrucciones de la Etapa 4 ni existe un roadmap canónico aprobado. |
 
 ### Fases de estabilidad
 
@@ -86,14 +87,26 @@ No se continúa con la siguiente subfase hasta que la subfase actual esté compr
 
 ## Registro de cambios canónico
 
+### v3.7.0-fix1 · Cierre validado de MundiPOS 3.0
+
+- **Motivo:** la primera ejecución de la suite completa posterior al cierre detectó una regresión heredada en `Finalizar servicio`: el flujo exitoso limpiaba `serviceFinalizationContext` sin cerrar primero el modal.
+- **Corrección:** `public/js/components/orders.js` restaura `Utils.hideModal()` antes de limpiar el contexto de finalización.
+- **Validación específica:** `tests/serviceFinalization.test.js` aprobado con **6/6 pruebas**.
+- **Validación completa:** suite final aprobada con **189/189 pruebas**, **0 fallos**, usando el estado publicado de MundiPOS `3.7.0` más el fix.
+- **Base de datos local:** auditoría SQLite de solo lectura completada con `PRAGMA integrity_check: OK`, `PRAGMA foreign_key_check: 0 violaciones`, 42 tablas detectadas y estabilidad de `data_version`; `data/restaurant.db` permanece local, ignorada y no trackeada.
+- **Versionado final:** versión visible **v3.7**, versión técnica **3.7.0**, `STABILITY_TRACK` **3.7.0**, PWA `v3.7.0-cross-domain-closure` y Font Awesome **6.7.2**.
+- **Git:** cierre funcional `92ad1fb1174e820610b1294ed610c783c04291f0`; actualización de versión visible `24db582f252e06bcf98f44743e5c2320a7d6385e`; fix final `440c0cc7cc310b52e41a45ae50d9f28009a5509a`.
+- **Resultado:** `main == origin/main`, árbol de trabajo limpio y MundiPOS 3.0 queda cerrado y publicado sobre `v3.7.0-fix1`.
+- **Continuidad:** la Etapa 4 no está iniciada. Sus instrucciones aún no han sido entregadas por el usuario y deberán definirse en el siguiente chat, después de revisar el nuevo ZIP correspondiente.
+
 ### v3.7.0 · Pruebas cruzadas y cierre MundiPOS 3.0
 
 - **Objetivo:** cerrar la arquitectura 3.0 con escenarios cruzados que validan la interacción real entre Cuenta Global, Prefacturas, Payments, Créditos, Kitchen, Printing, Dashboard, Realtime y finalización.
 - **Pruebas cruzadas:** se agrega `tests/mundiPos3CrossDomain.test.js` para validar una sola venta global con múltiples documentos/pagos, continuidad de consumo, crédito/abonos, desacople Kitchen/Printing y finalización explícita.
 - **Contrato de cierre:** se agrega `tests/mundiPos3ClosureContract.test.js` para comprobar versionado, PWA, checklist, roadmap y ausencia de regresiones legacy estructurales.
 - **Checklist:** `docs/checklist-cierre-mundipos-3.0.md` concentra la matriz mínima de cierre y diferencia cobertura automática de validación operativa.
-- **Estado:** implementación preparada; el cierre definitivo permanece **pendiente de validación final**, suite completa con `sqlite3@6.0.1`, prueba sobre `restaurant.db`, revisión operativa PC/móvil y Git seguro.
-- **V4:** permanece deliberadamente sin roadmap canónico hasta publicar v3.7.0 con todas las verificaciones aprobadas.
+- **Estado:** cierre completado y publicado. La validación final culminó con la suite completa en **189/189 pruebas aprobadas**, auditoría SQLite de solo lectura con `PRAGMA integrity_check: OK`, **0 violaciones de claves foráneas**, base estable durante la lectura y `restaurant.db` local, ignorada y no trackeada.
+- **Etapa 4:** aún no ha comenzado. El usuario todavía no ha entregado sus instrucciones ni existe un roadmap canónico aprobado. Ningún trabajo de Etapa 4 debe iniciarse hasta recibir esas instrucciones y revisar primero el nuevo ZIP que el usuario entregará en el siguiente chat.
 - **Documento:** `docs/avance-v3.7.0-cierre-mundipos-3.0.md`.
 
 ### v3.6.0 · Limpieza legacy y orden estructural
