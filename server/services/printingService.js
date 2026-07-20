@@ -1,6 +1,7 @@
 const database = require('../db/database');
 const { TransactionService } = require('./transactionService');
 const { BrowserPdfAdapter } = require('./printingAdapters/browserPdfAdapter');
+const printerConfigurationServiceModule = require('./printerConfigurationService');
 const {
     ValidationError,
     NotFoundError,
@@ -75,6 +76,7 @@ class PrintingService {
     constructor(options = {}) {
         this.db = options.db || database;
         this.transactions = options.transactions || new TransactionService(this.db);
+        this.printerConfigurationService = options.printerConfigurationService || new printerConfigurationServiceModule.PrinterConfigurationService({ db: this.db });
         this.adapters = new Map();
         this.registerAdapter(options.browserPdfAdapter || new BrowserPdfAdapter());
         for (const adapter of options.adapters || []) this.registerAdapter(adapter);
@@ -105,7 +107,10 @@ class PrintingService {
             copia: Number(row.copia),
             intentos: Number(row.intentos || 0),
             max_intentos: Number(row.max_intentos || 0),
+            copias_fisicas: Number(row.copias_fisicas || 1),
+            autoimpresion: Number(row.autoimpresion ?? 1) === 1,
             creado_por_usuario_id: row.creado_por_usuario_id ? Number(row.creado_por_usuario_id) : null,
+            configuracion_impresion: safeJsonParse(row.configuracion_impresion_json, null),
             payload: safeJsonParse(row.payload_json, {}),
             resultado: safeJsonParse(row.resultado_json, null)
         };
@@ -132,6 +137,21 @@ class PrintingService {
         `, [normalized]);
         if (!row) throw new NotFoundError('Plantilla de documento no encontrada', { codigo: normalized });
         return row;
+    }
+
+    async listTemplates(options = {}) {
+        const clauses = ['activa = 1'];
+        const params = [];
+        if (options.documentType ?? options.tipo_documento) {
+            clauses.push('tipo_documento = ?');
+            params.push(normalizeText(options.documentType ?? options.tipo_documento, 'tipo_documento', 120));
+        }
+        return this.db.all(`
+            SELECT codigo, nombre, tipo_documento, formato, version, activa, actualizado_en
+            FROM plantillas_documento
+            WHERE ${clauses.join(' AND ')}
+            ORDER BY tipo_documento ASC, nombre ASC, codigo ASC
+        `, params);
     }
 
     async upsertTemplate(input = {}) {
@@ -161,15 +181,69 @@ class PrintingService {
         return this.db.get('SELECT * FROM plantillas_documento WHERE codigo = ?', [code]);
     }
 
+    async resolveJobConfiguration(input, documentType, payload) {
+        const configured = await this.printerConfigurationService.resolveForDocument({
+            ...input,
+            documentType,
+            payload
+        });
+        const destination = configured.destino;
+        const adapterCode = normalizeText(
+            input.adapter ?? input.adaptador ?? configured.adaptador ?? PRINT_ADAPTERS.BROWSER_PDF,
+            'adaptador',
+            80
+        );
+        this.getAdapter(adapterCode);
+        const templateCode = normalizeOptionalText(
+            input.templateCode ?? input.plantilla_codigo ?? configured.plantilla_codigo,
+            120
+        );
+        const physicalCopies = normalizePositiveInteger(
+            input.physicalCopies ?? input.copias_fisicas ?? configured.copias,
+            'copias_fisicas',
+            1
+        );
+        if (physicalCopies > 10) throw new ValidationError('copias_fisicas no puede superar 10');
+        const autoPrintInput = input.autoPrint ?? input.autoimpresion;
+        const autoPrint = typeof autoPrintInput === 'undefined'
+            ? Boolean(configured.autoimpresion && configured.activa)
+            : Boolean(autoPrintInput);
+        const snapshot = {
+            ...configured,
+            adaptador: adapterCode,
+            plantilla_codigo: templateCode,
+            copias: physicalCopies,
+            autoimpresion: autoPrint
+        };
+        return {
+            destination,
+            adapterCode,
+            templateCode,
+            physicalCopies,
+            autoPrint,
+            printerName: normalizeOptionalText(configured.nombre, 180),
+            paperSize: normalizeOptionalText(configured.tamano_papel, 40),
+            snapshot
+        };
+    }
+
     async enqueue(input = {}) {
         const documentType = normalizeText(input.documentType ?? input.documento_tipo, 'documento_tipo', 120);
         const documentId = normalizeText(input.documentId ?? input.documento_id, 'documento_id', 128);
         const documentNumber = normalizeOptionalText(input.documentNumber ?? input.documento_numero, 160);
         const copy = normalizePositiveInteger(input.copy ?? input.copia, 'copia', 1);
-        const adapterCode = normalizeText(input.adapter ?? input.adaptador ?? PRINT_ADAPTERS.BROWSER_PDF, 'adaptador', 80);
-        this.getAdapter(adapterCode);
-        const templateCode = normalizeOptionalText(input.templateCode ?? input.plantilla_codigo, 120);
         const payload = normalizePayload(input.payload);
+        const jobConfig = await this.resolveJobConfiguration(input, documentType, payload);
+        const {
+            destination,
+            adapterCode,
+            templateCode,
+            physicalCopies,
+            autoPrint,
+            printerName,
+            paperSize,
+            snapshot
+        } = jobConfig;
         const maxAttempts = normalizePositiveInteger(input.maxAttempts ?? input.max_intentos, 'max_intentos', 3);
         if (maxAttempts > 20) throw new ValidationError('max_intentos no puede superar 20');
         const userId = input.userId ?? input.creado_por_usuario_id ?? null;
@@ -180,8 +254,6 @@ class PrintingService {
             documentId,
             documentNumber,
             copy,
-            adapterCode,
-            templateCode,
             payload
         });
 
@@ -193,7 +265,15 @@ class PrintingService {
             `, [documentType, documentId, copy]);
 
             if (existing) {
-                if (existing.payload_fingerprint !== payloadFingerprint) {
+                const existingPayload = safeJsonParse(existing.payload_json, {});
+                const canonicalExistingFingerprint = createRequestFingerprint({
+                    documentType: existing.documento_tipo,
+                    documentId: existing.documento_id,
+                    documentNumber: existing.documento_numero,
+                    copy: Number(existing.copia),
+                    payload: existingPayload
+                });
+                if (canonicalExistingFingerprint !== payloadFingerprint) {
                     throw new IdempotencyConflictError(
                         'Ya existe un trabajo para este documento/tipo/copia con datos diferentes',
                         {
@@ -210,10 +290,12 @@ class PrintingService {
             const result = await tx.run(`
                 INSERT INTO trabajos_impresion (
                     documento_tipo, documento_id, documento_numero, copia,
-                    plantilla_codigo, adaptador, payload_json, payload_fingerprint,
+                    plantilla_codigo, adaptador, destino_impresion, impresora_nombre,
+                    tamano_papel, copias_fisicas, autoimpresion, configuracion_impresion_json,
+                    payload_json, payload_fingerprint,
                     estado, intentos, max_intentos, disponible_desde,
                     creado_por_usuario_id, creado_en, actualizado_en
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', 0, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', 0, ?, ?, ?, ?, ?)
             `, [
                 documentType,
                 documentId,
@@ -221,6 +303,12 @@ class PrintingService {
                 copy,
                 templateCode,
                 adapterCode,
+                destination,
+                printerName,
+                paperSize,
+                physicalCopies,
+                autoPrint ? 1 : 0,
+                JSON.stringify(snapshot),
                 payloadJson,
                 payloadFingerprint,
                 maxAttempts,
@@ -238,10 +326,18 @@ class PrintingService {
         const documentType = normalizeText(input.documentType ?? input.documento_tipo, 'documento_tipo', 120);
         const documentId = normalizeText(input.documentId ?? input.documento_id, 'documento_id', 128);
         const documentNumber = normalizeOptionalText(input.documentNumber ?? input.documento_numero, 160);
-        const adapterCode = normalizeText(input.adapter ?? input.adaptador ?? PRINT_ADAPTERS.BROWSER_PDF, 'adaptador', 80);
-        this.getAdapter(adapterCode);
-        const templateCode = normalizeOptionalText(input.templateCode ?? input.plantilla_codigo, 120);
         const payload = normalizePayload(input.payload);
+        const jobConfig = await this.resolveJobConfiguration(input, documentType, payload);
+        const {
+            destination,
+            adapterCode,
+            templateCode,
+            physicalCopies,
+            autoPrint,
+            printerName,
+            paperSize,
+            snapshot
+        } = jobConfig;
         const maxAttempts = normalizePositiveInteger(input.maxAttempts ?? input.max_intentos, 'max_intentos', 3);
         if (maxAttempts > 20) throw new ValidationError('max_intentos no puede superar 20');
         const userId = input.userId ?? input.creado_por_usuario_id ?? null;
@@ -261,17 +357,17 @@ class PrintingService {
                 documentId,
                 documentNumber,
                 copy,
-                adapterCode,
-                templateCode,
                 payload
             });
             const result = await tx.run(`
                 INSERT INTO trabajos_impresion (
                     documento_tipo, documento_id, documento_numero, copia,
-                    plantilla_codigo, adaptador, payload_json, payload_fingerprint,
+                    plantilla_codigo, adaptador, destino_impresion, impresora_nombre,
+                    tamano_papel, copias_fisicas, autoimpresion, configuracion_impresion_json,
+                    payload_json, payload_fingerprint,
                     estado, intentos, max_intentos, disponible_desde,
                     creado_por_usuario_id, creado_en, actualizado_en
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', 0, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', 0, ?, ?, ?, ?, ?)
             `, [
                 documentType,
                 documentId,
@@ -279,6 +375,12 @@ class PrintingService {
                 copy,
                 templateCode,
                 adapterCode,
+                destination,
+                printerName,
+                paperSize,
+                physicalCopies,
+                autoPrint ? 1 : 0,
+                JSON.stringify(snapshot),
                 payloadJson,
                 payloadFingerprint,
                 maxAttempts,
@@ -341,6 +443,71 @@ class PrintingService {
             ? await this.getTemplate(input.templateCode ?? input.plantilla_codigo)
             : null;
         return adapter.render({ payload, template, job: input.job || null });
+    }
+
+    async getPrinterStatus(destination = null) {
+        const configs = destination
+            ? { [destination]: await this.printerConfigurationService.get(destination) }
+            : await this.printerConfigurationService.list();
+        const result = {};
+        for (const [key, config] of Object.entries(configs)) {
+            const adapterAvailable = this.adapters.has(config.adaptador);
+            result[key] = {
+                ...config,
+                estado_dispositivo: config.activa
+                    ? (adapterAvailable ? (config.estado_dispositivo || 'disponible') : 'adaptador_no_disponible')
+                    : 'inactiva',
+                adaptador_disponible: adapterAvailable
+            };
+        }
+        return destination ? result[destination] : result;
+    }
+
+    async testPrinter(destination, options = {}) {
+        const config = await this.printerConfigurationService.get(destination);
+        const testedAt = options.now || new Date().toISOString();
+        try {
+            const adapter = this.getAdapter(config.adaptador);
+            const template = config.plantilla_codigo
+                ? await this.getTemplate(config.plantilla_codigo)
+                : null;
+            const payload = {
+                documento: 'prueba_impresion',
+                numero_documento: `TEST-${String(config.destino).toUpperCase()}`,
+                destino: config.destino,
+                impresora: config.nombre,
+                tamano_papel: config.tamano_papel,
+                copias: config.copias,
+                fecha: testedAt,
+                mensaje: 'Prueba de impresión MundiPOS'
+            };
+            const output = await adapter.render({
+                payload,
+                template,
+                job: {
+                    documento_tipo: 'prueba_impresion',
+                    documento_numero: payload.numero_documento,
+                    destino_impresion: config.destino,
+                    impresora_nombre: config.nombre,
+                    tamano_papel: config.tamano_papel,
+                    copias_fisicas: config.copias,
+                    autoimpresion: true,
+                    configuracion_impresion: config
+                }
+            });
+            const status = await this.printerConfigurationService.recordDeviceStatus(config.destino, {
+                estado: 'disponible',
+                fecha: testedAt
+            });
+            return { configuracion: status, salida: output };
+        } catch (error) {
+            await this.printerConfigurationService.recordDeviceStatus(config.destino, {
+                estado: 'error',
+                fecha: testedAt,
+                error: error.message
+            });
+            throw error;
+        }
     }
 
     async startAttempt(jobId, options = {}) {

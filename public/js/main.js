@@ -163,6 +163,7 @@ const INTERNAL_SUBNAV = {
     ],
     settings: [
         { id: 'general', label: 'General', icon: 'fa-gear' },
+        { id: 'printers', label: 'Impresoras', icon: 'fa-print' },
         { id: 'history', label: 'Historial', icon: 'fa-clock-rotate-left' },
         { id: 'backup', label: 'Respaldos', icon: 'fa-database' },
         { id: 'reports', label: 'Reportes', icon: 'fa-chart-line' }

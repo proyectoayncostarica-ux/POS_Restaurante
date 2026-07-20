@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.4.1 · Integración transversal de documentos con Printing
+- **Línea de trabajo actual:** v3.4.2 · Configuración → Impresoras
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -85,6 +85,18 @@ No se continúa con la siguiente subfase hasta que la subfase actual esté compr
 ```
 
 ## Registro de cambios canónico
+
+### v3.4.2 · Configuración → Impresoras
+
+- **Objetivo:** administrar impresoras desde una pestaña interna de Configuración sin exponer Printing como módulo visual principal.
+- **Destinos:** Caja, Cocina y Bar mantienen configuración independiente de dispositivo, adaptador, papel, copias, autoimpresión, plantilla y estado activo.
+- **Responsabilidad:** Settings persiste la configuración; Printing la resuelve y ejecuta. Orders, Caja, Créditos y Kitchen continúan sin conocer dispositivos físicos.
+- **Snapshot:** cada trabajo conserva `destino_impresion`, dispositivo, papel, copias, autoimpresión y configuración serializada; cambios posteriores no alteran trabajos ya encolados.
+- **Compatibilidad:** la clave legacy `impresora` solo puede alimentar el nombre inicial de Caja y no vuelve a sobrescribir la configuración normalizada.
+- **Prueba:** cada destino puede ejecutar una prueba de impresión y registrar disponibilidad, fecha de prueba y último error.
+- **Navegador/PDF:** aplica tamaño de página y representa copias físicas como páginas repetidas, manteniendo abierta la extensión a drivers térmicos futuros.
+- **Documento:** `docs/avance-v3.4.2-configuracion-impresoras.md`.
+- **Siguiente fase:** `v3.5.0 · Dashboard y reportes financieros consolidados`, únicamente cuando el usuario autorice continuar.
 
 ### v3.4.1 · Integración transversal de documentos con Printing
 

@@ -1,8 +1,8 @@
 # Prompt de continuidad canónico · MundiPOS 3.0
 
 **Actualizado:** 18 de julio de 2026
-**Estado funcional preparado para validación:** `v3.4.1`
-**Próxima fase funcional:** `v3.4.2 · Configuración → Impresoras`
+**Estado funcional preparado para validación:** `v3.4.2`
+**Próxima fase funcional:** `v3.5.0 · Dashboard y reportes financieros consolidados`
 **Repositorio local activo:** `C:\Repos\POS_Restaurante`
 
 > **Uso en un nuevo chat:** adjunta este archivo junto con un ZIP nuevo del repositorio actual y pega la sección **“Prompt listo para usar”** como primer mensaje. Este documento reemplaza el prompt de continuidad anterior. Conserva sus contratos útiles, corrige su estado obsoleto e incorpora la recuperación, normalización y limpieza realizadas el 17 de julio de 2026.
@@ -22,11 +22,11 @@ Debes trabajar de forma incremental, auditable y compatible con la operación re
 3. Confirma rama `main`, sincronización con `origin/main` y árbol limpio antes de aplicar una nueva entrega.
 4. Mantén `data/restaurant.db` local, ignorada y fuera de cualquier ZIP o commit.
 5. Trabaja con el flujo rápido aprobado: implementación → pruebas específicas → suite completa → validación operativa → Git seguro.
-6. La fase implementada más reciente es `v3.4.1 · Integración transversal de documentos`; `v3.4.2` añadirá `Configuración → Impresoras` cuando el usuario autorice continuar.
+6. La fase implementada más reciente es `v3.4.2 · Configuración → Impresoras`. Las entregas `v3.4.0`, `v3.4.1` y `v3.4.2` pueden permanecer pendientes de validación/publicación y deben comprobarse en orden antes de sus commits individuales.
 7. Printing debe persistir trabajos e intentos sin recalcular negocio. Una falla de dispositivo no revierte ni duplica el documento origen.
 8. No uses staging global: los commits se preparan con rutas explícitas y solo después de la validación operativa.
 
-Mantén sin cambios los contratos de cuenta global, división, Caja, Payments, créditos, finalización de servicio, impresión posterior a la persistencia, autorización backend e idempotencia. No adelantes la configuración de impresoras de `v3.4.2`, reportes o limpieza legacy sin autorización del usuario.
+Mantén sin cambios los contratos de cuenta global, división, Caja, Payments, créditos, finalización de servicio, impresión posterior a la persistencia, autorización backend e idempotencia. No adelantes Dashboard/reportes de `v3.5.0` ni limpieza legacy sin autorización del usuario.
 
 Trabaja en español. En tareas de PowerShell entrega un solo bloque por turno y espera la salida completa. Nunca uses `git add .`, `git add -A`, `git clean`, `git reset --hard`, `git commit -a`, `stash pop`, `stash apply`, `stash drop`, `npm audit fix --force` ni force-push sin autorización expresa.
 
@@ -1603,4 +1603,37 @@ POST /api/cash/credits/:creditId/reprint-request
 
 Documento de avance: `docs/avance-v3.4.1-integracion-documentos-printing.md`.
 
-La siguiente fase es `v3.4.2 · Configuración → Impresoras` y solo debe iniciarse cuando el usuario confirme explícitamente que continúe. Las pruebas operativas, suite completa y Git de las fases entregadas pueden ejecutarse posteriormente, fase por fase, según la dinámica temporal indicada por el usuario.
+`v3.4.2 · Configuración → Impresoras` fue implementada después de autorización explícita. Las pruebas operativas, suite completa y Git de las fases entregadas pueden ejecutarse posteriormente, fase por fase y en orden, según la dinámica temporal indicada por el usuario.
+
+
+
+# 25. Estado implementado para validación · v3.4.2 Configuración → Impresoras
+
+`v3.4.2` agrega la configuración central de impresoras dentro de Settings y mantiene Printing como servicio interno transversal.
+
+Contratos añadidos:
+
+- Caja, Cocina y Bar tienen configuración independiente;
+- Settings guarda dispositivo, adaptador, papel, copias físicas, autoimpresión, plantilla y estado activo;
+- Printing resuelve esa configuración al crear el trabajo y guarda un snapshot inmutable;
+- una modificación posterior en Settings no cambia trabajos ya encolados;
+- una repetición idempotente de la misma copia conserva el trabajo original aunque la impresora haya cambiado;
+- prefacturas, recibos, créditos, abonos y cierres diarios se enrutan a Caja;
+- comandas se enrutan a Cocina o Bar según `payload.destino`;
+- la prueba de impresión es técnica y no crea ni modifica documentos de negocio;
+- el estado del dispositivo registra última prueba y error conocido;
+- la pestaña Impresoras vive dentro de Configuración y Printing no aparece como módulo principal.
+
+Rutas relevantes:
+
+```text
+GET  /api/settings/printers
+PUT  /api/settings/printers/:destination
+GET  /api/printing/printers/status
+POST /api/printing/printers/:destination/test
+GET  /api/printing/templates
+```
+
+Documento de avance: `docs/avance-v3.4.2-configuracion-impresoras.md`.
+
+Dinámica temporal acordada: las verificaciones finales y Git de `v3.4.0`, `v3.4.1` y `v3.4.2` se realizarán posteriormente, en orden y fase por fase. La siguiente fase de código es `v3.5.0 · Dashboard y reportes financieros consolidados` únicamente cuando el usuario confirme explícitamente que continúe.

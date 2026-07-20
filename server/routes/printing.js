@@ -90,6 +90,37 @@ router.post('/preview', requireCapability(CAPABILITIES.PRINTING_CONFIGURE), asyn
     }
 });
 
+router.get('/templates', requireCapability(CAPABILITIES.PRINTING_CONFIGURE), async (req, res) => {
+    try {
+        const templates = await printingService.listTemplates({
+            documentType: req.query.tipo_documento || req.query.documentType
+        });
+        res.json({ success: true, data: templates });
+    } catch (error) {
+        sendError(res, error, 'No fue posible consultar las plantillas');
+    }
+});
+
+router.get('/printers/status', requireCapability(CAPABILITIES.PRINTING_CONFIGURE), async (req, res) => {
+    try {
+        const status = await printingService.getPrinterStatus();
+        res.json({ success: true, data: status });
+    } catch (error) {
+        sendError(res, error, 'No fue posible consultar el estado de las impresoras');
+    }
+});
+
+router.post('/printers/:destination/test', requireCapability(CAPABILITIES.PRINTING_CONFIGURE), async (req, res) => {
+    try {
+        const result = await printingService.testPrinter(req.params.destination, {
+            userId: req.session?.userId
+        });
+        res.json({ success: true, data: result });
+    } catch (error) {
+        sendError(res, error, 'No fue posible ejecutar la prueba de impresión');
+    }
+});
+
 router.put('/templates/:code', requireCapability(CAPABILITIES.PRINTING_CONFIGURE), async (req, res) => {
     try {
         const template = await printingService.upsertTemplate({

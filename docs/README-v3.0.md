@@ -894,3 +894,19 @@ El cierre diario se encola mediante `POST /api/printing/documents/daily-close`, 
 Documento de avance: `docs/avance-v3.4.1-integracion-documentos-printing.md`.
 
 Siguiente fase: `v3.4.2 · Configuración → Impresoras`.
+
+
+
+## v3.4.2 · Configuración → Impresoras
+
+Configuración incorpora una pestaña interna `Impresoras` para administrar por separado Caja, Cocina y Bar. Cada destino define dispositivo, adaptador, tamaño de papel, copias físicas, autoimpresión, plantilla y estado activo.
+
+Settings persiste estos parámetros; Printing los resuelve cuando crea un trabajo y guarda un snapshot dentro de `trabajos_impresion`. Por ello, cambiar una impresora no modifica trabajos ya encolados ni cambia la identidad de una copia existente.
+
+Las comandas se enrutan a Cocina o Bar según su destino canónico. Prefacturas, recibos, créditos, abonos y cierres diarios usan Caja. La prueba de impresión se ejecuta desde Printing y actualiza el estado conocido del dispositivo sin crear documentos de negocio.
+
+La configuración legacy `impresora` puede alimentar únicamente el nombre inicial de Caja. La UI no expone Printing como módulo principal.
+
+Documento de avance: `docs/avance-v3.4.2-configuracion-impresoras.md`.
+
+Siguiente fase: `v3.5.0 · Dashboard y reportes financieros consolidados`.

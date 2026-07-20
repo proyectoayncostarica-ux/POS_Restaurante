@@ -3,6 +3,7 @@ const database = require('../db/database');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const printerConfigurationService = require('../services/printerConfigurationService');
 
 const router = express.Router();
 
@@ -62,6 +63,31 @@ router.get('/', requireAdmin, async (req, res) => {
     } catch (error) {
         console.error('Error obteniendo configuración:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// Configuración central de impresoras por destino operativo
+router.get('/printers', requireAdmin, async (req, res) => {
+    try {
+        const printers = await printerConfigurationService.list();
+        res.json({ success: true, data: printers });
+    } catch (error) {
+        console.error('Error obteniendo configuración de impresoras:', error);
+        res.status(error.status || 500).json({ error: error.message || 'Error interno del servidor' });
+    }
+});
+
+router.put('/printers/:destination', requireAdmin, async (req, res) => {
+    try {
+        const printer = await printerConfigurationService.update(req.params.destination, req.body || {});
+        await database.run(
+            'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+            ['actualizar_impresora', req.session.userId, `Impresora ${printer.destino} actualizada`, new Date().toISOString()]
+        );
+        res.json({ success: true, data: printer, message: 'Configuración de impresora guardada' });
+    } catch (error) {
+        console.error('Error actualizando configuración de impresora:', error);
+        res.status(error.status || 500).json({ error: error.message || 'Error interno del servidor' });
     }
 });
 

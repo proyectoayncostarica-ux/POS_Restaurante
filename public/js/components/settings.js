@@ -2,7 +2,10 @@
 const Settings = {
     config: {},
     backups: [],
-    currentView: 'general', // 'general', 'history', 'backup', 'reports'
+    printerConfigs: null,
+    printerStatuses: null,
+    printerTemplates: [],
+    currentView: 'general', // 'general', 'printers', 'history', 'backup', 'reports'
 
     // Cargar datos de configuración
     async load() {
@@ -16,6 +19,7 @@ const Settings = {
             const configResponse = await Utils.request('/settings');
             this.config = configResponse.data;
             this.render();
+            if (this.currentView === 'printers') await this.loadPrinterSettings();
         } catch (error) {
             console.error('Error cargando configuración:', error);
             Utils.showNotification('Error cargando configuración', 'error');
@@ -53,6 +57,9 @@ render() {
             <div class="d-flex gap-2 flex-wrap mb-2 internal-tabs" aria-label="Vistas de configuración">
                 <button class="btn ${this.currentView === 'general' ? 'btn-primary active' : 'btn-light'}" data-subnav-item="general" onclick="Navigation.selectInternal('settings', 'general')">
                     <i class="fas fa-cog"></i> General
+                </button>
+                <button class="btn ${this.currentView === 'printers' ? 'btn-primary active' : 'btn-light'}" data-subnav-item="printers" onclick="Navigation.selectInternal('settings', 'printers')">
+                    <i class="fas fa-print"></i> Impresoras
                 </button>
                 <button class="btn ${this.currentView === 'history' ? 'btn-primary active' : 'btn-light'}" data-subnav-item="history" onclick="Navigation.selectInternal('settings', 'history')">
                     <i class="fas fa-clock-rotate-left"></i> Historial
@@ -93,6 +100,8 @@ render() {
             this.loadBackups();
         } else if (view === 'history') {
             this.loadHistory();
+        } else if (view === 'printers') {
+            this.loadPrinterSettings();
         }
     },
 
@@ -101,6 +110,8 @@ render() {
         switch (this.currentView) {
             case 'general':
                 return this.renderGeneralSettings();
+            case 'printers':
+                return this.renderPrintersView();
             case 'history':
                 return this.renderHistoryView();
             case 'backup':
@@ -153,9 +164,9 @@ render() {
                             ` : ''}
                             
                             <h3 class="mt-4">Configuración del Sistema</h3>
-                            <div class="form-group">
-                                <label for="impresora">Impresora Predeterminada</label>
-                                <input type="text" id="impresora" name="impresora" value="${this.config.impresora || ''}" placeholder="Nombre de la impresora">
+                            <div class="alert alert-info">
+                                <i class="fas fa-print"></i>
+                                Las impresoras de Caja, Cocina y Bar se administran en la pestaña <strong>Impresoras</strong>.
                             </div>
                             <div class="form-group">
                                 <label for="tamano-letra">Tamaño de Letra</label>
@@ -176,6 +187,193 @@ render() {
                 </form>
             </div>
         `;
+    },
+
+    escapeHtml(value = '') {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    },
+
+    renderPrinterTemplateOptions(selected = null) {
+        const options = ['<option value="">Predeterminada del documento</option>'];
+        for (const template of this.printerTemplates || []) {
+            const code = this.escapeHtml(template.codigo);
+            const label = this.escapeHtml(`${template.nombre} · ${template.tipo_documento}`);
+            options.push(`<option value="${code}" ${selected === template.codigo ? 'selected' : ''}>${label}</option>`);
+        }
+        return options.join('');
+    },
+
+    renderPrinterCard(destination, label, icon) {
+        const config = this.printerConfigs?.[destination];
+        const status = this.printerStatuses?.[destination] || config;
+        if (!config) return '<div class="printer-config-card"><p>Cargando configuración...</p></div>';
+        const state = status?.estado_dispositivo || 'desconocido';
+        const stateLabel = {
+            disponible: 'Disponible',
+            error: 'Error',
+            inactiva: 'Inactiva',
+            adaptador_no_disponible: 'Adaptador no disponible',
+            desconocido: 'Sin verificar'
+        }[state] || state;
+        return `
+            <article class="printer-config-card" data-printer-destination="${destination}">
+                <header class="printer-config-card__header">
+                    <div>
+                        <h4><i class="fas ${icon}"></i> ${label}</h4>
+                        <small>Destino operativo: ${destination}</small>
+                    </div>
+                    <span class="printer-status printer-status--${this.escapeHtml(state)}">${this.escapeHtml(stateLabel)}</span>
+                </header>
+                <div class="printer-config-grid">
+                    <div class="form-group">
+                        <label for="printer-name-${destination}">Impresora / dispositivo</label>
+                        <input id="printer-name-${destination}" type="text" value="${this.escapeHtml(config.nombre || '')}" maxlength="180">
+                    </div>
+                    <div class="form-group">
+                        <label for="printer-adapter-${destination}">Adaptador</label>
+                        <select id="printer-adapter-${destination}">
+                            <option value="navegador_pdf" ${config.adaptador === 'navegador_pdf' ? 'selected' : ''}>Navegador / PDF</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="printer-paper-${destination}">Tamaño de papel</label>
+                        <select id="printer-paper-${destination}">
+                            ${['58mm', '80mm', 'a4', 'carta'].map(size => `<option value="${size}" ${config.tamano_papel === size ? 'selected' : ''}>${size.toUpperCase()}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="printer-copies-${destination}">Copias físicas</label>
+                        <input id="printer-copies-${destination}" type="number" min="1" max="10" value="${Number(config.copias || 1)}">
+                    </div>
+                    <div class="form-group printer-config-grid__wide">
+                        <label for="printer-template-${destination}">Plantilla</label>
+                        <select id="printer-template-${destination}">${this.renderPrinterTemplateOptions(config.plantilla_codigo)}</select>
+                    </div>
+                    <label class="printer-toggle">
+                        <input id="printer-auto-${destination}" type="checkbox" ${config.autoimpresion ? 'checked' : ''}>
+                        <span>Autoimpresión</span>
+                    </label>
+                    <label class="printer-toggle">
+                        <input id="printer-active-${destination}" type="checkbox" ${config.activa ? 'checked' : ''}>
+                        <span>Destino activo</span>
+                    </label>
+                </div>
+                <div class="printer-config-card__meta">
+                    <span>Última prueba: ${config.ultimo_test_en ? this.escapeHtml(Utils.formatDate(config.ultimo_test_en)) : 'Sin ejecutar'}</span>
+                    ${config.ultimo_error ? `<span class="text-danger">${this.escapeHtml(config.ultimo_error)}</span>` : ''}
+                </div>
+                <footer class="printer-config-card__actions">
+                    <button class="btn btn-primary" type="button" onclick="Settings.savePrinter('${destination}')">
+                        <i class="fas fa-save"></i> Guardar
+                    </button>
+                    <button class="btn btn-secondary" type="button" onclick="Settings.testPrinter('${destination}')">
+                        <i class="fas fa-print"></i> Prueba de impresión
+                    </button>
+                </footer>
+            </article>
+        `;
+    },
+
+    renderPrintersView() {
+        if (!this.printerConfigs) {
+            return '<div class="settings-printers"><p class="text-center">Cargando impresoras...</p></div>';
+        }
+        return `
+            <div class="settings-printers">
+                <div class="printer-settings-intro">
+                    <div>
+                        <h3>Impresoras</h3>
+                        <p>Settings guarda la configuración por destino. Printing toma un snapshot al crear cada trabajo y ejecuta el adaptador configurado.</p>
+                    </div>
+                    <button class="btn btn-sm btn-secondary" type="button" onclick="Settings.loadPrinterSettings()"><i class="fas fa-sync"></i> Actualizar estados</button>
+                </div>
+                <div class="alert alert-info">
+                    <i class="fas fa-circle-info"></i>
+                    Cambiar una impresora no modifica trabajos ya encolados. Los trabajos existentes conservan la configuración con la que fueron creados.
+                </div>
+                <div class="printer-config-list">
+                    ${this.renderPrinterCard('caja', 'Caja', 'fa-cash-register')}
+                    ${this.renderPrinterCard('cocina', 'Cocina', 'fa-fire-burner')}
+                    ${this.renderPrinterCard('bar', 'Bar', 'fa-martini-glass-citrus')}
+                </div>
+            </div>
+        `;
+    },
+
+    async loadPrinterSettings() {
+        try {
+            const [configResponse, statusResponse, templatesResponse] = await Promise.all([
+                Utils.request('/settings/printers'),
+                Utils.request('/printing/printers/status'),
+                Utils.request('/printing/templates')
+            ]);
+            this.printerConfigs = configResponse.data || {};
+            this.printerStatuses = statusResponse.data || {};
+            this.printerTemplates = templatesResponse.data || [];
+            if (this.currentView === 'printers') {
+                this.render();
+                Navigation.syncInternalSubnav('settings');
+            }
+        } catch (error) {
+            console.error('Error cargando impresoras:', error);
+            Utils.showNotification(error.message || 'Error cargando impresoras', 'error');
+        }
+    },
+
+    readPrinterForm(destination) {
+        return {
+            nombre: document.getElementById(`printer-name-${destination}`)?.value || '',
+            adaptador: document.getElementById(`printer-adapter-${destination}`)?.value || 'navegador_pdf',
+            tamano_papel: document.getElementById(`printer-paper-${destination}`)?.value || '80mm',
+            copias: Number(document.getElementById(`printer-copies-${destination}`)?.value || 1),
+            plantilla_codigo: document.getElementById(`printer-template-${destination}`)?.value || null,
+            autoimpresion: Boolean(document.getElementById(`printer-auto-${destination}`)?.checked),
+            activa: Boolean(document.getElementById(`printer-active-${destination}`)?.checked)
+        };
+    },
+
+    async savePrinter(destination) {
+        try {
+            const response = await Utils.request(`/settings/printers/${destination}`, {
+                method: 'PUT',
+                body: JSON.stringify(this.readPrinterForm(destination))
+            });
+            this.printerConfigs[destination] = response.data;
+            Utils.showNotification(`Impresora de ${destination} guardada`, 'success');
+            await this.loadPrinterSettings();
+        } catch (error) {
+            Utils.showNotification(error.message || 'No fue posible guardar la impresora', 'error');
+        }
+    },
+
+    async testPrinter(destination) {
+        const popup = window.open('', '_blank', 'width=760,height=900');
+        try {
+            const response = await Utils.request(`/printing/printers/${destination}/test`, {
+                method: 'POST',
+                body: JSON.stringify({})
+            });
+            if (typeof PrintingClient !== 'undefined') {
+                PrintingClient.openJob({
+                    id: 0,
+                    estado: 'completado',
+                    resultado: response.data?.salida || null
+                }, popup, { autoPrint: true });
+            } else if (popup) {
+                popup.close();
+            }
+            Utils.showNotification(`Prueba de impresión de ${destination} ejecutada`, 'success');
+            await this.loadPrinterSettings();
+        } catch (error) {
+            if (popup) popup.close();
+            Utils.showNotification(error.message || 'La prueba de impresión falló', 'error');
+            await this.loadPrinterSettings();
+        }
     },
 
     // Renderizar vista de historial

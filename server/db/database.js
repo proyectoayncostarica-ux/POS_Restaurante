@@ -741,6 +741,12 @@ class Database {
                 copia INTEGER NOT NULL DEFAULT 1 CHECK(copia > 0),
                 plantilla_codigo TEXT,
                 adaptador TEXT NOT NULL DEFAULT 'navegador_pdf',
+                destino_impresion TEXT,
+                impresora_nombre TEXT,
+                tamano_papel TEXT,
+                copias_fisicas INTEGER NOT NULL DEFAULT 1 CHECK(copias_fisicas > 0),
+                autoimpresion INTEGER NOT NULL DEFAULT 1 CHECK(autoimpresion IN (0, 1)),
+                configuracion_impresion_json TEXT,
                 payload_json TEXT NOT NULL,
                 payload_fingerprint TEXT NOT NULL,
                 estado TEXT NOT NULL DEFAULT 'pendiente' CHECK(estado IN ('pendiente', 'procesando', 'completado', 'fallido', 'cancelado')),
@@ -1074,6 +1080,12 @@ class Database {
             copia INTEGER NOT NULL DEFAULT 1 CHECK(copia > 0),
             plantilla_codigo TEXT,
             adaptador TEXT NOT NULL DEFAULT 'navegador_pdf',
+            destino_impresion TEXT,
+            impresora_nombre TEXT,
+            tamano_papel TEXT,
+            copias_fisicas INTEGER NOT NULL DEFAULT 1 CHECK(copias_fisicas > 0),
+            autoimpresion INTEGER NOT NULL DEFAULT 1 CHECK(autoimpresion IN (0, 1)),
+            configuracion_impresion_json TEXT,
             payload_json TEXT NOT NULL,
             payload_fingerprint TEXT NOT NULL,
             estado TEXT NOT NULL DEFAULT 'pendiente' CHECK(estado IN ('pendiente', 'procesando', 'completado', 'fallido', 'cancelado')),
@@ -1106,7 +1118,30 @@ class Database {
             FOREIGN KEY (trabajo_impresion_id) REFERENCES trabajos_impresion (id) ON DELETE CASCADE
         )`);
 
+        await this.ensureColumn('trabajos_impresion', 'destino_impresion', 'TEXT');
+        await this.ensureColumn('trabajos_impresion', 'impresora_nombre', 'TEXT');
+        await this.ensureColumn('trabajos_impresion', 'tamano_papel', 'TEXT');
+        await this.ensureColumn('trabajos_impresion', 'copias_fisicas', 'INTEGER NOT NULL DEFAULT 1');
+        await this.ensureColumn('trabajos_impresion', 'autoimpresion', 'INTEGER NOT NULL DEFAULT 1');
+        await this.ensureColumn('trabajos_impresion', 'configuracion_impresion_json', 'TEXT');
+
+        await this.run(`
+            UPDATE trabajos_impresion
+            SET destino_impresion = COALESCE(
+                    NULLIF(destino_impresion, ''),
+                    CASE
+                        WHEN documento_tipo = 'comanda' THEN 'cocina'
+                        ELSE 'caja'
+                    END
+                ),
+                impresora_nombre = COALESCE(NULLIF(impresora_nombre, ''), 'Navegador / PDF'),
+                tamano_papel = COALESCE(NULLIF(tamano_papel, ''), '80mm'),
+                copias_fisicas = CASE WHEN copias_fisicas IS NULL OR copias_fisicas < 1 THEN 1 ELSE copias_fisicas END,
+                autoimpresion = CASE WHEN autoimpresion IS NULL THEN 1 ELSE autoimpresion END
+        `);
+
         await this.run('CREATE INDEX IF NOT EXISTS idx_trabajos_impresion_estado ON trabajos_impresion(estado, disponible_desde, creado_en)');
+        await this.run('CREATE INDEX IF NOT EXISTS idx_trabajos_impresion_destino ON trabajos_impresion(destino_impresion, estado, creado_en)');
         await this.run('CREATE INDEX IF NOT EXISTS idx_trabajos_impresion_documento ON trabajos_impresion(documento_tipo, documento_id)');
         await this.run('CREATE INDEX IF NOT EXISTS idx_intentos_impresion_trabajo ON intentos_impresion(trabajo_impresion_id, numero_intento)');
         await this.run('CREATE INDEX IF NOT EXISTS idx_plantillas_documento_tipo ON plantillas_documento(tipo_documento, activa)');

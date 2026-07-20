@@ -156,6 +156,42 @@ function renderDailyClose(payload) {
     });
 }
 
+
+function applyPrintSettings(html, job = {}) {
+    const paperSize = String(job?.tamano_papel || '80mm').toLowerCase();
+    const pageSize = paperSize === '58mm'
+        ? '58mm auto'
+        : paperSize === '80mm'
+            ? '80mm auto'
+            : paperSize === 'carta'
+                ? 'letter'
+                : 'A4';
+    const pageMargin = ['58mm', '80mm'].includes(paperSize) ? '4mm' : '10mm';
+    let configured = String(html || '').replace(
+        '</style>',
+        `@page{size:${pageSize};margin:${pageMargin}}.print-copy{page-break-after:always}.print-copy:last-child{page-break-after:auto}</style>`
+    );
+
+    const copies = Math.max(1, Math.min(10, Number(job?.copias_fisicas || 1)));
+    if (copies <= 1) return configured;
+    const match = configured.match(/<body>([\s\S]*)<\/body>/i);
+    if (!match) return configured;
+    const repeated = Array.from({ length: copies }, (_value, index) =>
+        `<section class="print-copy" data-copy="${index + 1}">${match[1]}</section>`
+    ).join('');
+    return configured.replace(match[0], `<body>${repeated}</body>`);
+}
+
+function renderPrinterTest(payload) {
+    return layout({
+        title: `Prueba de impresión ${payload.destino || ''}`,
+        footer: 'MundiPOS · Configuración de impresoras',
+        body: `<h1>Prueba de impresión</h1>
+<div class="subtitle">La configuración fue ejecutada por Printing.</div>
+<div class="meta"><div><strong>Destino:</strong> ${escapeHtml(payload.destino || '')}</div><div><strong>Impresora:</strong> ${escapeHtml(payload.impresora || '')}</div><div><strong>Papel:</strong> ${escapeHtml(payload.tamano_papel || '')}</div><div><strong>Copias:</strong> ${escapeHtml(payload.copias || 1)}</div><div><strong>Fecha:</strong> ${formatDate(payload.fecha)}</div></div>
+<div class="note">${escapeHtml(payload.mensaje || 'Prueba de impresión MundiPOS')}</div>`
+    });
+}
 function defaultDocumentHtml(payload) {
     return layout({
         title: payload.numero_documento || payload.numero || 'Documento MundiPOS',
@@ -177,6 +213,8 @@ function renderCanonicalDocument(payload) {
             return renderKitchen(payload);
         case 'cierre_diario':
             return renderDailyClose(payload);
+        case 'prueba_impresion':
+            return renderPrinterTest(payload);
         default:
             return defaultDocumentHtml(payload);
     }
@@ -192,9 +230,10 @@ class BrowserPdfAdapter {
             throw new ValidationError('Printing requiere un payload canónico de documento');
         }
 
-        const content = template?.contenido
+        const baseContent = template?.contenido
             ? interpolate(template.contenido, payload)
             : renderCanonicalDocument(payload);
+        const content = applyPrintSettings(baseContent, job);
         const documentNumber = job?.documento_numero || payload.numero_documento || payload.numero || 'documento';
         const safeName = String(documentNumber).replace(/[^A-Za-z0-9._-]+/g, '-');
 
@@ -203,7 +242,11 @@ class BrowserPdfAdapter {
             mime_type: 'text/html; charset=utf-8',
             contenido: content,
             nombre_archivo_sugerido: `${safeName}.html`,
-            modo_salida: 'vista_previa_navegador_pdf'
+            modo_salida: 'vista_previa_navegador_pdf',
+            destino_impresion: job?.destino_impresion || payload.destino || 'caja',
+            impresora_nombre: job?.impresora_nombre || null,
+            tamano_papel: job?.tamano_papel || '80mm',
+            copias_fisicas: Math.max(1, Number(job?.copias_fisicas || 1))
         };
     }
 }

@@ -167,7 +167,7 @@ class DocumentPrintingService {
     }
 
     async resolveBrowserOutput(job, options = {}) {
-        if (!job || options.process === false || job.adaptador !== 'navegador_pdf') return job;
+        if (!job || options.process === false || job.autoimpresion === false || job.adaptador !== 'navegador_pdf') return job;
         if (job.estado === 'pendiente') {
             try {
                 return await this.printingService.processJob(job.id, { now: options.now });
