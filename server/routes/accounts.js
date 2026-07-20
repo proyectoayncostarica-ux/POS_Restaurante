@@ -1,12 +1,20 @@
 const express = require('express');
-const database = require('../db/database');
 const requireCapability = require('../middleware/requireCapability');
 const { CAPABILITIES } = require('../security/capabilities');
 const creditService = require('../services/creditService');
 const financialReadService = require('../services/financialReadService');
+const documentPrintingService = require('../services/documentPrintingService');
 const { ConflictError } = require('../errors/domainError');
 
 const router = express.Router();
+
+async function enqueuePrintingSafely(factory, context) {
+    try { return await factory(); }
+    catch (error) {
+        console.error(`Printing no pudo encolar ${context}; la operación financiera ya permanece persistida:`, error);
+        return { estado: 'encolado_fallido', error: error?.message || 'No fue posible crear el trabajo de impresión' };
+    }
+}
 
 function sendError(res, error, fallbackMessage) {
     const status = Number(error?.status || error?.statusCode || 500);
@@ -69,6 +77,16 @@ router.get('/credit/:id', requireCapability(CAPABILITIES.CASH_ACCESS), async (re
     }
 });
 
+router.post('/credit/:id/reprint', requireCapability(CAPABILITIES.CASH_REPRINT), async (req, res) => {
+    try {
+        const printJob = await documentPrintingService.reprintCredit(req.params.id, { userId: req.session.userId });
+        res.status(202).json({ success: true, printing: printJob });
+    } catch (error) {
+        console.error('Error preparando reimpresión de crédito:', error);
+        sendError(res, error, 'Error interno preparando reimpresión');
+    }
+});
+
 // Compatibilidad de Dashboard: :id continúa representando la cuenta global.
 router.get('/:id', requireCapability(CAPABILITIES.CASH_ACCESS), async (req, res) => {
     try {
@@ -89,6 +107,10 @@ router.post('/', requireCapability(CAPABILITIES.CASH_COLLECT), async (_req, res)
 router.post('/:id/payment', requireCapability(CAPABILITIES.CASH_COLLECT), async (req, res) => {
     try {
         const result = await creditService.recordPayment(paymentInput(req));
+        const printJob = await enqueuePrintingSafely(
+            () => documentPrintingService.enqueuePayment(result.pago, { userId: req.session.userId }),
+            `abono ${result.pago?.numero_pago || result.pago?.id}`
+        );
         res.locals.realtime = {
             scope: 'creditos',
             orderIds: result?.cuenta_global?.id ? [Number(result.cuenta_global.id)] : [],
@@ -97,7 +119,8 @@ router.post('/:id/payment', requireCapability(CAPABILITIES.CASH_COLLECT), async 
         res.status(result.idempotency_replay ? 200 : 201).json({
             success: true,
             data: result,
-            meta: { naturaleza: 'cobro_credito', venta_global_incrementada: false, mesa_liberada: false }
+            meta: { naturaleza: 'cobro_credito', venta_global_incrementada: false, mesa_liberada: false },
+            printing: printJob
         });
     } catch (error) {
         console.error('Error procesando abono de crédito:', error);
@@ -109,12 +132,16 @@ router.post('/:id/pay-full', requireCapability(CAPABILITIES.CASH_COLLECT), async
     try {
         const credit = await creditService.getCredit(req.params.id);
         const result = await creditService.recordPayment(paymentInput(req, credit.saldo_pendiente));
+        const printJob = await enqueuePrintingSafely(
+            () => documentPrintingService.enqueuePayment(result.pago, { userId: req.session.userId }),
+            `abono ${result.pago?.numero_pago || result.pago?.id}`
+        );
         res.locals.realtime = {
             scope: 'creditos',
             orderIds: result?.cuenta_global?.id ? [Number(result.cuenta_global.id)] : [],
             requiredAnyCapabilities: [CAPABILITIES.CASH_ACCESS]
         };
-        res.status(result.idempotency_replay ? 200 : 201).json({ success: true, data: result });
+        res.status(result.idempotency_replay ? 200 : 201).json({ success: true, data: result, printing: printJob });
     } catch (error) {
         console.error('Error saldando crédito:', error);
         sendError(res, error, 'Error interno saldando crédito');
@@ -123,13 +150,14 @@ router.post('/:id/pay-full', requireCapability(CAPABILITIES.CASH_COLLECT), async
 
 router.post('/:id/reprint', requireCapability(CAPABILITIES.CASH_REPRINT), async (req, res) => {
     try {
-        const read = await financialReadService.getAccountFinancialRead(req.params.id);
-        await database.run(
-            `INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha)
-             VALUES ('reimprimir_factura', ?, ?, ?)`,
-            [req.session.userId, `Documento financiero preparado para ${read.numero_cuenta}`, new Date().toISOString()]
-        );
-        res.json({ success: true, message: 'Documento preparado para reimpresión', data: read });
+        const printJob = await documentPrintingService.reprintLatestAccountDocument(req.params.id, {
+            userId: req.session.userId
+        });
+        res.status(202).json({
+            success: true,
+            message: 'Documento financiero enviado a la cola de reimpresión',
+            printing: printJob
+        });
     } catch (error) {
         console.error('Error preparando reimpresión:', error);
         sendError(res, error, 'Error interno preparando reimpresión');

@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.4.0 · Núcleo y cola de Printing
+- **Línea de trabajo actual:** v3.4.1 · Integración transversal de documentos con Printing
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -85,6 +85,18 @@ No se continúa con la siguiente subfase hasta que la subfase actual esté compr
 ```
 
 ## Registro de cambios canónico
+
+### v3.4.1 · Integración transversal de documentos con Printing
+
+- **Objetivo:** conectar los documentos persistidos de Orders, Caja, Créditos y Kitchen a la cola transversal creada en `v3.4.0`.
+- **Servicio central:** `documentPrintingService` construye snapshots canónicos y evita plantillas duplicadas dentro de los dominios.
+- **Documentos:** prefactura completa/parcial, recibo de cobro, comprobante de crédito, abono de crédito, comanda cocina/bar y cierre diario.
+- **Orden seguro:** primero se persiste el documento de negocio y después se crea el trabajo de Printing; una falla de encolado o adaptador no revierte la operación canónica.
+- **Reimpresión:** conserva el mismo número documental y reserva una nueva `copia` auditable; el reintento técnico reutiliza el mismo trabajo.
+- **Kitchen:** las comandas persistidas se encolan sin vincular el estado operativo de preparación al estado del dispositivo.
+- **Cierre diario:** `/api/printing/documents/daily-close` recibe el snapshot calculado por `FinancialReadService`, sin recalcular negocio dentro de Printing.
+- **Documento:** `docs/avance-v3.4.1-integracion-documentos-printing.md`.
+- **Siguiente fase:** `v3.4.2 · Configuración → Impresoras`, únicamente cuando el usuario autorice continuar.
 
 ### v3.4.0 · Núcleo y cola de Printing
 

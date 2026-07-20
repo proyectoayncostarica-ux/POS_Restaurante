@@ -43,10 +43,10 @@ test('Orders bloquea el crédito legacy que liberaba la mesa', () => {
     assert.doesNotMatch(orders, /UPDATE mesas SET estado = \?, cliente_nombre = NULL[\s\S]{0,120}metodo_pago === 'credito'/);
 });
 
-test('PWA conserva Créditos y Caja dentro del caché vigente de v3.4.0', () => {
+test('PWA conserva Créditos y Caja dentro del caché vigente de v3.4.1', () => {
     const sw = read('public/service-worker.js');
     const index = read('public/index.html');
-    assert.match(sw, /v3\.4\.0-printing-core/);
-    assert.match(index, /accounts\.js\?v=3\.4\.0-printing-core/);
-    assert.match(index, /cash\.js\?v=3\.4\.0-printing-core/);
+    assert.match(sw, /v3\.4\.1-printing-documents/);
+    assert.match(index, /accounts\.js\?v=3\.4\.1-printing-documents/);
+    assert.match(index, /cash\.js\?v=3\.4\.1-printing-documents/);
 });

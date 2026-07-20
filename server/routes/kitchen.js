@@ -9,9 +9,19 @@ const {
 } = require('../services/operationalAccessService');
 const accountService = require('../services/accountService');
 const kitchenService = require('../services/kitchenService');
+const documentPrintingService = require('../services/documentPrintingService');
 const { DomainError } = require('../errors/domainError');
 
 const router = express.Router();
+
+async function enqueuePrintingSafely(factory, context) {
+    try {
+        return await factory();
+    } catch (error) {
+        console.error(`Printing no pudo encolar ${context}; la comanda ya permanece persistida:`, error);
+        return { estado: 'encolado_fallido', error: error?.message || 'No fue posible crear el trabajo de impresión' };
+    }
+}
 
 function sendRouteError(res, error, fallbackMessage) {
     if (error instanceof DomainError || (error && Number.isInteger(error.status) && error.code)) {
@@ -154,6 +164,12 @@ router.post('/orders/:pedidoId/dispatch', requireCapability(CAPABILITIES.ORDERS_
                 || req.body?.clave_idempotencia
                 || req.body?.idempotencyKey
         });
+        const printJobs = result.requiere_comanda
+            ? await enqueuePrintingSafely(
+                () => documentPrintingService.enqueueKitchenCommands(result.comandas || [], { userId: req.session?.userId }),
+                `comandas de cuenta ${result.numero_cuenta || account.id}`
+            )
+            : [];
         res.locals.realtime = {
             scope: 'comandas',
             requiredAnyCapabilities: [CAPABILITIES.KITCHEN_OPERATE, CAPABILITIES.ORDERS_OPERATE],
@@ -163,7 +179,7 @@ router.post('/orders/:pedidoId/dispatch', requireCapability(CAPABILITIES.ORDERS_
             comandaIds: result.comanda_ids || [],
             destinations: (result.comandas || []).map(command => command.destino).filter(Boolean)
         };
-        return res.json({ success: true, data: result });
+        return res.json({ success: true, data: result, printing: printJobs });
     } catch (error) {
         return sendRouteError(res, error, 'No fue posible solicitar la preparación');
     }
@@ -178,6 +194,10 @@ router.post('/comandas/:id/resend', requireCapability(CAPABILITIES.KITCHEN_OPERA
             userId: req.session?.userId,
             reason: req.body?.motivo || req.body?.reason
         });
+        const printJob = await enqueuePrintingSafely(
+            () => documentPrintingService.enqueueKitchenCommand(command, { userId: req.session?.userId }),
+            `comanda reenviada ${command.numero_comanda || command.id}`
+        );
         res.locals.realtime = {
             scope: 'comandas',
             requiredAnyCapabilities: [CAPABILITIES.KITCHEN_OPERATE, CAPABILITIES.ORDERS_OPERATE],
@@ -187,7 +207,7 @@ router.post('/comandas/:id/resend', requireCapability(CAPABILITIES.KITCHEN_OPERA
             comandaIds: [Number(command.id)],
             destinations: [command.destino || 'cocina']
         };
-        return res.json({ success: true, data: command });
+        return res.json({ success: true, data: command, printing: printJob });
     } catch (error) {
         return sendRouteError(res, error, 'No fue posible reenviar la comanda');
     }

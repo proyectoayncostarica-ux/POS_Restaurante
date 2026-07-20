@@ -12321,3 +12321,7 @@ body.kitchen-department-mode #kitchen-section.content-section.active {
         align-items: flex-end;
     }
 }
+
+.kitchen-offline-banner[hidden] {
+    display: none;
+}

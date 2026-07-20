@@ -12,6 +12,7 @@ const accountService = require('../services/accountService');
 const kitchenService = require('../services/kitchenService');
 const preinvoiceService = require('../services/preinvoiceService');
 const serviceFinalizationService = require('../services/serviceFinalizationService');
+const documentPrintingService = require('../services/documentPrintingService');
 const { DomainError } = require('../errors/domainError');
 
 const router = express.Router();
@@ -22,6 +23,18 @@ function calculateService(subtotal, aplicaServicio, porcentajeServicio) {
         Number(aplicaServicio) === 1 || aplicaServicio === true,
         porcentajeServicio
     );
+}
+
+async function enqueuePrintingSafely(factory, context) {
+    try {
+        return await factory();
+    } catch (error) {
+        console.error(`Printing no pudo encolar ${context}; el documento de negocio ya permanece persistido:`, error);
+        return {
+            estado: 'encolado_fallido',
+            error: error?.message || 'No fue posible crear el trabajo de impresión'
+        };
+    }
 }
 
 function sendRouteError(res, error, fallbackMessage) {
@@ -217,6 +230,43 @@ router.get('/:id/preinvoices/:preinvoiceId', requireCapability(CAPABILITIES.ORDE
     }
 });
 
+// Solicitar una nueva copia auditable de una prefactura ya persistida.
+router.post(
+    '/:id/preinvoices/:preinvoiceId/print-copy',
+    requireCapability(CAPABILITIES.ORDERS_OPERATE),
+    requireCapability(CAPABILITIES.ORDERS_ISSUE_PREINVOICE),
+    async (req, res) => {
+        try {
+            const account = await accountService.getAccount(req.params.id);
+            const access = await resolveAccessContext(req);
+            const mesaAccess = await evaluateMesaAccess(access, {
+                id: account.mesa_id,
+                zona_id: account.zona_id,
+                estado: account.estado_operativo === 'abierta' ? 'ocupada' : 'libre'
+            });
+            if (!mesaAccess.visible) {
+                return res.status(403).json({
+                    error: 'No tienes acceso operativo a esta prefactura.',
+                    code: 'OPERATIONAL_ACCESS_DENIED'
+                });
+            }
+            const document = await preinvoiceService.getPreinvoice(req.params.preinvoiceId);
+            if (Number(document.pedido_id) !== Number(account.id)) {
+                return res.status(404).json({
+                    error: 'Prefactura no encontrada en esta cuenta.',
+                    code: 'PREINVOICE_ACCOUNT_MISMATCH'
+                });
+            }
+            const printJob = await documentPrintingService.reprintPreinvoice(document.id, {
+                userId: req.session?.userId
+            });
+            return res.status(202).json({ success: true, data: document, printing: printJob });
+        } catch (error) {
+            return sendRouteError(res, error, 'Error preparando la copia de la prefactura');
+        }
+    }
+);
+
 // Emitir una sola prefactura por operación. Las cantidades quedan reservadas
 // transaccionalmente y desaparecen del consumo activo disponible.
 router.post(
@@ -262,6 +312,11 @@ router.post(
                 issuedByUserId: req.session?.userId
             });
 
+            const printJob = await enqueuePrintingSafely(
+                () => documentPrintingService.enqueuePreinvoice(document, { userId: req.session?.userId }),
+                `prefactura ${document.numero_documento || document.id}`
+            );
+
             res.locals.realtime = {
                 scope: 'cuentas',
                 orderIds: [Number(account.id)],
@@ -271,7 +326,8 @@ router.post(
 
             return res.status(document.idempotency_replay ? 200 : 201).json({
                 success: true,
-                data: document
+                data: document,
+                printing: printJob
             });
         } catch (error) {
             return sendRouteError(res, error, 'Error emitiendo la prefactura');
@@ -314,12 +370,20 @@ router.post('/', requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, res
                 mesaIds: [Number(mesa_id)],
                 zoneIds: [Number(seat.zona_id)].filter(Boolean),
                 comandaIds: account.comanda_ids || [account.comanda_id].filter(Boolean),
-                destinations: (account.comandas || []).map(command => command.destino).filter(Boolean)
+                destinations: (account.comandas || account.comanda_ids || [account.comanda_id].filter(Boolean)).map(command => command.destino).filter(Boolean)
             };
         }
 
+        const printJobs = account.requiere_comanda
+            ? await enqueuePrintingSafely(
+                () => documentPrintingService.enqueueKitchenCommands(account.comandas || account.comanda_ids || [account.comanda_id].filter(Boolean), { userId: req.session?.userId }),
+                `comandas de cuenta ${account.numero_cuenta || account.id}`
+            )
+            : [];
+
         res.json({
             success: true,
+            printing: printJobs,
             data: {
                 id: account.id,
                 numero_cuenta: account.numero_cuenta,
@@ -378,12 +442,20 @@ router.post('/:id/products', requireCapability(CAPABILITIES.ORDERS_OPERATE), asy
                 mesaIds: [Number(account.mesa_id)],
                 zoneIds: [Number(account.zona_id)].filter(Boolean),
                 comandaIds: result.comanda_ids || [result.comanda_id].filter(Boolean),
-                destinations: (result.comandas || []).map(command => command.destino).filter(Boolean)
+                destinations: (result.comandas || result.comanda_ids || [result.comanda_id].filter(Boolean)).map(command => command.destino).filter(Boolean)
             };
         }
 
+        const printJobs = result.requiere_comanda
+            ? await enqueuePrintingSafely(
+                () => documentPrintingService.enqueueKitchenCommands(result.comandas || result.comanda_ids || [result.comanda_id].filter(Boolean), { userId: req.session?.userId }),
+                `comandas adicionales de cuenta ${account.numero_cuenta || account.id}`
+            )
+            : [];
+
         res.json({
             success: true,
+            printing: printJobs,
             data: {
                 total_adicional: result.total_adicional,
                 subtotal: result.subtotal,
@@ -471,14 +543,22 @@ router.put('/:pedido_id/products/:producto_id', requireCapability(CAPABILITIES.O
                 mesaIds: [Number(account.mesa_id)],
                 zoneIds: [Number(account.zona_id)].filter(Boolean),
                 comandaIds: totals.comanda_ids || [totals.comanda_id].filter(Boolean),
-                destinations: (totals.comandas || []).map(command => command.destino).filter(Boolean)
+                destinations: (totals.comandas || totals.comanda_ids || [totals.comanda_id].filter(Boolean)).map(command => command.destino).filter(Boolean)
             };
         }
+
+        const printJobs = totals.requiere_comanda
+            ? await enqueuePrintingSafely(
+                () => documentPrintingService.enqueueKitchenCommands(totals.comandas || totals.comanda_ids || [totals.comanda_id].filter(Boolean), { userId: req.session?.userId }),
+                `comandas de ajuste de cuenta ${account.numero_cuenta || account.id}`
+            )
+            : [];
 
         res.json({
             success: true,
             message: 'Producto actualizado exitosamente',
-            data: totals
+            data: totals,
+            printing: printJobs
         });
     } catch (error) {
         return sendRouteError(res, error, 'Error editando producto en la cuenta');

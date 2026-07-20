@@ -571,65 +571,29 @@ const Cash = {
             Utils.showNotification('Tu sesión no tiene autorización para reimprimir.', 'warning');
             return;
         }
-        try {
-            const response = await Utils.request(`/cash/preinvoices/${preinvoiceId}/reprint-request`, {
-                method: 'POST',
-                body: JSON.stringify({})
-            });
-            Utils.showNotification('Solicitud de reimpresión registrada.', 'success');
-            this.printPreinvoice(response.data);
-            await this.loadDetail(preinvoiceId);
-        } catch (error) {
-            Utils.showNotification(error.message || 'No se pudo solicitar la reimpresión.', 'error');
-        }
-    },
 
-    printPreinvoice(read = this.selectedRead) {
-        const document = read?.prefactura;
-        const account = read?.cuenta_global;
-        if (!document || !account) return;
         const popup = window.open('', '_blank', 'width=760,height=900');
         if (!popup) {
             Utils.showNotification('El navegador bloqueó la ventana de impresión.', 'warning');
             return;
         }
-        const rows = (document.items || []).map(item => `
-            <tr>
-                <td>${this.escapeHTML(this.itemLabel(item))}</td>
-                <td>${Number(item.cantidad || 0)}</td>
-                <td>${Utils.formatCurrency(Number(item.precio_unitario || 0))}</td>
-                <td>${Utils.formatCurrency(Number(item.total_linea || 0))}</td>
-            </tr>
-        `).join('');
+
         popup.document.open();
-        popup.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8">
-            <title>${this.escapeHTML(document.numero_documento)}</title>
-            <style>
-                body{font-family:Arial,sans-serif;color:#111;margin:28px;line-height:1.35}
-                h1{font-size:22px;margin:0 0 5px}.muted{color:#555}.meta{margin:18px 0;padding:12px;border:1px solid #bbb;border-radius:8px}
-                table{width:100%;border-collapse:collapse;margin-top:16px}th,td{padding:8px;border-bottom:1px solid #ddd;text-align:left}th:last-child,td:last-child{text-align:right}
-                .totals{margin:18px 0 0 auto;max-width:320px}.totals p{display:flex;justify-content:space-between;margin:6px 0}.grand{font-size:18px;border-top:2px solid #111;padding-top:8px}
-                .footer{margin-top:28px;font-size:12px;color:#555;text-align:center}@media print{body{margin:8mm}}
-            </style></head><body>
-            <h1>Prefactura ${this.escapeHTML(document.numero_documento)}</h1>
-            <div class="muted">Documento operativo vinculado a ${this.escapeHTML(account.numero_cuenta)}</div>
-            <div class="meta">
-                <div><strong>Pagador:</strong> ${this.escapeHTML(document.pagador_nombre || '')}</div>
-                <div><strong>Cliente principal:</strong> ${this.escapeHTML(account.cliente_principal || '')}</div>
-                <div><strong>${this.seatLabel(account)}:</strong> ${this.escapeHTML(account.mesa_numero ?? '-')}</div>
-                <div><strong>Zona:</strong> ${this.escapeHTML(account.zona_nombre || '')}</div>
-                <div><strong>Fecha:</strong> ${Utils.formatDate(document.fecha_emision)}</div>
-            </div>
-            <table><thead><tr><th>Producto</th><th>Cant.</th><th>Precio</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table>
-            <div class="totals">
-                <p><span>Subtotal</span><strong>${Utils.formatCurrency(Number(document.subtotal || 0))}</strong></p>
-                <p><span>Servicio</span><strong>${Utils.formatCurrency(Number(document.servicio || 0))}</strong></p>
-                <p class="grand"><span>Total</span><strong>${Utils.formatCurrency(Number(document.total || 0))}</strong></p>
-            </div>
-            <div class="footer">La cuenta global es la única fuente financiera de la venta.</div>
-            <script>window.addEventListener('load',()=>{window.focus();window.print();});<\/script>
-            </body></html>`);
+        popup.document.write('<p style="font-family:sans-serif;padding:24px">Preparando copia auditada en Printing...</p>');
         popup.document.close();
+
+        try {
+            const response = await Utils.request(`/cash/preinvoices/${preinvoiceId}/reprint-request`, {
+                method: 'POST',
+                body: JSON.stringify({})
+            });
+            PrintingClient.openJob(response.printing, popup);
+            Utils.showNotification('Solicitud de reimpresión registrada.', 'success');
+            await this.loadDetail(preinvoiceId);
+        } catch (error) {
+            if (!popup.closed) popup.close();
+            Utils.showNotification(error.message || 'No se pudo solicitar la reimpresión.', 'error');
+        }
     },
 
     async reloadAfterMutation(preinvoiceId) {

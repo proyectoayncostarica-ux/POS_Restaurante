@@ -880,3 +880,17 @@ Al iniciar el servidor se recuperan trabajos que quedaron abandonados en `proces
 Documento de avance: `docs/avance-v3.4.0-printing-core-queue.md`.
 
 Siguiente fase: `v3.4.1 · Integración transversal de documentos`, después de validar y publicar `v3.4.0`.
+
+## v3.4.1 · Integración transversal de documentos con Printing
+
+Los documentos canónicos de Orders, Caja, Créditos y Kitchen se conectan al núcleo persistente de Printing mediante `documentPrintingService`. Cada dominio termina primero su operación y luego entrega un snapshot ya calculado; Printing no modifica saldos, estados financieros, estados de preparación ni cantidades de negocio.
+
+Se integran prefacturas completas y parciales, recibos de cobro, comprobantes de crédito, abonos de crédito, comandas con destino cocina/bar y cierres diarios. La copia inicial usa `copia = 1`; una reimpresión conserva el número documental y reserva transaccionalmente la siguiente copia. Un reintento técnico de un trabajo fallido reutiliza el mismo trabajo y agrega un nuevo intento auditable.
+
+Caja expone reimpresión de prefacturas, recibos y créditos. El adaptador legacy de Dashboard para reimprimir una cuenta selecciona el último documento financiero real disponible. Kitchen encola sus comandas después de persistirlas y mantiene completamente separado el estado operativo de preparación.
+
+El cierre diario se encola mediante `POST /api/printing/documents/daily-close`, usando el snapshot que entrega `FinancialReadService.getPeriodSummary()`.
+
+Documento de avance: `docs/avance-v3.4.1-integracion-documentos-printing.md`.
+
+Siguiente fase: `v3.4.2 · Configuración → Impresoras`.

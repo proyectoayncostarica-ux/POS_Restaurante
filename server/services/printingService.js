@@ -234,6 +234,64 @@ class PrintingService {
         });
     }
 
+    async enqueueNextCopy(input = {}) {
+        const documentType = normalizeText(input.documentType ?? input.documento_tipo, 'documento_tipo', 120);
+        const documentId = normalizeText(input.documentId ?? input.documento_id, 'documento_id', 128);
+        const documentNumber = normalizeOptionalText(input.documentNumber ?? input.documento_numero, 160);
+        const adapterCode = normalizeText(input.adapter ?? input.adaptador ?? PRINT_ADAPTERS.BROWSER_PDF, 'adaptador', 80);
+        this.getAdapter(adapterCode);
+        const templateCode = normalizeOptionalText(input.templateCode ?? input.plantilla_codigo, 120);
+        const payload = normalizePayload(input.payload);
+        const maxAttempts = normalizePositiveInteger(input.maxAttempts ?? input.max_intentos, 'max_intentos', 3);
+        if (maxAttempts > 20) throw new ValidationError('max_intentos no puede superar 20');
+        const userId = input.userId ?? input.creado_por_usuario_id ?? null;
+        const now = input.now || new Date().toISOString();
+        const payloadJson = JSON.stringify(payload);
+
+        return this.transactions.immediate(async tx => {
+            if (templateCode) await this.getTemplate(templateCode, tx);
+            const row = await tx.get(`
+                SELECT COALESCE(MAX(copia), 0) AS ultima_copia
+                FROM trabajos_impresion
+                WHERE documento_tipo = ? AND documento_id = ?
+            `, [documentType, documentId]);
+            const copy = Number(row?.ultima_copia || 0) + 1;
+            const payloadFingerprint = createRequestFingerprint({
+                documentType,
+                documentId,
+                documentNumber,
+                copy,
+                adapterCode,
+                templateCode,
+                payload
+            });
+            const result = await tx.run(`
+                INSERT INTO trabajos_impresion (
+                    documento_tipo, documento_id, documento_numero, copia,
+                    plantilla_codigo, adaptador, payload_json, payload_fingerprint,
+                    estado, intentos, max_intentos, disponible_desde,
+                    creado_por_usuario_id, creado_en, actualizado_en
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', 0, ?, ?, ?, ?, ?)
+            `, [
+                documentType,
+                documentId,
+                documentNumber,
+                copy,
+                templateCode,
+                adapterCode,
+                payloadJson,
+                payloadFingerprint,
+                maxAttempts,
+                now,
+                userId || null,
+                now,
+                now
+            ]);
+            const created = await tx.get('SELECT * FROM trabajos_impresion WHERE id = ?', [result.id]);
+            return { ...this.serializeJob(created), idempotency_replay: false };
+        });
+    }
+
     async getJob(jobId, options = {}) {
         const id = normalizePositiveInteger(jobId, 'trabajo_impresion_id');
         const row = await this.db.get('SELECT * FROM trabajos_impresion WHERE id = ?', [id]);

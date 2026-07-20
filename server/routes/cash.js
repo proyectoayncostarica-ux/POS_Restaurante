@@ -6,10 +6,20 @@ const financialReadService = require('../services/financialReadService');
 const cashReadService = require('../services/cashReadService');
 const paymentService = require('../services/paymentService');
 const creditService = require('../services/creditService');
+const documentPrintingService = require('../services/documentPrintingService');
 const { getCostaRicaDayRange } = require('../services/financialReadService');
 const { addMoney } = require('../utils/money');
 
 const router = express.Router();
+
+async function enqueuePrintingSafely(factory, context) {
+    try {
+        return await factory();
+    } catch (error) {
+        console.error(`Printing no pudo encolar ${context}; la operación financiera ya permanece persistida:`, error);
+        return { estado: 'encolado_fallido', error: error?.message || 'No fue posible crear el trabajo de impresión' };
+    }
+}
 
 function sendError(res, error, fallbackMessage) {
     const status = Number(error?.status || error?.statusCode || 500);
@@ -125,16 +135,21 @@ router.get('/preinvoices/:preinvoiceId', requireCapability(CAPABILITIES.CASH_ACC
 
 router.post('/preinvoices/:preinvoiceId/reprint-request', requireCapability(CAPABILITIES.CASH_REPRINT), async (req, res) => {
     try {
+        const printJob = await documentPrintingService.reprintPreinvoice(req.params.preinvoiceId, {
+            userId: req.session.userId
+        });
         const data = await cashReadService.registerReprintRequest({
             preinvoiceId: req.params.preinvoiceId,
-            userId: req.session.userId
+            userId: req.session.userId,
+            printJobId: printJob.id,
+            copy: printJob.copia
         });
         res.locals.realtime = {
             scope: 'caja',
             orderIds: data?.cuenta_global?.id ? [Number(data.cuenta_global.id)] : [],
             requiredAnyCapabilities: [CAPABILITIES.CASH_ACCESS]
         };
-        res.status(202).json({ success: true, data });
+        res.status(202).json({ success: true, data, printing: printJob });
     } catch (error) {
         console.error('Error solicitando reimpresión desde Caja:', error);
         sendError(res, error, 'Error interno solicitando la reimpresión');
@@ -150,6 +165,10 @@ router.post('/preinvoices/:preinvoiceId/credit', requireCapability(CAPABILITIES.
             observation: req.body?.observacion ?? req.body?.observation,
             idempotencyKey: readIdempotencyKey(req)
         });
+        const printJob = await enqueuePrintingSafely(
+            () => documentPrintingService.enqueueCredit(data, { userId: req.session.userId }),
+            `comprobante de crédito ${data.numero_credito || data.id}`
+        );
         res.locals.realtime = {
             scope: 'creditos',
             orderIds: data?.pedido_id ? [Number(data.pedido_id)] : [],
@@ -163,7 +182,8 @@ router.post('/preinvoices/:preinvoiceId/credit', requireCapability(CAPABILITIES.
                 prefactura_liquidada_por_credito: true,
                 venta_financiera_duplicada: false,
                 mesa_liberada: false
-            }
+            },
+            printing: printJob
         });
     } catch (error) {
         console.error('Error formalizando crédito desde Caja:', error);
@@ -206,6 +226,10 @@ router.post('/credits/:creditId/payments', requireCapability(CAPABILITIES.CASH_C
             paymentTenders: req.body?.medios_pago ?? req.body?.paymentTenders,
             idempotencyKey: readIdempotencyKey(req)
         });
+        const printJob = await enqueuePrintingSafely(
+            () => documentPrintingService.enqueuePayment(result.pago, { userId: req.session.userId }),
+            `abono ${result.pago?.numero_pago || result.pago?.id}`
+        );
         setPaymentRealtime(res, result);
         res.status(result.idempotency_replay ? 200 : 201).json({
             success: true,
@@ -215,7 +239,8 @@ router.post('/credits/:creditId/payments', requireCapability(CAPABILITIES.CASH_C
                 naturaleza: 'cobro_credito',
                 venta_global_incrementada: false,
                 mesa_liberada: false
-            }
+            },
+            printing: printJob
         });
     } catch (error) {
         console.error('Error registrando abono a crédito:', error);
@@ -256,6 +281,10 @@ router.post('/preinvoices/:preinvoiceId/payments', requireCapability(CAPABILITIE
             paymentTenders: req.body?.medios_pago ?? req.body?.paymentTenders,
             idempotencyKey: readIdempotencyKey(req)
         });
+        const printJob = await enqueuePrintingSafely(
+            () => documentPrintingService.enqueuePayment(result.pago, { userId: req.session.userId }),
+            `recibo ${result.pago?.numero_pago || result.pago?.id}`
+        );
         setPaymentRealtime(res, result);
         res.status(result.idempotency_replay ? 200 : 201).json({
             success: true,
@@ -267,11 +296,32 @@ router.post('/preinvoices/:preinvoiceId/payments', requireCapability(CAPABILITIE
                 vuelto: result.pago?.vuelto,
                 mesa_liberada: false,
                 cuenta_global_permanece_operativa: result.cuenta_global?.estado_operativo === 'abierta'
-            }
+            },
+            printing: printJob
         });
     } catch (error) {
         console.error('Error registrando pago de prefactura:', error);
         sendError(res, error, 'Error interno registrando el pago');
+    }
+});
+
+router.post('/payments/:paymentId/reprint-request', requireCapability(CAPABILITIES.CASH_REPRINT), async (req, res) => {
+    try {
+        const printJob = await documentPrintingService.reprintPayment(req.params.paymentId, { userId: req.session.userId });
+        res.status(202).json({ success: true, printing: printJob });
+    } catch (error) {
+        console.error('Error solicitando reimpresión de recibo:', error);
+        sendError(res, error, 'Error interno solicitando la reimpresión');
+    }
+});
+
+router.post('/credits/:creditId/reprint-request', requireCapability(CAPABILITIES.CASH_REPRINT), async (req, res) => {
+    try {
+        const printJob = await documentPrintingService.reprintCredit(req.params.creditId, { userId: req.session.userId });
+        res.status(202).json({ success: true, printing: printJob });
+    } catch (error) {
+        console.error('Error solicitando reimpresión de comprobante de crédito:', error);
+        sendError(res, error, 'Error interno solicitando la reimpresión');
     }
 });
 

@@ -406,6 +406,8 @@ class CashReadService {
         const preinvoiceId = Number(input.preinvoiceId ?? input.prefactura_id);
         const userId = Number(input.userId ?? input.usuario_id);
         const now = input.now || new Date().toISOString();
+        const printJobId = Number((input.printJobId ?? input.trabajo_impresion_id) || 0) || null;
+        const copy = Number((input.copy ?? input.copia) || 0) || null;
         if (!Number.isSafeInteger(preinvoiceId) || preinvoiceId <= 0) {
             throw new ValidationError('ID de prefactura inválido', { preinvoiceId });
         }
@@ -436,8 +438,10 @@ class CashReadService {
                 JSON.stringify({
                     canal: 'caja',
                     estado_impresion_actual: document.estado_impresion,
-                    trabajo_impresion_creado: false,
-                    pendiente_servicio_printing: true
+                    trabajo_impresion_creado: Boolean(printJobId),
+                    trabajo_impresion_id: printJobId,
+                    copia: copy,
+                    pendiente_servicio_printing: !printJobId
                 }),
                 now
             ]);
@@ -449,9 +453,11 @@ class CashReadService {
             solicitud_reimpresion: {
                 registrada: true,
                 fecha: now,
-                trabajo_impresion_creado: false,
-                modo_actual: 'lectura_imprimible_navegador',
-                pendiente_modulo_printing: true
+                trabajo_impresion_creado: Boolean(printJobId),
+                trabajo_impresion_id: printJobId,
+                copia: copy,
+                modo_actual: 'cola_printing',
+                pendiente_modulo_printing: !printJobId
             }
         };
     }

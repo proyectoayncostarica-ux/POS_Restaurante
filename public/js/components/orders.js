@@ -1707,7 +1707,11 @@ const Orders = {
                 })
             });
             const documentData = response.data;
-            this.printPreinvoiceDocument(documentData, printWindow);
+            if (typeof PrintingClient !== 'undefined') {
+                PrintingClient.openJob(response.printing, printWindow);
+            } else {
+                printWindow?.close();
+            }
             Utils.showNotification(`Prefactura ${documentData.numero_documento} emitida correctamente.`, 'success');
             this.preinvoiceDraft = null;
             await this.viewOrder(draft.orderId);
@@ -1720,56 +1724,26 @@ const Orders = {
         }
     },
 
-    printPreinvoiceDocument(documentData, targetWindow = null) {
+    async printPreinvoiceDocument(documentData, targetWindow = null) {
         const printWindow = targetWindow || window.open('', '_blank', 'width=760,height=900');
-        if (!printWindow) {
-            Utils.showNotification('El documento fue emitido, pero el navegador bloqueó la ventana de impresión.', 'warning');
-            return;
+        if (printWindow) {
+            printWindow.document.write('<p style="font-family:sans-serif;padding:24px">Preparando copia en Printing...</p>');
         }
-
-        const items = Array.isArray(documentData.items) ? documentData.items : [];
-        const rows = items.map(item => `
-            <tr>
-                <td>${this.escapeHtml(this.getConsumptionLineLabel({
-                    producto_nombre: item.producto_nombre_snapshot,
-                    presentacion_nombre: item.presentacion_nombre_snapshot,
-                    presentacion_cantidad: item.presentacion_cantidad_snapshot
-                }))}</td>
-                <td>${Number(item.cantidad)}</td>
-                <td>${Utils.formatCurrency(item.precio_unitario)}</td>
-                <td>${Utils.formatCurrency(item.total_linea)}</td>
-            </tr>
-        `).join('');
-
-        printWindow.document.open();
-        printWindow.document.write(`<!doctype html>
-            <html lang="es"><head><meta charset="utf-8"><title>${this.escapeHtml(documentData.numero_documento)}</title>
-            <style>
-                body{font-family:Arial,sans-serif;color:#111;margin:28px;line-height:1.35}
-                h1{font-size:22px;margin:0 0 6px}.muted{color:#555}.meta{margin:18px 0;padding:12px;border:1px solid #bbb;border-radius:8px}
-                table{width:100%;border-collapse:collapse;margin-top:16px}th,td{padding:8px;border-bottom:1px solid #ddd;text-align:left}th:last-child,td:last-child{text-align:right}
-                .totals{margin:18px 0 0 auto;max-width:320px}.totals p{display:flex;justify-content:space-between;margin:6px 0}.grand{font-size:18px;border-top:2px solid #111;padding-top:8px}
-                .footer{margin-top:28px;font-size:12px;color:#555;text-align:center}@media print{body{margin:8mm}}
-            </style></head><body>
-                <h1>Prefactura ${this.escapeHtml(documentData.numero_documento)}</h1>
-                <div class="muted">Documento operativo vinculado a ${this.escapeHtml(documentData.numero_cuenta_snapshot)}</div>
-                <div class="meta">
-                    <div><strong>Cliente / pagador:</strong> ${this.escapeHtml(documentData.pagador_nombre)}</div>
-                    <div><strong>Cliente principal:</strong> ${this.escapeHtml(documentData.cliente_principal_snapshot || '')}</div>
-                    <div><strong>${String(documentData.mesa_tipo_snapshot || '').toLowerCase() === 'banco' ? 'Banco' : 'Mesa'}:</strong> ${this.escapeHtml(documentData.mesa_numero_snapshot)}</div>
-                    <div><strong>Zona:</strong> ${this.escapeHtml(documentData.zona_nombre_snapshot || '')}</div>
-                    <div><strong>Fecha:</strong> ${Utils.formatDate(documentData.fecha_emision)}</div>
-                </div>
-                <table><thead><tr><th>Producto</th><th>Cant.</th><th>Precio</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table>
-                <div class="totals">
-                    <p><span>Subtotal</span><strong>${Utils.formatCurrency(documentData.subtotal)}</strong></p>
-                    <p><span>Servicio</span><strong>${Utils.formatCurrency(documentData.servicio)}</strong></p>
-                    <p class="grand"><span>Total</span><strong>${Utils.formatCurrency(documentData.total)}</strong></p>
-                </div>
-                <div class="footer">Esta prefactura no reemplaza la cuenta financiera global.</div>
-                <script>window.addEventListener('load',()=>{window.focus();window.print();});<\/script>
-            </body></html>`);
-        printWindow.document.close();
+        try {
+            const response = await Utils.request(
+                `/orders/${Number(documentData.pedido_id)}/preinvoices/${Number(documentData.id)}/print-copy`,
+                { method: 'POST', body: JSON.stringify({}) }
+            );
+            if (typeof PrintingClient !== 'undefined') {
+                PrintingClient.openJob(response.printing, printWindow);
+            } else {
+                printWindow?.close();
+                Utils.showNotification('La copia quedó auditada en Printing.', 'info');
+            }
+        } catch (error) {
+            printWindow?.close();
+            Utils.showNotification(error.message || 'No se pudo preparar la copia de la prefactura.', 'error');
+        }
     },
 
     async viewPreinvoice(orderId, preinvoiceId) {

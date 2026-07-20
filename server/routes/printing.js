@@ -2,6 +2,8 @@ const express = require('express');
 const requireCapability = require('../middleware/requireCapability');
 const { CAPABILITIES } = require('../security/capabilities');
 const printingService = require('../services/printingService');
+const documentPrintingService = require('../services/documentPrintingService');
+const { getCostaRicaDayRange } = require('../services/financialReadService');
 const { DomainError } = require('../errors/domainError');
 
 const router = express.Router();
@@ -56,6 +58,22 @@ router.post('/jobs/:id/retry', requireCapability(CAPABILITIES.PRINTING_RETRY), a
         res.json({ success: true, data: job });
     } catch (error) {
         sendError(res, error, 'No fue posible reintentar el trabajo de impresión');
+    }
+});
+
+
+router.post('/documents/daily-close', requireCapability(CAPABILITIES.CASH_ACCESS), async (req, res) => {
+    try {
+        const today = getCostaRicaDayRange();
+        const job = await documentPrintingService.enqueueDailyClose({
+            startIso: req.body?.desde || req.body?.startIso || today.startIso,
+            endIso: req.body?.hasta || req.body?.endIso || today.endIso,
+            documentNumber: req.body?.numero_documento || req.body?.documentNumber,
+            userId: req.session?.userId
+        });
+        res.status(job.idempotency_replay ? 200 : 202).json({ success: true, data: job });
+    } catch (error) {
+        sendError(res, error, 'No fue posible encolar el cierre diario');
     }
 });
 

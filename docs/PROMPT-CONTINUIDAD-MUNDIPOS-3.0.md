@@ -1,8 +1,8 @@
 # Prompt de continuidad canónico · MundiPOS 3.0
 
 **Actualizado:** 18 de julio de 2026
-**Estado funcional preparado para validación:** `v3.4.0`
-**Próxima fase funcional tras validación:** `v3.4.1 · Integración transversal de documentos`
+**Estado funcional preparado para validación:** `v3.4.1`
+**Próxima fase funcional:** `v3.4.2 · Configuración → Impresoras`
 **Repositorio local activo:** `C:\Repos\POS_Restaurante`
 
 > **Uso en un nuevo chat:** adjunta este archivo junto con un ZIP nuevo del repositorio actual y pega la sección **“Prompt listo para usar”** como primer mensaje. Este documento reemplaza el prompt de continuidad anterior. Conserva sus contratos útiles, corrige su estado obsoleto e incorpora la recuperación, normalización y limpieza realizadas el 17 de julio de 2026.
@@ -22,11 +22,11 @@ Debes trabajar de forma incremental, auditable y compatible con la operación re
 3. Confirma rama `main`, sincronización con `origin/main` y árbol limpio antes de aplicar una nueva entrega.
 4. Mantén `data/restaurant.db` local, ignorada y fuera de cualquier ZIP o commit.
 5. Trabaja con el flujo rápido aprobado: implementación → pruebas específicas → suite completa → validación operativa → Git seguro.
-6. La fase actual es `v3.4.0 · Núcleo y cola de Printing`; `v3.4.1` integrará los documentos canónicos de cada dominio y `v3.4.2` añadirá `Configuración → Impresoras`.
+6. La fase implementada más reciente es `v3.4.1 · Integración transversal de documentos`; `v3.4.2` añadirá `Configuración → Impresoras` cuando el usuario autorice continuar.
 7. Printing debe persistir trabajos e intentos sin recalcular negocio. Una falla de dispositivo no revierte ni duplica el documento origen.
 8. No uses staging global: los commits se preparan con rutas explícitas y solo después de la validación operativa.
 
-Mantén sin cambios los contratos de cuenta global, división, Caja, Payments, créditos, finalización de servicio, impresión posterior al commit, autorización backend e idempotencia. No adelantes la integración documental de `v3.4.1`, la configuración de impresoras de `v3.4.2`, reportes o limpieza legacy.
+Mantén sin cambios los contratos de cuenta global, división, Caja, Payments, créditos, finalización de servicio, impresión posterior a la persistencia, autorización backend e idempotencia. No adelantes la configuración de impresoras de `v3.4.2`, reportes o limpieza legacy sin autorización del usuario.
 
 Trabaja en español. En tareas de PowerShell entrega un solo bloque por turno y espera la salida completa. Nunca uses `git add .`, `git add -A`, `git clean`, `git reset --hard`, `git commit -a`, `stash pop`, `stash apply`, `stash drop`, `npm audit fix --force` ni force-push sin autorización expresa.
 
@@ -1573,3 +1573,34 @@ PUT  /api/printing/templates/:code
 Documento de avance: `docs/avance-v3.4.0-printing-core-queue.md`.
 
 La siguiente fase es `v3.4.1 · Integración transversal de documentos` únicamente después de pruebas específicas, suite completa, validación operativa y Git seguro de `v3.4.0`.
+
+# 24. Estado implementado para validación · v3.4.1 Integración transversal de documentos
+
+`v3.4.1` conecta los documentos de negocio al núcleo de Printing de `v3.4.0` mediante `documentPrintingService`.
+
+Contratos añadidos:
+
+- los dominios persisten primero y encolan después;
+- prefacturas completas y parciales conservan su `numero_documento`;
+- pagos de prefactura generan recibos de cobro usando el registro persistido de `pagos`;
+- formalizaciones de crédito generan comprobantes de crédito;
+- cobros posteriores de crédito generan documentos de abono;
+- comandas de cocina/bar se encolan desde su snapshot persistido;
+- el cierre diario usa el resumen ya calculado por `FinancialReadService`;
+- `enqueueNextCopy()` reserva la siguiente copia sin cambiar el número documental;
+- cada copia se audita como trabajo independiente y cada reintento técnico permanece dentro de ese trabajo;
+- una falla de Printing no revierte la operación financiera u operativa ya persistida;
+- Orders, Caja, Créditos y Kitchen no contienen plantillas de documento duplicadas.
+
+Rutas/documentos relevantes:
+
+```text
+POST /api/printing/documents/daily-close
+POST /api/cash/preinvoices/:preinvoiceId/reprint-request
+POST /api/cash/payments/:paymentId/reprint-request
+POST /api/cash/credits/:creditId/reprint-request
+```
+
+Documento de avance: `docs/avance-v3.4.1-integracion-documentos-printing.md`.
+
+La siguiente fase es `v3.4.2 · Configuración → Impresoras` y solo debe iniciarse cuando el usuario confirme explícitamente que continúe. Las pruebas operativas, suite completa y Git de las fases entregadas pueden ejecutarse posteriormente, fase por fase, según la dinámica temporal indicada por el usuario.
