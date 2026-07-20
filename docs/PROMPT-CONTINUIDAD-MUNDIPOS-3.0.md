@@ -1,7 +1,7 @@
 # Prompt de continuidad canónico · MundiPOS 3.0
 
 **Actualizado:** 18 de julio de 2026
-**Estado funcional preparado para validación:** `v3.4.2`
+**Estado funcional preparado para validación:** `v3.5.0`
 **Próxima fase funcional:** `v3.5.0 · Dashboard y reportes financieros consolidados`
 **Repositorio local activo:** `C:\Repos\POS_Restaurante`
 
@@ -22,7 +22,7 @@ Debes trabajar de forma incremental, auditable y compatible con la operación re
 3. Confirma rama `main`, sincronización con `origin/main` y árbol limpio antes de aplicar una nueva entrega.
 4. Mantén `data/restaurant.db` local, ignorada y fuera de cualquier ZIP o commit.
 5. Trabaja con el flujo rápido aprobado: implementación → pruebas específicas → suite completa → validación operativa → Git seguro.
-6. La fase implementada más reciente es `v3.4.2 · Configuración → Impresoras`. Las entregas `v3.4.0`, `v3.4.1` y `v3.4.2` pueden permanecer pendientes de validación/publicación y deben comprobarse en orden antes de sus commits individuales.
+6. La fase implementada más reciente es `v3.5.0 · Dashboard y reportes financieros consolidados`. Las entregas desde `v3.4.0` pueden permanecer pendientes de validación/publicación y deben comprobarse en orden antes de sus commits individuales.
 7. Printing debe persistir trabajos e intentos sin recalcular negocio. Una falla de dispositivo no revierte ni duplica el documento origen.
 8. No uses staging global: los commits se preparan con rutas explícitas y solo después de la validación operativa.
 
@@ -1637,3 +1637,35 @@ GET  /api/printing/templates
 Documento de avance: `docs/avance-v3.4.2-configuracion-impresoras.md`.
 
 Dinámica temporal acordada: las verificaciones finales y Git de `v3.4.0`, `v3.4.1` y `v3.4.2` se realizarán posteriormente, en orden y fase por fase. La siguiente fase de código es `v3.5.0 · Dashboard y reportes financieros consolidados` únicamente cuando el usuario confirme explícitamente que continúe.
+
+
+# 26. Estado implementado para validación · v3.5.0 Dashboard y reportes financieros consolidados
+
+`v3.5.0` consolida Dashboard y reportes alrededor de la cuenta global como fuente financiera única.
+
+Contratos añadidos:
+
+- una cuenta global conciliada o liquidada a crédito aparece una sola vez como venta;
+- una cuenta dividida no se multiplica por prefacturas, pagadores o pagos;
+- los pagos se muestran como movimientos separados de Caja;
+- los cobros posteriores de crédito se separan de las liquidaciones de ventas del período;
+- consumo activo y documentos pendientes son lecturas operativas y no ventas;
+- filtros disponibles: período, zona, cajero, método y responsable;
+- el responsable proviene de la cuenta global; el pagador parcial permanece en el documento;
+- Dashboard continúa sin procesar cobros.
+
+Ruta principal:
+
+```text
+GET /api/dashboard/report
+```
+
+Servicio principal:
+
+```text
+server/services/dashboardReportService.js
+```
+
+Documento de avance: `docs/avance-v3.5.0-dashboard-reportes-financieros.md`.
+
+Dinámica temporal acordada: las verificaciones finales y Git de las fases acumuladas se realizarán posteriormente, en orden y fase por fase. La siguiente fase de código es `v3.5.1 · Realtime y recuperación operativa` únicamente cuando el usuario confirme explícitamente que continúe.

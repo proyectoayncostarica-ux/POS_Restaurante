@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.4.2 · Configuración → Impresoras
+- **Línea de trabajo actual:** v3.5.0 · Dashboard y reportes financieros consolidados
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -86,6 +86,18 @@ No se continúa con la siguiente subfase hasta que la subfase actual esté compr
 
 ## Registro de cambios canónico
 
+### v3.5.0 · Dashboard y reportes financieros consolidados
+
+- **Objetivo:** consolidar ventas, movimientos de Caja, consumo activo y documentos pendientes sin doble suma.
+- **Fuente financiera:** una cuenta global conciliada o liquidada a crédito representa una venta, aunque exista división en múltiples prefacturas.
+- **Movimientos:** cada pago confirmado permanece como movimiento separado; los cobros de créditos se distinguen de las liquidaciones de ventas.
+- **Filtros:** período, zona, cajero, método de pago y responsable.
+- **Dashboard:** incorpora un panel de consulta con vistas de Ventas, Movimientos, Consumo activo y Documentos pendientes; no procesa cobros.
+- **Conciliación:** compara ventas globales con movimientos de liquidación de ventas y muestra por separado los cobros de créditos.
+- **Responsable:** se toma de la cuenta global; el pagador parcial permanece en el detalle documental.
+- **Documento:** `docs/avance-v3.5.0-dashboard-reportes-financieros.md`.
+- **Siguiente fase:** `v3.5.1 · Realtime y recuperación operativa`, únicamente cuando el usuario autorice continuar.
+
 ### v3.4.2 · Configuración → Impresoras
 
 - **Objetivo:** administrar impresoras desde una pestaña interna de Configuración sin exponer Printing como módulo visual principal.
@@ -96,7 +108,7 @@ No se continúa con la siguiente subfase hasta que la subfase actual esté compr
 - **Prueba:** cada destino puede ejecutar una prueba de impresión y registrar disponibilidad, fecha de prueba y último error.
 - **Navegador/PDF:** aplica tamaño de página y representa copias físicas como páginas repetidas, manteniendo abierta la extensión a drivers térmicos futuros.
 - **Documento:** `docs/avance-v3.4.2-configuracion-impresoras.md`.
-- **Siguiente fase:** `v3.5.0 · Dashboard y reportes financieros consolidados`, únicamente cuando el usuario autorice continuar.
+- **Siguiente fase:** `v3.5.0 · Dashboard y reportes financieros consolidados` (implementada y pendiente de validación posterior).
 
 ### v3.4.1 · Integración transversal de documentos con Printing
 

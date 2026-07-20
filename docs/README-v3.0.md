@@ -910,3 +910,16 @@ La configuración legacy `impresora` puede alimentar únicamente el nombre inici
 Documento de avance: `docs/avance-v3.4.2-configuracion-impresoras.md`.
 
 Siguiente fase: `v3.5.0 · Dashboard y reportes financieros consolidados`.
+
+
+## v3.5.0 · Dashboard y reportes financieros consolidados
+
+Dashboard adopta la cuenta global como unidad única de venta. Las prefacturas continúan siendo documentos operativos y los pagos continúan siendo movimientos de Caja. Una cuenta dividida nunca genera varias ventas por el solo hecho de tener varios documentos o pagadores.
+
+Se agrega `DashboardReportService` y la ruta `GET /api/dashboard/report`, con filtros por período, zona, cajero, método y responsable. El consolidado separa ventas globales, movimientos de liquidación, cobros posteriores de créditos, consumo activo y documentos pendientes.
+
+La interfaz de Dashboard incorpora un panel de reportes de solo lectura con cuatro vistas: Ventas, Movimientos, Consumo activo y Documentos pendientes. No se agregan acciones de cobro; cualquier cobro sigue perteneciendo exclusivamente a Caja.
+
+Documento de avance: `docs/avance-v3.5.0-dashboard-reportes-financieros.md`.
+
+Siguiente fase: `v3.5.1 · Realtime y recuperación operativa`, únicamente después de autorización explícita para continuar.

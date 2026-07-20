@@ -8,6 +8,10 @@ const Dashboard = {
     loadError: null,
     isStale: false,
     realtimeRefreshInProgress: false,
+    reportData: null,
+    reportView: 'sales',
+    reportLoading: false,
+    reportFiltersInitialized: false,
 
     async load() {
         this.isLoading = true;
@@ -20,6 +24,7 @@ const Dashboard = {
             this.isLoading = false;
             this.render();
             this.setupEventListeners();
+            await this.loadFinancialReport({ silent: true });
         } catch (error) {
             console.error('Error cargando dashboard:', error);
             this.isLoading = false;
@@ -810,6 +815,265 @@ const Dashboard = {
                 <span class="dashboard-paid-amount">${Utils.formatCurrency(cuenta.total || 0)}</span>
                 <span class="dashboard-paid-action"><i class="fas fa-arrow-right"></i></span>
             </button>
+        `;
+    },
+
+    getCostaRicaDateKey(date = new Date()) {
+        const parts = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/Costa_Rica',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        }).formatToParts(date);
+        const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+        return `${values.year}-${values.month}-${values.day}`;
+    },
+
+    initializeFinancialReportFilters() {
+        if (this.reportFiltersInitialized) return;
+        const today = this.getCostaRicaDateKey();
+        const from = document.getElementById('dashboard-report-from');
+        const to = document.getElementById('dashboard-report-to');
+        if (from && !from.value) from.value = today;
+        if (to && !to.value) to.value = today;
+        this.reportFiltersInitialized = true;
+    },
+
+    buildFinancialReportQuery() {
+        this.initializeFinancialReportFilters();
+        const params = new URLSearchParams();
+        const fields = [
+            ['dashboard-report-from', 'desde'],
+            ['dashboard-report-to', 'hasta'],
+            ['dashboard-report-zone', 'zona_id'],
+            ['dashboard-report-cashier', 'cajero_id'],
+            ['dashboard-report-method', 'metodo_pago'],
+            ['dashboard-report-responsible', 'responsable_id']
+        ];
+        fields.forEach(([id, key]) => {
+            const value = document.getElementById(id)?.value;
+            if (value) params.set(key, value);
+        });
+        return params.toString();
+    },
+
+    async loadFinancialReport(options = {}) {
+        const body = document.getElementById('dashboard-financial-report-body');
+        if (!body) return;
+        if (this.reportLoading) return;
+        this.reportLoading = true;
+        this.initializeFinancialReportFilters();
+        if (!options.silent) {
+            body.innerHTML = '<div class="dashboard-report-empty">Actualizando consolidado financiero…</div>';
+        }
+
+        try {
+            const query = this.buildFinancialReportQuery();
+            const response = await Utils.request(`/dashboard/report${query ? `?${query}` : ''}`);
+            this.reportData = response.data;
+            this.renderFinancialReportOptions();
+            this.renderFinancialReportSummary();
+            this.renderFinancialReportBody();
+            this.renderFinancialReportCriteria();
+        } catch (error) {
+            console.error('Error cargando reporte financiero:', error);
+            body.innerHTML = `
+                <div class="dashboard-report-empty">
+                    No se pudo cargar el consolidado financiero.
+                    <button type="button" class="btn btn-light btn-sm" onclick="Dashboard.loadFinancialReport()">Reintentar</button>
+                </div>
+            `;
+            if (!options.silent) Utils.showNotification('Error cargando reporte financiero', 'error');
+        } finally {
+            this.reportLoading = false;
+        }
+    },
+
+    applyFinancialReportFilters(event) {
+        event?.preventDefault?.();
+        this.loadFinancialReport();
+    },
+
+    resetFinancialReportFilters() {
+        const today = this.getCostaRicaDateKey();
+        const values = {
+            'dashboard-report-from': today,
+            'dashboard-report-to': today,
+            'dashboard-report-zone': '',
+            'dashboard-report-cashier': '',
+            'dashboard-report-method': '',
+            'dashboard-report-responsible': ''
+        };
+        Object.entries(values).forEach(([id, value]) => {
+            const element = document.getElementById(id);
+            if (element) element.value = value;
+        });
+        this.loadFinancialReport();
+    },
+
+    renderFinancialReportOptions() {
+        const options = this.reportData?.opciones_filtro || {};
+        const renderSelect = (id, rows, emptyLabel, valueKey = 'id', labelKey = 'nombre') => {
+            const select = document.getElementById(id);
+            if (!select) return;
+            const selected = select.value;
+            select.innerHTML = [
+                `<option value="">${this.escapeHTML(emptyLabel)}</option>`,
+                ...(Array.isArray(rows) ? rows : []).map(row => `
+                    <option value="${this.escapeHTML(String(row[valueKey] ?? ''))}">
+                        ${this.escapeHTML(String(row[labelKey] ?? row[valueKey] ?? ''))}
+                    </option>
+                `)
+            ].join('');
+            if (Array.from(select.options).some(option => option.value === selected)) {
+                select.value = selected;
+            }
+        };
+
+        renderSelect('dashboard-report-zone', options.zonas, 'Todas');
+        renderSelect('dashboard-report-cashier', options.cajeros, 'Todos');
+        renderSelect('dashboard-report-method', options.metodos_pago, 'Todos');
+        renderSelect('dashboard-report-responsible', options.responsables, 'Todos');
+    },
+
+    renderFinancialReportSummary() {
+        const summary = this.reportData?.resumen || {};
+        this.setText('dashboard-report-sales', Utils.formatCurrency(summary.ventas_globales || 0));
+        this.setText('dashboard-report-sales-count', `${Number(summary.cuentas_vendidas || 0)} cuentas · ${Number(summary.cuentas_divididas || 0)} divididas`);
+        this.setText('dashboard-report-movements', Utils.formatCurrency(summary.movimientos_caja || 0));
+        this.setText('dashboard-report-movements-count', `${Number(summary.cantidad_movimientos_caja || 0)} pagos · crédito cobrado ${Utils.formatCurrency(summary.cobros_credito || 0)}`);
+        this.setText('dashboard-report-active', Utils.formatCurrency(summary.consumo_activo || 0));
+        this.setText('dashboard-report-active-count', `${Number(summary.cuentas_activas || 0)} cuentas abiertas · saldo ${Utils.formatCurrency(summary.saldo_activo || 0)}`);
+        this.setText('dashboard-report-pending', Utils.formatCurrency(summary.saldo_documentos_pendientes || 0));
+        this.setText('dashboard-report-pending-count', `${Number(summary.documentos_pendientes || 0)} documentos`);
+        this.setText('dashboard-report-difference', Utils.formatCurrency(summary.diferencia_ventas_vs_liquidaciones || 0));
+    },
+
+    setFinancialReportView(view) {
+        const allowed = new Set(['sales', 'movements', 'active', 'pending']);
+        this.reportView = allowed.has(view) ? view : 'sales';
+        document.querySelectorAll('[data-dashboard-report-view]').forEach(button => {
+            button.classList.toggle('active', button.dataset.dashboardReportView === this.reportView);
+        });
+        this.renderFinancialReportBody();
+    },
+
+    renderFinancialReportBody() {
+        const body = document.getElementById('dashboard-financial-report-body');
+        if (!body || !this.reportData) return;
+        document.querySelectorAll('[data-dashboard-report-view]').forEach(button => {
+            button.classList.toggle('active', button.dataset.dashboardReportView === this.reportView);
+        });
+
+        if (this.reportView === 'movements') {
+            body.innerHTML = this.renderReportMovements(this.reportData.movimientos || []);
+        } else if (this.reportView === 'active') {
+            body.innerHTML = this.renderReportActiveAccounts(this.reportData.cuentas_activas || []);
+        } else if (this.reportView === 'pending') {
+            body.innerHTML = this.renderReportPendingDocuments(this.reportData.documentos_pendientes || []);
+        } else {
+            body.innerHTML = this.renderReportSales(this.reportData.ventas || []);
+        }
+    },
+
+    renderFinancialReportCriteria() {
+        const criteria = this.reportData?.criterios || {};
+        this.setText(
+            'dashboard-financial-criteria',
+            `${criteria.ventas || ''} ${criteria.movimientos || ''}`.trim()
+        );
+    },
+
+    renderReportSales(sales = []) {
+        if (!sales.length) return '<div class="dashboard-report-empty">No hay ventas globales consolidadas para los filtros seleccionados.</div>';
+        return `
+            <table class="dashboard-financial-table">
+                <thead><tr><th>Cuenta global</th><th>Fecha</th><th>Zona</th><th>Responsable</th><th>Liquidación</th><th>Docs / pagos</th><th>Total</th></tr></thead>
+                <tbody>${sales.map(sale => `
+                    <tr>
+                        <td>
+                            <button type="button" class="dashboard-report-account-button" onclick="Dashboard.verCuenta(${Number(sale.pedido_id || sale.id)})">
+                                ${this.escapeHTML(sale.numero_cuenta || `CTA-${sale.id}`)}
+                            </button>
+                            ${sale.es_cuenta_dividida ? '<span class="dashboard-report-badge">Cuenta dividida</span>' : ''}
+                            <small>${this.escapeHTML(sale.cliente_principal || 'Cliente anónimo')}</small>
+                        </td>
+                        <td>${Utils.formatDateTime(sale.fecha_financiera || sale.fecha)}</td>
+                        <td>${this.escapeHTML(sale.zona_nombre || 'Sin zona')}</td>
+                        <td>${this.escapeHTML(sale.responsable_principal || 'Sin asignar')}</td>
+                        <td>${this.escapeHTML(sale.tipo_liquidacion || 'contado')}</td>
+                        <td>${Number(sale.cantidad_documentos || 0)} / ${Number(sale.cantidad_pagos || 0)}</td>
+                        <td><strong>${Utils.formatCurrency(sale.total_global || 0)}</strong></td>
+                    </tr>
+                `).join('')}</tbody>
+            </table>
+        `;
+    },
+
+    renderReportMovements(movements = []) {
+        if (!movements.length) return '<div class="dashboard-report-empty">No hay movimientos de Caja para los filtros seleccionados.</div>';
+        return `
+            <table class="dashboard-financial-table">
+                <thead><tr><th>Pago</th><th>Fecha</th><th>Cuenta</th><th>Cajero</th><th>Método</th><th>Naturaleza</th><th>Monto</th></tr></thead>
+                <tbody>${movements.map(movement => {
+                    const methods = Array.isArray(movement.medios_pago) && movement.medios_pago.length
+                        ? movement.medios_pago.map(item => item.tipo).join(' + ')
+                        : movement.metodo_pago;
+                    return `
+                        <tr>
+                            <td>${this.escapeHTML(movement.numero_pago || `PG-${movement.id}`)}</td>
+                            <td>${Utils.formatDateTime(movement.fecha)}</td>
+                            <td><button type="button" class="dashboard-report-account-button" onclick="Dashboard.verCuenta(${Number(movement.pedido_id)})">${this.escapeHTML(movement.numero_cuenta || '')}</button></td>
+                            <td>${this.escapeHTML(movement.cajero_nombre || 'Sin snapshot')}</td>
+                            <td>${this.escapeHTML(methods || '')}</td>
+                            <td>${movement.naturaleza === 'cobro_credito' ? 'Cobro de crédito' : 'Liquidación de venta'}</td>
+                            <td><strong>${Utils.formatCurrency(movement.monto_reportado ?? movement.monto ?? 0)}</strong></td>
+                        </tr>
+                    `;
+                }).join('')}</tbody>
+            </table>
+        `;
+    },
+
+    renderReportActiveAccounts(accounts = []) {
+        if (!accounts.length) return '<div class="dashboard-report-empty">No hay cuentas abiertas con consumo para el alcance seleccionado.</div>';
+        return `
+            <table class="dashboard-financial-table">
+                <thead><tr><th>Cuenta</th><th>Apertura</th><th>Zona</th><th>Cliente</th><th>Responsable</th><th>Documentos</th><th>Consumo</th><th>Saldo</th></tr></thead>
+                <tbody>${accounts.map(account => `
+                    <tr>
+                        <td><button type="button" class="dashboard-report-account-button" onclick="Dashboard.verCuenta(${Number(account.pedido_id || account.id)})">${this.escapeHTML(account.numero_cuenta || '')}</button></td>
+                        <td>${Utils.formatDateTime(account.fecha_apertura)}</td>
+                        <td>${this.escapeHTML(account.zona_nombre || 'Sin zona')}</td>
+                        <td>${this.escapeHTML(account.cliente_principal || 'Cliente anónimo')}</td>
+                        <td>${this.escapeHTML(account.responsable_principal || 'Sin asignar')}</td>
+                        <td>${Number(account.cantidad_documentos || 0)}</td>
+                        <td>${Utils.formatCurrency(account.total_global || 0)}</td>
+                        <td><strong>${Utils.formatCurrency(account.saldo_pendiente || 0)}</strong></td>
+                    </tr>
+                `).join('')}</tbody>
+            </table>
+        `;
+    },
+
+    renderReportPendingDocuments(documents = []) {
+        if (!documents.length) return '<div class="dashboard-report-empty">No hay documentos operativos pendientes para el alcance seleccionado.</div>';
+        return `
+            <table class="dashboard-financial-table">
+                <thead><tr><th>Documento</th><th>Cuenta</th><th>Emisión</th><th>Zona</th><th>Pagador</th><th>Responsable</th><th>Estado</th><th>Saldo</th></tr></thead>
+                <tbody>${documents.map(document => `
+                    <tr>
+                        <td>${this.escapeHTML(document.numero_documento || '')} ${document.cuenta_dividida ? '<span class="dashboard-report-badge">Dividida</span>' : ''}</td>
+                        <td><button type="button" class="dashboard-report-account-button" onclick="Dashboard.verCuenta(${Number(document.pedido_id)})">${this.escapeHTML(document.numero_cuenta || '')}</button></td>
+                        <td>${Utils.formatDateTime(document.fecha_emision)}</td>
+                        <td>${this.escapeHTML(document.zona_nombre || 'Sin zona')}</td>
+                        <td>${this.escapeHTML(document.pagador_nombre || 'Sin nombre')}</td>
+                        <td>${this.escapeHTML(document.responsable_principal || 'Sin asignar')}</td>
+                        <td>${this.escapeHTML(document.estado || '')}</td>
+                        <td><strong>${Utils.formatCurrency(document.saldo_pendiente || 0)}</strong></td>
+                    </tr>
+                `).join('')}</tbody>
+            </table>
         `;
     },
 

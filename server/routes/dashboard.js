@@ -4,6 +4,7 @@ const requireCapability = require('../middleware/requireCapability');
 const { CAPABILITIES } = require('../security/capabilities');
 const { resolveAccessContext } = require('../services/operationalAccessService');
 const financialReadService = require('../services/financialReadService');
+const dashboardReportService = require('../services/dashboardReportService');
 
 const router = express.Router();
 const COSTA_RICA_UTC_OFFSET_HOURS = 6;
@@ -172,6 +173,85 @@ function getCostaRicaDayRange(date = new Date()) {
 
 function createDateRangeCondition(fieldName) {
     return `${fieldName} >= ? AND ${fieldName} < ?`;
+}
+
+function parseReportDate(value, fieldName) {
+    if (!value) return null;
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value).trim());
+    if (!match) {
+        const error = new Error(`${fieldName} debe usar formato YYYY-MM-DD`);
+        error.statusCode = 400;
+        error.code = 'INVALID_REPORT_DATE';
+        throw error;
+    }
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const date = new Date(Date.UTC(year, month - 1, day, COSTA_RICA_UTC_OFFSET_HOURS, 0, 0, 0));
+    if (
+        date.getUTCFullYear() !== year
+        || date.getUTCMonth() !== month - 1
+        || date.getUTCDate() !== day
+    ) {
+        const error = new Error(`${fieldName} es inválida`);
+        error.statusCode = 400;
+        error.code = 'INVALID_REPORT_DATE';
+        throw error;
+    }
+    return date;
+}
+
+function parseOptionalPositiveId(value, fieldName) {
+    if (value === undefined || value === null || value === '' || value === 'todos') return null;
+    const id = Number(value);
+    if (!Number.isSafeInteger(id) || id <= 0) {
+        const error = new Error(`${fieldName} inválido`);
+        error.statusCode = 400;
+        error.code = 'INVALID_REPORT_FILTER';
+        throw error;
+    }
+    return id;
+}
+
+function buildFinancialReportFilters(req, scope) {
+    const today = getCostaRicaDayRange();
+    const startDate = parseReportDate(req.query.desde, 'Fecha inicial');
+    const endDate = parseReportDate(req.query.hasta, 'Fecha final');
+    const startIso = startDate ? startDate.toISOString() : today.startIso;
+    const endIso = endDate
+        ? new Date(endDate.getTime() + 24 * 60 * 60 * 1000).toISOString()
+        : today.endIso;
+
+    if (new Date(startIso) >= new Date(endIso)) {
+        const error = new Error('El rango financiero debe terminar después de la fecha inicial');
+        error.statusCode = 400;
+        error.code = 'INVALID_REPORT_RANGE';
+        throw error;
+    }
+
+    const requestedZoneId = parseOptionalPositiveId(req.query.zona_id, 'Zona');
+    let zoneIds;
+    if (requestedZoneId) {
+        if (scope.restringido && !scope.zoneIds.includes(requestedZoneId)) {
+            const error = new Error('La zona solicitada está fuera del alcance operativo del usuario');
+            error.statusCode = 403;
+            error.code = 'ZONE_SCOPE_REQUIRED';
+            throw error;
+        }
+        zoneIds = [requestedZoneId];
+    } else {
+        zoneIds = scope.restringido ? scope.zoneIds : undefined;
+    }
+
+    return {
+        startIso,
+        endIso,
+        zoneIds,
+        cashierUserId: parseOptionalPositiveId(req.query.cajero_id, 'Cajero'),
+        responsibleUserId: parseOptionalPositiveId(req.query.responsable_id, 'Responsable'),
+        paymentMethod: req.query.metodo_pago || null,
+        optionZoneIds: scope.restringido ? scope.zoneIds : undefined
+    };
 }
 
 function buildZoneWhere(scope = {}, alias = 'm') {
@@ -504,6 +584,32 @@ router.get('/', requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, res)
         });
     } catch (error) {
         console.error('Error obteniendo datos del dashboard:', error);
+        res.status(error.statusCode || 500).json({
+            error: error.statusCode ? error.message : 'Error interno del servidor',
+            code: error.code
+        });
+    }
+});
+
+// Reporte financiero consolidado: ventas por cuenta global y movimientos por pago.
+router.get('/report', requireCapability(CAPABILITIES.ORDERS_OPERATE), async (req, res) => {
+    try {
+        const scope = await getDashboardScope(req);
+        const filters = buildFinancialReportFilters(req, scope);
+        const report = await dashboardReportService.getReport(filters);
+
+        res.json({
+            success: true,
+            data: {
+                ...report,
+                alcance: {
+                    restringido: scope.restringido,
+                    zonas_permitidas: scope.zoneIds
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error obteniendo reporte financiero consolidado:', error);
         res.status(error.statusCode || 500).json({
             error: error.statusCode ? error.message : 'Error interno del servidor',
             code: error.code

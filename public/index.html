@@ -14,7 +14,7 @@
     <meta name="msapplication-starturl" content="/POS/">
     <title>MundiPOS</title>
     <link rel="manifest" href="/POS/manifest.webmanifest">
-    <link rel="stylesheet" href="/POS/css/style.css?v=3.4.2-printer-settings">
+    <link rel="stylesheet" href="/POS/css/style.css?v=3.5.0-dashboard-reports">
     <link rel="icon" href="/POS/favicon.ico" type="image/x-icon">
     <link rel="shortcut icon" href="/POS/favicon.ico" type="image/x-icon">
     <link rel="apple-touch-icon" href="/POS/assets/icons/mundipos-icon-180.png">
@@ -318,6 +318,70 @@
                         <!-- Las cuentas se cargarán dinámicamente -->
                     </div>
                 </div>
+
+                <section class="dashboard-financial-report" aria-labelledby="dashboard-financial-report-title">
+                    <div class="dashboard-financial-report-header">
+                        <div>
+                            <span class="dashboard-eyebrow">Consolidado financiero</span>
+                            <h2 id="dashboard-financial-report-title">Ventas, Caja y saldos</h2>
+                            <p>Una venta por cuenta global. Los pagos y prefacturas se muestran como movimientos y documentos separados.</p>
+                        </div>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="Dashboard.loadFinancialReport()">
+                            <i class="fas fa-rotate-right"></i> Actualizar reporte
+                        </button>
+                    </div>
+
+                    <form id="dashboard-financial-filters" class="dashboard-financial-filters" onsubmit="Dashboard.applyFinancialReportFilters(event)">
+                        <label>
+                            <span>Desde</span>
+                            <input id="dashboard-report-from" type="date" name="desde">
+                        </label>
+                        <label>
+                            <span>Hasta</span>
+                            <input id="dashboard-report-to" type="date" name="hasta">
+                        </label>
+                        <label>
+                            <span>Zona</span>
+                            <select id="dashboard-report-zone" name="zona_id"><option value="">Todas</option></select>
+                        </label>
+                        <label>
+                            <span>Cajero</span>
+                            <select id="dashboard-report-cashier" name="cajero_id"><option value="">Todos</option></select>
+                        </label>
+                        <label>
+                            <span>Método</span>
+                            <select id="dashboard-report-method" name="metodo_pago"><option value="">Todos</option></select>
+                        </label>
+                        <label>
+                            <span>Responsable</span>
+                            <select id="dashboard-report-responsible" name="responsable_id"><option value="">Todos</option></select>
+                        </label>
+                        <div class="dashboard-financial-filter-actions">
+                            <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-filter"></i> Aplicar</button>
+                            <button type="button" class="btn btn-light btn-sm" onclick="Dashboard.resetFinancialReportFilters()">Hoy</button>
+                        </div>
+                    </form>
+
+                    <div id="dashboard-financial-summary" class="dashboard-financial-summary" aria-live="polite">
+                        <article><span>Ventas globales</span><strong id="dashboard-report-sales">₡0</strong><small id="dashboard-report-sales-count">0 cuentas</small></article>
+                        <article><span>Movimientos Caja</span><strong id="dashboard-report-movements">₡0</strong><small id="dashboard-report-movements-count">0 pagos</small></article>
+                        <article><span>Consumo activo</span><strong id="dashboard-report-active">₡0</strong><small id="dashboard-report-active-count">0 cuentas abiertas</small></article>
+                        <article><span>Documentos pendientes</span><strong id="dashboard-report-pending">₡0</strong><small id="dashboard-report-pending-count">0 documentos</small></article>
+                        <article><span>Venta vs liquidaciones</span><strong id="dashboard-report-difference">₡0</strong><small>Sin sumar cobros de créditos previos</small></article>
+                    </div>
+
+                    <div class="dashboard-report-tabs" role="tablist" aria-label="Vistas del consolidado financiero">
+                        <button type="button" class="active" data-dashboard-report-view="sales" onclick="Dashboard.setFinancialReportView('sales')">Ventas</button>
+                        <button type="button" data-dashboard-report-view="movements" onclick="Dashboard.setFinancialReportView('movements')">Movimientos</button>
+                        <button type="button" data-dashboard-report-view="active" onclick="Dashboard.setFinancialReportView('active')">Consumo activo</button>
+                        <button type="button" data-dashboard-report-view="pending" onclick="Dashboard.setFinancialReportView('pending')">Documentos pendientes</button>
+                    </div>
+
+                    <div id="dashboard-financial-report-body" class="dashboard-financial-report-body">
+                        <div class="dashboard-report-empty">Cargando consolidado financiero…</div>
+                    </div>
+                    <p id="dashboard-financial-criteria" class="dashboard-financial-criteria"></p>
+                </section>
             </section>
 
             <!-- Otras secciones se cargarán dinámicamente -->
@@ -369,17 +433,17 @@
     </div>
 
     <!-- Scripts -->
-    <script src="js/services/operational-access.js?v=3.4.2-printer-settings"></script>
-    <script src="js/services/printing-client.js?v=3.4.2-printer-settings"></script>
-    <script src="js/main.js?v=3.4.2-printer-settings"></script>
-    <script src="js/components/dashboard.js?v=3.4.2-printer-settings"></script>
-    <script src="js/components/tables.js?v=3.4.2-printer-settings"></script>
-    <script src="js/components/menu.js?v=3.4.2-printer-settings"></script>
-    <script src="js/components/orders.js?v=3.4.2-printer-settings"></script>
-    <script src="js/components/accounts.js?v=3.4.2-printer-settings"></script>
-    <script src="js/components/cash.js?v=3.4.2-printer-settings"></script>
-    <script src="js/components/kitchen.js?v=3.4.2-printer-settings"></script>
-    <script src="js/components/users.js?v=3.4.2-printer-settings"></script>
-    <script src="js/components/settings.js?v=3.4.2-printer-settings"></script>
+    <script src="js/services/operational-access.js?v=3.5.0-dashboard-reports"></script>
+    <script src="js/services/printing-client.js?v=3.5.0-dashboard-reports"></script>
+    <script src="js/main.js?v=3.5.0-dashboard-reports"></script>
+    <script src="js/components/dashboard.js?v=3.5.0-dashboard-reports"></script>
+    <script src="js/components/tables.js?v=3.5.0-dashboard-reports"></script>
+    <script src="js/components/menu.js?v=3.5.0-dashboard-reports"></script>
+    <script src="js/components/orders.js?v=3.5.0-dashboard-reports"></script>
+    <script src="js/components/accounts.js?v=3.5.0-dashboard-reports"></script>
+    <script src="js/components/cash.js?v=3.5.0-dashboard-reports"></script>
+    <script src="js/components/kitchen.js?v=3.5.0-dashboard-reports"></script>
+    <script src="js/components/users.js?v=3.5.0-dashboard-reports"></script>
+    <script src="js/components/settings.js?v=3.5.0-dashboard-reports"></script>
 </body>
 </html>

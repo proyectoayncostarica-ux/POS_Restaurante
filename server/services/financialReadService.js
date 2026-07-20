@@ -137,9 +137,18 @@ class FinancialReadService {
             clauses.push('p.estado_financiero = ?');
             params.push(String(filters.financialState));
         }
+        if (filters.responsibleUserId) {
+            clauses.push(`EXISTS (
+                SELECT 1
+                FROM cuenta_responsables cr_filter
+                WHERE cr_filter.pedido_id = p.id
+                  AND cr_filter.usuario_id = ?
+            )`);
+            params.push(Number(filters.responsibleUserId));
+        }
         if (filters.reconciledOnly) {
             clauses.push(`(
-                p.estado_financiero = 'conciliada'
+                p.estado_financiero IN ('conciliada', 'credito')
                 OR (
                     COALESCE(consumo.total_global, 0) > 0
                     AND COALESCE(pagos_agg.total_pagado, 0) >= COALESCE(consumo.total_global, 0)
@@ -396,6 +405,32 @@ class FinancialReadService {
             clauses.push('pg.pedido_id = ?');
             params.push(Number(filters.accountId));
         }
+        if (filters.cashierUserId) {
+            clauses.push('pg.cajero_usuario_id = ?');
+            params.push(Number(filters.cashierUserId));
+        }
+        if (filters.responsibleUserId) {
+            clauses.push(`EXISTS (
+                SELECT 1
+                FROM cuenta_responsables cr_filter
+                WHERE cr_filter.pedido_id = p.id
+                  AND cr_filter.usuario_id = ?
+            )`);
+            params.push(Number(filters.responsibleUserId));
+        }
+        if (filters.paymentMethod) {
+            const paymentMethod = String(filters.paymentMethod).trim().toLowerCase();
+            clauses.push(`(
+                LOWER(COALESCE(pg.metodo_pago_v3, pg.metodo_pago, '')) = ?
+                OR EXISTS (
+                    SELECT 1
+                    FROM pago_medios pm_filter
+                    WHERE pm_filter.pago_id = pg.id
+                      AND LOWER(pm_filter.tipo) = ?
+                )
+            )`);
+            params.push(paymentMethod, paymentMethod);
+        }
         if (filters.startIso) {
             clauses.push('pg.fecha >= ?');
             params.push(filters.startIso);
@@ -425,6 +460,12 @@ class FinancialReadService {
                 pg.cajero_nombre_snapshot,
                 pg.pagador_nombre_snapshot,
                 pg.fecha,
+                (
+                    SELECT GROUP_CONCAT(pm.tipo || ':' || pm.monto_aplicado, '|')
+                    FROM pago_medios pm
+                    WHERE pm.pago_id = pg.id
+                    ORDER BY pm.ordinal, pm.id
+                ) AS medios_pago_detalle,
                 pf.numero_documento,
                 pf.pagador_nombre AS prefactura_pagador,
                 cc.numero_credito,
@@ -487,6 +528,17 @@ class FinancialReadService {
             cajero_usuario_id: row.cajero_usuario_id ? Number(row.cajero_usuario_id) : null,
             cajero_nombre: row.cajero_nombre_snapshot || null,
             referencia: row.referencia || null,
+            medios_pago: String(row.medios_pago_detalle || '')
+                .split('|')
+                .map(item => item.trim())
+                .filter(Boolean)
+                .map(item => {
+                    const [tipo, monto] = item.split(':');
+                    return {
+                        tipo: String(tipo || '').trim().toLowerCase(),
+                        monto: roundMoney(Number(monto || 0))
+                    };
+                }),
             vinculo_documental: row.credito_id
                 ? (row.naturaleza === 'cobro_credito' ? 'paymentservice_credito' : 'paymentservice_credito_apertura')
                 : (row.prefactura_id ? 'paymentservice' : 'legacy_cuenta_global')

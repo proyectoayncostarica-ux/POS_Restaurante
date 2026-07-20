@@ -1549,6 +1549,7 @@ const Orders = {
 
         const confirmation = document.getElementById('service-finalization-confirm');
         if (!confirmation?.checked) {
+            Utils.hideModal();
             Utils.showNotification('Confirma que el servicio terminó antes de liberar la mesa.', 'warning');
             confirmation?.focus();
             return;

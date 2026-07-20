@@ -331,6 +331,11 @@ test('la UI y la API ofrecen verificación, confirmación y liberación explíci
         'utf8'
     );
     assert.match(source, /Finalizar servicio/);
+    assert.match(
+        source,
+        /confirmServiceFinalization\(\)[\s\S]*?Utils\.hideModal\(\);[\s\S]*?serviceFinalizationContext\s*=\s*null/,
+        'la finalización exitosa debe cerrar el modal antes de limpiar su contexto'
+    );
     assert.match(source, /Finalizar y liberar/);
     assert.match(source, /service-finalization-confirm/);
     assert.match(source, /\/finalize-service/);
