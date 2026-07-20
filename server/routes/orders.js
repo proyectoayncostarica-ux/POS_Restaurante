@@ -17,14 +17,6 @@ const { DomainError } = require('../errors/domainError');
 
 const router = express.Router();
 
-function calculateService(subtotal, aplicaServicio, porcentajeServicio) {
-    return accountService.calculateService(
-        subtotal,
-        Number(aplicaServicio) === 1 || aplicaServicio === true,
-        porcentajeServicio
-    );
-}
-
 async function enqueuePrintingSafely(factory, context) {
     try {
         return await factory();
@@ -565,111 +557,7 @@ router.put('/:pedido_id/products/:producto_id', requireCapability(CAPABILITIES.O
     }
 });
 
-// Procesar pago de pedido
-router.post("/:id/pay", requireCapability(CAPABILITIES.CASH_COLLECT), async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { metodo_pago, productos_divididos, admin_pass } = req.body;
-
-        if (!metodo_pago) {
-            return res.status(400).json({ error: "Método de pago es requerido" });
-        }
-
-        // Verificar que el pedido existe y está pendiente
-        const pedido = await database.get(`
-            SELECT p.*, m.numero as mesa_numero, m.zona, m.tipo_asiento
-            FROM pedidos p
-            JOIN mesas m ON p.mesa_id = m.id
-            WHERE p.id = ? AND p.estado = ?
-        `, [id, "pendiente"]);
-
-        if (!pedido) {
-            return res.status(400).json({ error: "Pedido no encontrado o ya está procesado" });
-        }
-
-        if (Array.isArray(productos_divididos) && productos_divididos.length > 0) {
-            return res.status(409).json({
-                error: 'La división legacy de pagos fue reemplazada por prefacturas parciales.',
-                code: 'USE_PREINVOICE_SPLIT_FLOW'
-            });
-        }
-
-        const documentState = await database.get(`
-            SELECT
-                COALESCE((SELECT COUNT(*) FROM prefacturas pf
-                          WHERE pf.pedido_id = ? AND pf.estado <> 'anulada'), 0) AS prefacturas_activas,
-                COALESCE((SELECT SUM(pp.cantidad_asignada) FROM pedido_productos pp
-                          WHERE pp.pedido_id = ?), 0) AS unidades_asignadas
-        `, [id, id]);
-        if (Number(documentState?.prefacturas_activas || 0) > 0
-            || Number(documentState?.unidades_asignadas || 0) > 0) {
-            return res.status(409).json({
-                error: 'Esta cuenta ya tiene prefacturas emitidas y debe cobrarse por documento desde Caja.',
-                code: 'ACCOUNT_REQUIRES_PREINVOICE_PAYMENT'
-            });
-        }
-
-        const syncedTotals = await accountService.synchronizeAccount(id);
-        if (syncedTotals) {
-            Object.assign(pedido, syncedTotals);
-            pedido.total = syncedTotals.subtotal;
-        }
-
-        const nombreZona = pedido.zona?.toLowerCase() === 'bar'
-        ? (pedido.tipo_asiento?.toLowerCase() === 'banco' ? 'banco' : 'mesa')
-        : 'mesa';
-
-
-        let montoAPagar = pedido.total;
-
-        if (productos_divididos && productos_divididos.length > 0) {
-            const productosSeleccionados = await database.all(`
-                SELECT SUM(precio_unitario * cantidad) as subtotal
-                FROM pedido_productos
-                WHERE pedido_id = ? AND id IN (${productos_divididos.map(() => "?").join(",")})
-            `, [id, ...productos_divididos]);
-
-            montoAPagar = productosSeleccionados[0].subtotal || 0;
-        }
-
-        const servicePayment = calculateService(
-            montoAPagar,
-            Number(pedido.aplica_servicio) === 1,
-            pedido.porcentaje_servicio
-        );
-        const subtotal = servicePayment.subtotal;
-        const servicio = servicePayment.monto_servicio;
-        const total = servicePayment.total_con_servicio;
-
-        // El crédito se formaliza únicamente sobre una prefactura persistente desde Caja.
-        if (metodo_pago === 'credito') {
-            return res.status(409).json({
-                error: 'Emite una prefactura y formaliza el crédito desde Caja.',
-                code: 'USE_PREINVOICE_CREDIT_FLOW',
-                details: {
-                    pedido_id: Number(id),
-                    numero_cuenta: pedido.numero_cuenta || null,
-                    mesa_liberada: false
-                }
-            });
-        }
-
-        // Adaptador transitorio: liquida el saldo actual sin cerrar el servicio ni liberar la mesa.
-        // Payments reemplazará este endpoint en v3.2.x.
-        const paymentResult = await accountService.recordLegacyBalancePayment(id, {
-            userId: req.session.userId,
-            paymentMethod: metodo_pago
-        });
-
-        res.json({
-            success: true,
-            data: paymentResult
-        });
-
-    } catch (error) {
-        return sendRouteError(res, error, 'Error procesando el pago transitorio');
-    }
-});
+// Los cobros pertenecen exclusivamente a Caja/Payments desde v3.6.0.
 
 // Adaptadores legacy: delegan al dominio Kitchen sin controlar preparación desde Printing.
 router.get('/comandas/pending', requireCapability(CAPABILITIES.KITCHEN_OPERATE), async (req, res) => {

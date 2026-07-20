@@ -24,7 +24,7 @@ test('Créditos visibles no permiten creación manual ni eliminación física', 
     assert.match(accounts, /Los créditos se crean únicamente desde prefacturas/);
     assert.match(accountRoutes, /USE_PREINVOICE_CREDIT_FLOW/);
     assert.match(accountRoutes, /CREDIT_PHYSICAL_DELETE_FORBIDDEN/);
-    assert.match(legacyRoutes, /delega en el dominio canónico/);
+    assert.match(legacyRoutes, /module\.exports = require\('\.\/accounts'\)/);
 });
 
 test('abonos de créditos conservan idempotencia y medios de pago', () => {
@@ -37,16 +37,17 @@ test('abonos de créditos conservan idempotencia y medios de pago', () => {
     assert.match(routes, /naturaleza: 'cobro_credito'/);
 });
 
-test('Orders bloquea el crédito legacy que liberaba la mesa', () => {
+test('Orders ya no contiene un flujo monetario o de crédito directo', () => {
     const orders = read('server/routes/orders.js');
-    assert.match(orders, /USE_PREINVOICE_CREDIT_FLOW/);
-    assert.doesNotMatch(orders, /UPDATE mesas SET estado = \?, cliente_nombre = NULL[\s\S]{0,120}metodo_pago === 'credito'/);
+    assert.doesNotMatch(orders, /router\.post\(["']\/:id\/pay["']/);
+    assert.doesNotMatch(orders, /metodo_pago === 'credito'/);
+    assert.doesNotMatch(orders, /recordLegacyBalancePayment/);
 });
 
-test('PWA conserva Créditos y Caja dentro del caché vigente de v3.5.1', () => {
+test('PWA conserva Créditos y Caja dentro del caché vigente de v3.6.0', () => {
     const sw = read('public/service-worker.js');
     const index = read('public/index.html');
-    assert.match(sw, /v3\.5\.1-realtime-recovery/);
-    assert.match(index, /accounts\.js\?v=3\.5\.1-realtime-recovery/);
-    assert.match(index, /cash\.js\?v=3\.5\.1-realtime-recovery/);
+    assert.match(sw, /v3\.6\.0-legacy-cleanup/);
+    assert.match(index, /accounts\.js\?v=3\.6\.0-legacy-cleanup/);
+    assert.match(index, /cash\.js\?v=3\.6\.0-legacy-cleanup/);
 });

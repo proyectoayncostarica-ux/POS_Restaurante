@@ -934,3 +934,18 @@ Caja utiliza reintento idempotente únicamente para respuestas ambiguas de red/s
 Documento de avance: `docs/avance-v3.5.1-realtime-recuperacion-operativa.md`.
 
 Siguiente fase: `v3.6.0 · Limpieza legacy y orden estructural`, únicamente después de autorización explícita para continuar.
+
+
+## v3.6.0 · Limpieza legacy y orden estructural
+
+La transición operativa queda consolidada alrededor de una sola implementación activa por regla. Orders ya no procesa pagos directos ni mantiene placeholders de impresión; Caja/Payments conserva las mutaciones monetarias y Printing conserva toda salida documental.
+
+La API duplicada `/api/credits` deja de montarse. Créditos permanece visible para el usuario, pero opera mediante `/api/accounts`, `creditService` y Payments. El archivo físico `server/routes/credits.js` queda únicamente como shim de importación y no contiene handlers propios.
+
+La navegación Orders → Caja se separa en `OrderWorkflow`. Realtime elimina el namespace retirado y continúa funcionando como señal de invalidación. Se preservan compatibilidades de datos y migración necesarias para instalaciones antiguas; no se elimina historia ni se reconstruyen registros legacy.
+
+Mapa de dependencias: `docs/arquitectura-v3.6.0-dependencias.md`.
+
+Documento de avance: `docs/avance-v3.6.0-limpieza-legacy.md`.
+
+Siguiente fase: `v3.7.0 · Pruebas cruzadas y cierre MundiPOS 3.0`, únicamente después de autorización explícita para continuar.

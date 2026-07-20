@@ -177,43 +177,46 @@ test('saldo temporal cero no cierra el servicio y un consumo nuevo reactiva el s
     assert.equal(seat.estado, 'ocupada');
 });
 
-test('el adaptador de pago completo liquida solo el saldo actual sin liberar la mesa', async t => {
+test('dos liquidaciones documentales consecutivas mantienen el servicio abierto', async t => {
     const context = await createTestDatabase();
     t.after(() => context.cleanup());
     const fixture = await seedContinuityDomain(context.db, 2);
 
-    const firstPayment = await fixture.accountService.recordLegacyBalancePayment(fixture.account.id, {
-        userId: fixture.user.id,
-        paymentMethod: 'efectivo',
-        now: '2026-07-16T17:30:00.000Z'
-    });
-    assert.equal(firstPayment.total, 2200);
-    assert.equal(firstPayment.saldo_pendiente, 0);
-    assert.equal(firstPayment.estado_operativo, 'abierta');
-    assert.equal(firstPayment.mesa_liberada, false);
+    const firstDocument = await issuePreinvoice(fixture, 2, 'Juan', 'completa');
+    await markPreinvoicePaid(context.db, fixture.accountService, firstDocument, 'efectivo');
 
-    let seat = await context.db.get('SELECT estado, cliente_nombre FROM mesas WHERE id = ?', [fixture.seat.id]);
-    assert.equal(seat.estado, 'ocupada');
-    assert.equal(seat.cliente_nombre, 'Juan');
+    let account = await fixture.accountService.getAccount(fixture.account.id);
+    assert.equal(account.saldo_pendiente, 0);
+    assert.equal(account.estado_operativo, 'abierta');
 
     await fixture.accountService.addProducts(fixture.account.id, {
         userId: fixture.user.id,
         productos: [{ producto_id: fixture.product.id, cantidad: 1 }]
     });
-    const secondPayment = await fixture.accountService.recordLegacyBalancePayment(fixture.account.id, {
-        userId: fixture.user.id,
-        paymentMethod: 'tarjeta',
-        now: '2026-07-16T17:40:00.000Z'
-    });
 
-    assert.equal(secondPayment.total, 1100);
-    assert.equal(secondPayment.total_pagado, 3300);
-    assert.equal(secondPayment.saldo_pendiente, 0);
-    assert.equal(secondPayment.estado_operativo, 'abierta');
+    account = await fixture.accountService.getAccount(fixture.account.id);
+    const availableLine = account.productos_disponibles[0];
+    const secondDocument = await fixture.preinvoiceService.createPreinvoice({
+        accountId: fixture.account.id,
+        payerName: 'Juan',
+        issuedByUserId: fixture.user.id,
+        type: 'completa',
+        assignments: [{
+            pedido_producto_id: availableLine.id,
+            cantidad: 1,
+            version: availableLine.version
+        }]
+    });
+    await markPreinvoicePaid(context.db, fixture.accountService, secondDocument, 'tarjeta');
+
+    account = await fixture.accountService.getAccount(fixture.account.id);
+    assert.equal(account.total_pagado, 3300);
+    assert.equal(account.saldo_pendiente, 0);
+    assert.equal(account.estado_operativo, 'abierta');
 
     const payments = await context.db.all('SELECT monto FROM pagos WHERE pedido_id = ? ORDER BY id', [fixture.account.id]);
     assert.deepEqual(payments.map(item => item.monto), [2200, 1100]);
-    seat = await context.db.get('SELECT estado FROM mesas WHERE id = ?', [fixture.seat.id]);
+    const seat = await context.db.get('SELECT estado FROM mesas WHERE id = ?', [fixture.seat.id]);
     assert.equal(seat.estado, 'ocupada');
 });
 

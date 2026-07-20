@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.5.1 · Realtime y recuperación operativa
+- **Línea de trabajo actual:** v3.6.0 · Limpieza legacy y orden estructural
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -85,6 +85,19 @@ No se continúa con la siguiente subfase hasta que la subfase actual esté compr
 ```
 
 ## Registro de cambios canónico
+
+### v3.6.0 · Limpieza legacy y orden estructural
+
+- **Objetivo:** retirar implementaciones de transición sin consumidores activos y dejar una sola frontera canónica por dominio antes de las pruebas cruzadas finales.
+- **Orders:** se retira `POST /api/orders/:id/pay`, el adaptador `recordLegacyBalancePayment()` y los métodos frontend de cobro directo.
+- **Caja:** Orders conserva únicamente `openInCash()` como entrada visual; la navegación transversal vive en `OrderWorkflow` y no procesa dinero.
+- **Créditos:** `/api/credits` deja de montarse; `/api/accounts` queda como API pública canónica respaldada por `creditService` y Payments.
+- **Printing:** se retiran placeholders de impresión que permanecían en Orders.
+- **Realtime:** desaparece el namespace duplicado `/api/credits`; los cambios de crédito siguen las rutas canónicas activas.
+- **Compatibilidad:** se preservan campos y migraciones legacy necesarios para leer historia y actualizar bases antiguas; se retira únicamente ejecución duplicada sin consumidor.
+- **Dependencias:** `docs/arquitectura-v3.6.0-dependencias.md`.
+- **Documento:** `docs/avance-v3.6.0-limpieza-legacy.md`.
+- **Siguiente fase:** `v3.7.0 · Pruebas cruzadas y cierre MundiPOS 3.0`, únicamente cuando el usuario autorice continuar.
 
 ### v3.5.1 · Realtime y recuperación operativa
 

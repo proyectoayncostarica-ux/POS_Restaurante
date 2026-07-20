@@ -164,3 +164,17 @@ Cada subfase v3 debe demostrar:
 3. **Compatibilidad:** el flujo sigue siendo comprensible para el usuario.
 4. **Operación:** pagos parciales no alteran indebidamente mesa ni consumo.
 5. **Responsive:** PC y móvil ofrecen la misma función con diseño adaptado.
+
+
+## Estado después de v3.6.0
+
+Las fachadas temporales descritas durante la transición ya no son necesarias para el flujo activo:
+
+- `Orders.showPaymentModal`, `Orders.processPayment` y `Orders.finalizePayment` fueron retiradas;
+- `POST /api/orders/:id/pay` fue retirado;
+- `/api/credits` dejó de montarse como API pública duplicada;
+- `Orders.printComanda` y `Orders.printReceipt` placeholders fueron retirados.
+
+Permanece `Orders.openInCash(orderId)` como punto de entrada visible consumido por la UI, pero delega exclusivamente en `OrderWorkflow` para navegar y enfocar la cuenta. No ejecuta cobros.
+
+Las rutas activas de abono y pago completo de créditos bajo `/api/accounts` no se consideran legacy: son la superficie pública consolidada del módulo visual Créditos y delegan en `creditService`/Payments.

@@ -7,6 +7,7 @@ const root = path.resolve(__dirname, '..');
 const cashSource = fs.readFileSync(path.join(root, 'public/js/components/cash.js'), 'utf8');
 const dashboardSource = fs.readFileSync(path.join(root, 'public/js/components/dashboard.js'), 'utf8');
 const ordersSource = fs.readFileSync(path.join(root, 'public/js/components/orders.js'), 'utf8');
+const orderWorkflowSource = fs.readFileSync(path.join(root, 'public/js/services/order-workflow.js'), 'utf8');
 const styleSource = fs.readFileSync(path.join(root, 'public/css/style.css'), 'utf8');
 const serviceWorkerSource = fs.readFileSync(path.join(root, 'public/service-worker.js'), 'utf8');
 
@@ -43,9 +44,10 @@ test('Dashboard deja de abrir el modal de pago y Orders delega a Caja', () => {
     assert.doesNotMatch(dashboardSource, /Orders\.showPaymentModal/);
     assert.doesNotMatch(dashboardSource, /abrirProcesarPago/);
     assert.match(ordersSource, /async openInCash\(orderId\)/);
-    assert.match(ordersSource, /Navigation\.showSection\('cash'\)/);
-    assert.match(ordersSource, /Cash\.focusAccount\(orderId\)/);
-    assert.match(ordersSource, /return this\.openInCash\(orderId\)/);
+    assert.match(orderWorkflowSource, /Navigation\.showSection\('cash'\)/);
+    assert.match(orderWorkflowSource, /Cash\.focusAccount\(id\)/);
+    assert.match(ordersSource, /OrderWorkflow\.openInCash\(orderId\)/);
+    assert.doesNotMatch(ordersSource, /showPaymentModal\(orderId\)/);
 });
 
 
@@ -57,9 +59,9 @@ test('interfaz de Caja tiene distribución adaptable para PC y móvil', () => {
 });
 
 
-test('PWA conserva Caja dentro del caché vigente de v3.5.1', () => {
-    assert.match(serviceWorkerSource, /v3\.5\.1-realtime-recovery/);
-    assert.match(serviceWorkerSource, /components\/cash\.js\?v=3\.5\.1-realtime-recovery/);
+test('PWA conserva Caja dentro del caché vigente de v3.6.0', () => {
+    assert.match(serviceWorkerSource, /v3\.6\.0-legacy-cleanup/);
+    assert.match(serviceWorkerSource, /components\/cash\.js\?v=3\.6\.0-legacy-cleanup/);
 });
 
 test('modal de Caja permite efectivo, tarjeta y pago mixto con cálculo de vuelto', () => {

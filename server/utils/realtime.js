@@ -16,7 +16,6 @@ const OPERATIONAL_PREFIXES = [
     '/api/tables',
     '/api/orders',
     '/api/accounts',
-    '/api/credits',
     '/api/settings/reset-database',
     '/api/menu',
     '/api/users',
@@ -75,7 +74,6 @@ function getScope(req) {
     }
     if (resource === 'kitchen') return 'comandas';
     if (resource === 'accounts') return 'cuentas';
-    if (resource === 'credits') return 'creditos';
     if (resource === 'menu') return 'menu';
     if (resource === 'users') return 'usuarios';
     if (resource === 'cash') return 'caja';

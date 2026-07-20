@@ -639,146 +639,9 @@ const Orders = {
   }
     },
 
-    // Fachada temporal: el cobro visible ya no ocurre dentro de Orders.
+    // Orders conserva el punto de entrada visual; la navegación transversal vive en OrderWorkflow.
     async openInCash(orderId) {
-        if (typeof Access !== 'undefined' && !Access.has('cash.access')) {
-            Utils.showNotification('Tu sesión no tiene acceso a Caja.', 'warning');
-            return;
-        }
-        if (typeof Navigation === 'undefined' || typeof Cash === 'undefined') {
-            Utils.showNotification('Caja no está disponible en esta sesión.', 'error');
-            return;
-        }
-        await Navigation.showSection('cash');
-        await Cash.focusAccount(orderId);
-    },
-
-    async showPaymentModal(orderId) {
-        return this.openInCash(orderId);
-    },
-
-    updatePaymentTotal(subtotal) {
-        const aplicaServicio = document.getElementById('aplicar-servicio')?.value === '1';
-        const porcentajeServicio = Number(document.getElementById('porcentaje-servicio')?.value || 0);
-        const servicio = aplicaServicio ? (Number(subtotal) || 0) * (porcentajeServicio / 100) : 0;
-        const total = (Number(subtotal) || 0) + servicio;
-
-        const servicioElem = document.getElementById('pago-servicio');
-        const totalElem = document.getElementById('pago-total');
-
-        if (servicioElem) servicioElem.innerText = Utils.formatCurrency(servicio);
-        if (totalElem) totalElem.innerText = Utils.formatCurrency(total);
-    },
-
-    // Procesar pago
-    async processPayment(orderId) {
-        const form = document.getElementById('payment-form');
-        if (!Utils.validateForm(form)) {
-            Utils.showNotification('Por favor complete todos los campos requeridos', 'warning');
-            return;
-        }
-
-        const formData = new FormData(form);
-        const metodo = formData.get('metodo_pago');
-        const aplicarServicio = document.getElementById('aplicar-servicio')?.value === '1';
-
-        // Si el método es crédito, se debe validar con contraseña de administrador
-        if (metodo === 'credito') {
-            // Guardar temporalmente la info para continuar luego de la validación
-            this.pendingPayment = {
-                orderId,
-                metodo_pago: metodo,
-                aplicar_servicio: aplicarServicio
-            };
-            this.showAdminPasswordModal();
-            return;
-        }
-
-        // Si no es crédito, continuar con el pago normal
-        this.finalizePayment(orderId, metodo, aplicarServicio);
-    },
-
-    async finalizePayment(orderId, metodo_pago, aplicar_servicio, adminPass = null) {
-        try {
-            // 🟢 Obtener datos del pedido, incluyendo mesa_id
-            const pedido = await Utils.request(`/orders/${orderId}`);
-
-            const data = {
-                metodo_pago,
-                aplicar_servicio,
-                admin_pass: adminPass,
-                mesa_id: pedido.data.mesa_id  // ✅ Se usa para cerrar la mesa desde backend
-            };
-
-            const response = await Utils.request(`/orders/${orderId}/pay`, {
-                method: 'POST',
-                body: JSON.stringify(data)
-            });
-
-            Utils.hideModal();
-            if (metodo_pago === 'credito') {
-                Utils.showNotification(
-                    `Crédito fue correctamente autorizado. Total pendiente: ${Utils.formatCurrency(response.data.total)}`,
-                    'success'
-                );
-            } else {
-                Utils.showNotification(
-                    `Pago procesado - ${Utils.formatCurrency(response.data.total)}. La mesa continúa activa hasta finalizar el servicio.`,
-                    'success'
-                );
-            }
-
-            // ✅ Refrescar dashboard en tiempo real con mesaId correcto
-            if (typeof Dashboard?.refreshData === 'function') {
-                Dashboard.refreshData(pedido.data.mesa_id);
-            }
-
-            this.load(); // Recarga pedidos
-
-            const printReceipt = await Utils.confirm('¿Desea imprimir el recibo?', 'Imprimir Recibo');
-            if (printReceipt) {
-                this.printReceipt(response.data);
-            }
-        } catch (error) {
-            Utils.showNotification(error.message, 'error');
-        }
-    },
-
-    //Muestra Modal de Contraseña
-    showAdminPasswordModal() {
-        const contenido = `
-            <div class="form-group">
-                <label for="admin-pass">Contraseña de administrador:</label>
-                <input type="password" id="admin-pass" class="form-control" placeholder="Contraseña" required>
-            </div>
-        `;
-
-        Utils.showModal('Autorización Requerida', contenido, [
-            {
-                text: 'Cancelar',
-                class: 'btn-light',
-                onclick: 'Utils.hideModal()'
-            },
-            {
-                text: 'Confirmar',
-                class: 'btn-primary',
-                onclick: 'Orders.confirmAdminPassword()'
-            }
-        ]);
-    },
-
-    //Confirma Contraseña
-    confirmAdminPassword() {
-        const pass = document.getElementById('admin-pass')?.value;
-        if (!pass) {
-            Utils.showNotification('Debe ingresar la contraseña', 'warning');
-            return;
-        }
-
-        const { orderId, metodo_pago, aplicar_servicio } = this.pendingPayment;
-        Utils.hideModal();
-
-        this.finalizePayment(orderId, metodo_pago, aplicar_servicio, pass);
+        return OrderWorkflow.openInCash(orderId);
     },
 
     // Mostrar modal para agregar productos a una cuenta existente
@@ -922,18 +785,6 @@ const Orders = {
         } catch (error) {
             Utils.showNotification(error.message, 'error');
         }
-    },
-
-    // Imprimir comanda
-    printComanda(comandaId) {
-        // Adaptador temporal. Printing se implementará en v3.4.x.
-        Utils.showNotification('La solicitud ya está disponible en preparación.', 'info');
-    },
-
-    // Imprimir recibo
-    printReceipt(paymentData) {
-        // Aquí se implementaría la lógica de impresión de recibo
-        Utils.showNotification('Recibo generado', 'info');
     },
 
     escapeHtml(value) {
@@ -1549,7 +1400,6 @@ const Orders = {
 
         const confirmation = document.getElementById('service-finalization-confirm');
         if (!confirmation?.checked) {
-            Utils.hideModal();
             Utils.showNotification('Confirma que el servicio terminó antes de liberar la mesa.', 'warning');
             confirmation?.focus();
             return;

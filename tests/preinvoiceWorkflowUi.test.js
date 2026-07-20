@@ -23,11 +23,11 @@ test('frontend emite un único documento por solicitud y vuelve al consumo resta
     assert.match(ordersSource, /await this\.viewOrder\(draft\.orderId\)/);
 });
 
-test('backend protege emisión y retira la división legacy insegura', () => {
+test('backend protege emisión y ya no expone el cobro legacy de Orders', () => {
     assert.match(routeSource, /ORDERS_ISSUE_PREINVOICE/);
     assert.match(routeSource, /ORDERS_SPLIT/);
-    assert.match(routeSource, /USE_PREINVOICE_SPLIT_FLOW/);
-    assert.match(routeSource, /ACCOUNT_REQUIRES_PREINVOICE_PAYMENT/);
+    assert.doesNotMatch(routeSource, /router\.post\(["']\/:id\/pay["']/);
+    assert.doesNotMatch(routeSource, /recordLegacyBalancePayment/);
 });
 
 test('emisión de prefacturas se publica como cambio de cuentas para atención y Caja', () => {

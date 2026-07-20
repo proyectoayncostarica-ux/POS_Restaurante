@@ -1,8 +1,8 @@
 # Prompt de continuidad canónico · MundiPOS 3.0
 
 **Actualizado:** 18 de julio de 2026
-**Estado funcional preparado para validación:** `v3.5.1`
-**Próxima fase funcional:** `v3.6.0 · Limpieza legacy y orden estructural`
+**Estado funcional preparado para validación:** `v3.6.0`
+**Próxima fase funcional:** `v3.7.0 · Pruebas cruzadas y cierre MundiPOS 3.0`
 **Repositorio local activo:** `C:\Repos\POS_Restaurante`
 
 > **Uso en un nuevo chat:** adjunta este archivo junto con un ZIP nuevo del repositorio actual y pega la sección **“Prompt listo para usar”** como primer mensaje. Este documento reemplaza el prompt de continuidad anterior. Conserva sus contratos útiles, corrige su estado obsoleto e incorpora la recuperación, normalización y limpieza realizadas el 17 de julio de 2026.
@@ -22,11 +22,11 @@ Debes trabajar de forma incremental, auditable y compatible con la operación re
 3. Confirma rama `main`, sincronización con `origin/main` y árbol limpio antes de aplicar una nueva entrega.
 4. Mantén `data/restaurant.db` local, ignorada y fuera de cualquier ZIP o commit.
 5. Trabaja con el flujo rápido aprobado: implementación → pruebas específicas → suite completa → validación operativa → Git seguro.
-6. La fase implementada más reciente es `v3.5.0 · Dashboard y reportes financieros consolidados`. Las entregas desde `v3.4.0` pueden permanecer pendientes de validación/publicación y deben comprobarse en orden antes de sus commits individuales.
+6. La fase implementada más reciente es `v3.6.0 · Limpieza legacy y orden estructural`. Las entregas desde `v3.4.0` pueden permanecer pendientes de validación/publicación y deben comprobarse en orden antes de sus commits individuales.
 7. Printing debe persistir trabajos e intentos sin recalcular negocio. Una falla de dispositivo no revierte ni duplica el documento origen.
 8. No uses staging global: los commits se preparan con rutas explícitas y solo después de la validación operativa.
 
-Mantén sin cambios los contratos de cuenta global, división, Caja, Payments, créditos, finalización de servicio, impresión posterior a la persistencia, autorización backend e idempotencia. No adelantes Dashboard/reportes de `v3.5.0` ni limpieza legacy sin autorización del usuario.
+Mantén sin cambios los contratos de cuenta global, división, Caja, Payments, créditos, finalización de servicio, impresión posterior a la persistencia, autorización backend e idempotencia. No adelantes `v3.7.0 · Pruebas cruzadas y cierre MundiPOS 3.0` sin autorización del usuario.
 
 Trabaja en español. En tareas de PowerShell entrega un solo bloque por turno y espera la salida completa. Nunca uses `git add .`, `git add -A`, `git clean`, `git reset --hard`, `git commit -a`, `stash pop`, `stash apply`, `stash drop`, `npm audit fix --force` ni force-push sin autorización expresa.
 
@@ -1690,3 +1690,28 @@ Contratos añadidos:
 Documento de avance: `docs/avance-v3.5.1-realtime-recuperacion-operativa.md`.
 
 Dinámica temporal acordada: las verificaciones finales y Git de las fases acumuladas se realizarán posteriormente, en orden y fase por fase. La siguiente fase de código es `v3.6.0 · Limpieza legacy y orden estructural` únicamente cuando el usuario confirme explícitamente que continúe.
+
+
+# 28. Estado implementado para validación · v3.6.0 Limpieza legacy y orden estructural
+
+`v3.6.0` retira implementaciones de transición sin consumidores activos y consolida las fronteras canónicas previas al cierre de MundiPOS 3.0.
+
+Cambios principales:
+
+- `POST /api/orders/:id/pay` fue retirado; todo cobro comienza en Caja/Payments;
+- `accountService.recordLegacyBalancePayment()` fue retirado;
+- Orders ya no contiene métodos frontend de cobro directo ni placeholders de impresión;
+- `Orders.openInCash()` permanece como entrada visual y delega la navegación a `OrderWorkflow`;
+- `/api/credits` deja de montarse y `/api/accounts` queda como API pública canónica de Créditos;
+- `server/routes/credits.js` queda como shim de importación sin handlers propios;
+- Realtime elimina el namespace `/api/credits`;
+- compatibilidad de datos/migraciones legacy permanece para no perder historia ni impedir actualizaciones.
+
+Documentos:
+
+```text
+docs/avance-v3.6.0-limpieza-legacy.md
+docs/arquitectura-v3.6.0-dependencias.md
+```
+
+Dinámica temporal acordada: las verificaciones finales y Git de las fases acumuladas se realizarán posteriormente, en orden y fase por fase. La siguiente fase de código es `v3.7.0 · Pruebas cruzadas y cierre MundiPOS 3.0` únicamente cuando el usuario confirme explícitamente que continúe.
