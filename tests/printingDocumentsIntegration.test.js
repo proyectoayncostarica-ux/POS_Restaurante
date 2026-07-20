@@ -44,7 +44,8 @@ test('Orders, Caja, Créditos y Kitchen encolan después de persistir y no conti
     assert.match(cash, /recordPreinvoicePayment[\s\S]*enqueuePayment/);
     assert.match(cash, /formalizePreinvoiceCredit[\s\S]*enqueueCredit/);
     assert.match(accounts, /recordPayment[\s\S]*enqueuePayment/);
-    assert.match(credits, /recordPayment[\s\S]*enqueuePayment/);
+    assert.match(credits, /module\.exports = require\('\.\/accounts'\)/);
+    assert.doesNotMatch(credits, /recordPayment|enqueuePayment|router\.(get|post|put|patch|delete)/);
     assert.match(kitchen, /requestDispatch[\s\S]*enqueueKitchenCommands/);
     assert.match(kitchen, /resend[\s\S]*enqueueKitchenCommand/);
 

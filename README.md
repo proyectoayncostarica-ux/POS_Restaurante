@@ -7,7 +7,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.0
 - **Estado de producto:** versión funcional operativa en modernización arquitectónica interna
-- **Línea de trabajo actual:** v3.6.0 · Limpieza legacy y orden estructural
+- **Línea de trabajo actual:** v3.7.0 · Pruebas cruzadas y cierre MundiPOS 3.0
 
 Desde esta fase, la versión visible para usuarios, configuración pública y metadata base de la app es **3.0**. La modernización v3 reorganiza internamente Cuentas, Pagos, Comandas e Impresiones, conservando los flujos operativos visibles que ya conoce el usuario. El seguimiento técnico utilizará versiones **v3.x.x**.
 
@@ -85,6 +85,16 @@ No se continúa con la siguiente subfase hasta que la subfase actual esté compr
 ```
 
 ## Registro de cambios canónico
+
+### v3.7.0 · Pruebas cruzadas y cierre MundiPOS 3.0
+
+- **Objetivo:** cerrar la arquitectura 3.0 con escenarios cruzados que validan la interacción real entre Cuenta Global, Prefacturas, Payments, Créditos, Kitchen, Printing, Dashboard, Realtime y finalización.
+- **Pruebas cruzadas:** se agrega `tests/mundiPos3CrossDomain.test.js` para validar una sola venta global con múltiples documentos/pagos, continuidad de consumo, crédito/abonos, desacople Kitchen/Printing y finalización explícita.
+- **Contrato de cierre:** se agrega `tests/mundiPos3ClosureContract.test.js` para comprobar versionado, PWA, checklist, roadmap y ausencia de regresiones legacy estructurales.
+- **Checklist:** `docs/checklist-cierre-mundipos-3.0.md` concentra la matriz mínima de cierre y diferencia cobertura automática de validación operativa.
+- **Estado:** implementación preparada; el cierre definitivo permanece **pendiente de validación final**, suite completa con `sqlite3@6.0.1`, prueba sobre `restaurant.db`, revisión operativa PC/móvil y Git seguro.
+- **V4:** permanece deliberadamente sin roadmap canónico hasta publicar v3.7.0 con todas las verificaciones aprobadas.
+- **Documento:** `docs/avance-v3.7.0-cierre-mundipos-3.0.md`.
 
 ### v3.6.0 · Limpieza legacy y orden estructural
 

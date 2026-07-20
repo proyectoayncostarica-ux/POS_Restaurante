@@ -50,9 +50,10 @@ test('Kitchen tiene router propio, capacidad específica y realtime con scope co
 });
 
 
-test('la compatibilidad de impresión ya no afirma envío físico desde Orders', () => {
+test('la compatibilidad de impresión ya no afirma envío físico ni conserva placeholders en Orders', () => {
     assert.doesNotMatch(ordersSource, /Comanda enviada a cocina correctamente/);
-    assert.match(ordersSource, /Printing se implementará en v3\.4\.x/);
+    assert.doesNotMatch(ordersSource, /Printing se implementará en v3\.4/);
+    assert.match(ordersSource, /PrintingClient\.openJob/);
     assert.match(ordersRouteSource, /markPrintState/);
     assert.match(ordersRouteSource, /canViewZone/);
     assert.match(ordersRouteSource, /No tienes acceso operativo a la zona de esta comanda/);

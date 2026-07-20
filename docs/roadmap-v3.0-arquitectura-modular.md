@@ -1,6 +1,4 @@
-# Roadmap v3.0 · Arquitectura modular, Caja, Kitchen visual y fuente financiera única
-
-> **Actualización de continuidad:** este roadmap conserva la secuencia canónica de MundiPOS 3.0 e incorpora en `v3.3.x` la cuenta departamental de Cocina y su interfaz visual operativa. `v3.4.x` permanece reservado para Printing e impresoras. El alcance de MundiPOS 4.0 no se define en este documento.
+# Roadmap v3.0 · Arquitectura modular, Caja y fuente financiera única
 
 ## 1. Visión
 
@@ -11,7 +9,7 @@ Orders administra la cuenta global, la atención y el consumo.
 Prefacturas reservan ítems y cantidades para documentos operativos.
 Caja es la interfaz autorizada para cobrar documentos emitidos.
 Payments registra transacciones, saldos, reversos e idempotencia.
-Kitchen administra preparación, comandas y su tablero visual operativo.
+Kitchen administra preparación y comandas.
 Printing administra plantillas, colas, reintentos y dispositivos.
 Settings administra parámetros, incluida la pestaña Impresoras.
 Reporting consulta la cuenta global como fuente financiera única.
@@ -27,18 +25,6 @@ Caja cobra prefacturas.
 ```
 
 Payments e Printing son servicios internos. Caja sí es una sección visible accesible desde el header para usuarios con capacidad autorizada.
-
-Cambio operativo aprobado para Kitchen:
-
-```text
-La cuenta departamental Cocina no representa a una persona.
-Solo accede al tablero de Kitchen.
-La persona que originó cada solicitud permanece identificada en la comanda.
-La pantalla visual y la comanda impresa son canales complementarios.
-Printing no controla el estado de preparación.
-```
-
-La cuenta departamental de Cocina no recibe responsabilidades financieras, de atención, de mesa ni de cierre. Las acciones realizadas desde su pantalla se atribuyen a la estación o departamento, mientras que el mesero, salonero o bartender que originó el pedido permanece registrado como responsable de la solicitud.
 
 ## 2. Documentos canónicos
 
@@ -99,11 +85,7 @@ Estas reglas no pueden romperse durante la migración:
 11. El cierre de mesa es explícito y transaccional.
 12. Las rutas legacy solo permanecen como adaptadores temporales.
 13. PC y móvil deben ofrecer la misma capacidad con presentación adecuada a cada formato.
-14. La cuenta departamental de Cocina no puede adquirir responsabilidades financieras ni reemplazar al usuario humano que originó la solicitud.
-15. Cada ítem de Kitchen conserva hora, origen, solicitante humano, cantidad, presentación y observaciones como snapshot operativo.
-16. El tablero visual de Kitchen continúa operativo aunque una impresión falle o no exista una impresora configurada.
-17. Los estados de preparación pertenecen a Kitchen y no pueden derivarse del estado de impresión.
-18. No se avanza a una fase posterior sin prueba, documentación y git seguro.
+14. No se avanza a una fase posterior sin prueba, documentación y git seguro.
 
 ## 5. Versionado
 
@@ -292,8 +274,6 @@ kitchen.operate
 printing.configure
 printing.retry
 ```
-
-`kitchen.operate` será la capacidad exclusiva de la cuenta departamental de Cocina en `v3.3.x`. Esa cuenta no recibirá capacidades de Orders, Caja, Dashboard, administración, créditos o configuración. El administrador conservará acceso total para soporte y supervisión.
 
 ### Compatibilidad temporal
 
@@ -1448,68 +1428,25 @@ git commit -m "v3.2.5: finaliza servicio y libera mesas integralmente"
 
 ### Objetivo
 
-Separar de Orders la lógica de preparación y crear un modelo canónico que permita determinar qué cantidades deben enviarse a cocina o bar sin reutilizar cantidades ya documentadas.
-
-### Contrato de dominio
-
-```text
-Orders registra consumo y solicita envío.
-Kitchen consulta el consumo real y calcula el contenido operativo.
-Kitchen determina cantidades nuevas, modificadas o anuladas.
-Kitchen resuelve el destino de preparación.
-Kitchen persiste la comanda y sus ítems antes de publicar realtime.
-Printing recibe un documento ya persistido, pero no controla preparación.
-```
+Separar de Orders la lógica de preparación.
 
 ### Cambios previstos
 
-- `kitchenService` como propietario de las reglas de comandas;
-- routers delgados para solicitar envíos y consultar resultados;
-- modelo normalizado de comandas e ítems, preservando compatibilidad legacy;
-- identidad estable de línea de consumo;
-- cantidades consumidas, enviadas, modificadas, anuladas y pendientes;
-- destino cocina/bar resuelto en backend;
-- snapshot de producto, presentación, cantidad, adicionales y observaciones;
-- usuario humano que originó la solicitud;
-- cuenta, mesa/banco, zona y hora de solicitud;
-- idempotencia para reintentos y doble clic;
-- transacciones SQLite para consumo, comandas e historial;
-- realtime posterior al commit;
-- migración idempotente sin eliminar comandas históricas.
-
-### Reglas operativas
-
-- un producto que no requiere preparación no genera ítem de Kitchen;
-- un nuevo envío solo contiene cantidades pendientes o diferencias válidas;
-- una reducción se registra como modificación o anulación, nunca como cantidad negativa silenciosa;
-- un reenvío conserva vínculo con la solicitud original y su motivo;
-- frontend no decide cantidades pendientes, destinos ni estados canónicos;
-- no se imprime antes de persistir;
-- un fallo de impresión no revierte consumo ni comanda.
-
-### No alcance
-
-Esta subfase no implementa todavía:
-
-- cola definitiva de Printing;
-- drivers térmicos;
-- Configuración → Impresoras;
-- interfaz visual completa de Kitchen;
-- trazabilidad avanzada completa de todos los estados;
-- reportes finales del área de preparación.
+- `kitchenService`;
+- creación de comanda por cambios nuevos;
+- destino cocina/bar;
+- ítems nuevos, modificados y anulados;
+- identidad de línea;
+- responsable y tiempos;
+- Orders solicita la operación, Kitchen decide el contenido.
 
 ### Criterios de aprobación
 
-- agregar productos genera únicamente los nuevos ítems de comanda;
-- un producto sin preparación no se envía;
-- cocina y bar reciben solo sus destinos correspondientes;
+- agregar productos genera solo los nuevos ítems de comanda;
+- un producto no cocina no se envía;
 - una presentación conserva su descripción correcta;
-- observaciones y adicionales quedan congelados como snapshot;
-- reintentos no duplican cantidades;
 - reenvíos quedan auditados;
-- modificaciones y anulaciones no desalinean consumo y preparación;
-- la impresión no define el estado de preparación;
-- pruebas específicas y suite completa pasan sin regresiones.
+- la impresión no define el estado de preparación.
 
 ### Commit
 
@@ -1532,179 +1469,19 @@ entregada
 anulada
 ```
 
-Los estados de impresión se mantienen separados y no sustituyen estos estados operativos.
-
 ### Objetivo
 
-Construir el historial y read model que permitan conocer qué se solicitó, quién lo solicitó, dónde debe prepararse, cuánto tiempo lleva pendiente y qué cambios ocurrieron sobre cada ítem.
-
-### Cambios previstos
-
-- historial por comanda e ítem;
-- usuario humano solicitante;
-- estación o cuenta departamental que actualiza el estado;
-- timestamps de solicitud, envío, inicio, finalización, entrega y anulación;
-- motivos de modificación, anulación y reenvío;
-- versión para control de concurrencia;
-- read model independiente para cocina y bar;
-- ordenamiento por antigüedad y prioridad operativa;
-- recuperación de pendientes después de reiniciar;
-- eventos realtime dirigidos por capacidad y destino;
-- compatibilidad temporal con las rutas legacy auditadas.
-
-### Datos mínimos del read model
-
-```text
-hora de solicitud
-minutos transcurridos
-mesa o banco
-zona
-producto y cantidad
-presentación
-adicionales
-observaciones o pedido especial
-usuario humano solicitante
-destino de preparación
-estado operativo
-historial de cambios
-```
-
-### Criterios de aprobación
-
-- reiniciar el servidor no pierde solicitudes pendientes;
-- una comanda conserva el usuario que originó el pedido;
-- cada cambio de estado tiene timestamp y actor operativo;
-- una modificación conserva el antes y el después;
-- usuarios de Kitchen reciben realtime sin requerir `orders.operate`;
-- usuarios de otra zona o destino no reciben información no autorizada;
-- imprimir, reimprimir o fallar una impresión no cambia preparación;
-- el read model puede reconstruir el tablero sin depender de memoria del proceso.
+- historial por ítem;
+- usuario responsable;
+- timestamps;
+- cambios y anulaciones;
+- recuperación después de reinicio;
+- read model para cocina/bar.
 
 ### Commit
 
 ```powershell
 git commit -m "v3.3.1: agrega trazabilidad operativa de comandas"
-```
-
----
-
-## v3.3.2 · Cuenta departamental y UI/UX de Kitchen
-
-### Objetivo
-
-Crear una identidad operativa exclusiva para el departamento de Cocina y una pantalla visual, simple y continua, que complemente las comandas impresas y permita trabajar sin acceder a otros módulos de MundiPOS.
-
-### Cuenta departamental Cocina
-
-Se incorporará una cuenta de tipo departamental con estas reglas:
-
-- representa al departamento o estación de Cocina, no a una persona individual;
-- puede ser utilizada por el personal autorizado del área;
-- usa el rol de sistema `Cocina` y la capacidad `kitchen.operate`;
-- su destino inicial y único es Kitchen;
-- no requiere zona de atención para iniciar sesión;
-- no puede abrir mesas, agregar consumo, emitir prefacturas, cobrar, crear créditos, finalizar servicios ni administrar configuración;
-- no aparece como responsable humano de cuentas, mesas, ventas o solicitudes;
-- las acciones de estado se auditan como realizadas desde la cuenta o estación de Cocina;
-- el mesero, salonero o bartender que originó el pedido permanece visible e inmutable en la comanda;
-- el rol y la cuenta se provisionan de forma idempotente y sin credenciales predeterminadas expuestas;
-- el administrador puede activar, bloquear o restablecer la cuenta sin convertirla en usuario financiero.
-
-La política general de sesiones simultáneas no se redefine en esta fase. El modelo deberá distinguir desde ahora una cuenta departamental de una cuenta humana para no bloquear decisiones posteriores de seguridad.
-
-### Navegación exclusiva
-
-Después de autenticarse, la cuenta de Cocina verá únicamente:
-
-```text
-Tablero Kitchen
-estado de conexión
-identidad de la estación
-acción de cerrar sesión
-```
-
-No se mostrará el header operativo normal, Dashboard, Mesas, Cuentas, Caja, Menú, Usuarios, Configuración ni accesos técnicos.
-
-### Contenido visual de cada solicitud
-
-La UI mostrará de forma prioritaria:
-
-- hora exacta de solicitud;
-- tiempo transcurrido;
-- mesa o banco y zona;
-- usuario humano que realizó el pedido;
-- producto, cantidad y presentación;
-- adicionales;
-- observaciones o instrucciones especiales, por ejemplo `arroz adicional` o `sin salsas`;
-- destino cocina/bar;
-- estado de preparación;
-- indicador de modificación, anulación o reenvío cuando corresponda.
-
-La interfaz no mostrará precios, saldos, datos de cobro, términos legacy, identificadores internos innecesarios ni mensajes técnicos destinados a soporte.
-
-### Diseño y experiencia operativa
-
-- tablero de lectura inmediata con solicitudes ordenadas por antigüedad;
-- agrupación clara por solicitud y mesa, evitando mezclar pedidos distintos;
-- columnas o secciones para pendientes, en preparación y listas;
-- tarjetas de alto contraste y jerarquía tipográfica clara;
-- observaciones especiales visibles sin abrir diálogos innecesarios;
-- alertas visuales por tiempo transcurrido sin depender solo del color;
-- acciones táctiles grandes para cambiar estados autorizados;
-- confirmación específica para anulaciones o reenvíos;
-- actualización realtime sin recargar toda la pantalla;
-- reconexión automática y señal visible cuando el tablero esté fuera de línea;
-- conservación del contenido después de reinicio o recarga;
-- diseño optimizado para monitor de cocina, tablet y móvil;
-- ausencia de modales extensos en el flujo principal;
-- scroll controlado por columnas o paneles, sin ocultar acciones críticas;
-- textos operativos sencillos y comprensibles.
-
-### Regla de independencia de Printing
-
-```text
-El tablero visual es una fuente operativa persistente.
-La comanda impresa es un canal complementario.
-Una impresión fallida no elimina, oculta ni retrocede la solicitud visual.
-Marcar un trabajo como impreso no marca el pedido como preparado.
-```
-
-### Criterios de aprobación
-
-- la cuenta Cocina inicia sesión y entra directamente al tablero;
-- no puede navegar ni llamar manualmente operaciones fuera de `kitchen.operate`;
-- el tablero muestra hora, mesa, plato, cantidad, solicitante y pedido especial;
-- una solicitud nueva aparece por realtime sin recarga manual;
-- reiniciar servidor o dispositivo recupera los pendientes;
-- los estados cambian con control de versión y quedan auditados;
-- una falla de impresora no afecta la tarjeta visual;
-- la interfaz es utilizable en monitor, tablet y móvil;
-- los mensajes visibles no exponen términos técnicos o legacy;
-- administrador y pruebas confirman que la cuenta no adquiere responsabilidad financiera ni de mesa.
-
-### Archivos orientativos
-
-```text
-server/services/kitchenService.js
-server/routes/kitchen.js
-server/services/operationalAccessService.js
-server/security/capabilities.js
-server/db/database.js
-public/js/components/kitchen.js
-public/js/services/operational-access.js
-public/js/main.js
-public/index.html
-public/css/
-tests/kitchenService.test.js
-tests/kitchenAccess.test.js
-tests/kitchenRealtime.test.js
-tests/kitchenUiContract.test.js
-```
-
-### Commit
-
-```powershell
-git commit -m "v3.3.2: agrega cuenta departamental y tablero visual de Kitchen"
 ```
 
 ---
@@ -1770,9 +1547,6 @@ Cada dominio entrega datos canónicos a Printing. Printing no recalcula el negoc
 - reimprimir usa el mismo número de documento;
 - cada copia queda auditada;
 - una comanda fallida puede reintentarse;
-- una falla o reintento de impresión no altera el estado operativo de Kitchen;
-- el tablero visual continúa mostrando la solicitud aunque no exista impresora disponible;
-- Kitchen entrega a Printing un snapshot canónico ya persistido;
 - Orders, Caja y Créditos no contienen plantillas duplicadas.
 
 ### Commit
@@ -1862,17 +1636,13 @@ Coordinar atención, Caja, Dashboard, Zonas, Kitchen y Printing.
 - saldo actualizado;
 - servicio finalizado;
 - mesa liberada;
-- comanda solicitada/actualizada;
-- estado de preparación actualizado;
-- tablero de Kitchen sincronizado;
+- comanda actualizada;
 - impresión pendiente/fallida/completada.
 
 ### Recuperación
 
 - reintento de pagos idempotentes;
 - recuperación de trabajos de impresión;
-- reconstrucción del tablero de Kitchen desde SQLite;
-- reconexión de la cuenta departamental sin perder pendientes;
 - recarga de Caja;
 - señalización de versión obsoleta;
 - actualización del responsable sin polling agresivo.
@@ -1900,8 +1670,6 @@ Retirar código de transición después de que todos los consumidores usen servi
 - consolidar Accounts/Credits;
 - eliminar endpoints legacy y fachadas sin consumidores;
 - retirar placeholders de impresión;
-- retirar rutas y estados legacy de comandas únicamente después de auditar consumidores;
-- eliminar mensajes técnicos o legacy de la UI operativa cuando exista una alternativa de soporte;
 - separar componentes frontend extensos;
 - routers delgados;
 - servicios por dominio;
@@ -1925,22 +1693,21 @@ git commit -m "v3.6.0: elimina legacy y ordena arquitectura modular"
 
 ## v3.7.0 · Pruebas cruzadas y cierre MundiPOS 3.0
 
+### Estado de implementación v3.7.0
+
+La implementación y la matriz de pruebas cruzadas están preparadas. El cierre definitivo de MundiPOS 3.0 permanece **pendiente de validación operativa y publicación** hasta completar la suite nativa con `sqlite3@6.0.1`, validar `restaurant.db`, comprobar PC/móvil y publicar el commit seguro de esta fase.
+
+No se define un roadmap V4 canónico antes de completar ese cierre.
+
 ### Matriz mínima
 
 - administrador;
 - cajero exclusivo;
 - salonero con capacidad Caja;
 - bartender con capacidad Caja;
-- cuenta departamental Cocina con acceso exclusivo;
 - cuenta normal;
 - cuenta dividida 2 + 1;
 - múltiples líneas y cantidades;
-- pedido de cocina y pedido de bar;
-- presentación, adicionales y observaciones especiales;
-- identificación del mesero, salonero o bartender solicitante;
-- modificación, anulación y reenvío de comanda;
-- recuperación del tablero después de reinicio;
-- realtime dirigido a Kitchen;
 - cliente que paga y se retira;
 - consumo agregado después de un pago;
 - saldo temporal cero con mesa abierta;
@@ -1949,12 +1716,11 @@ git commit -m "v3.6.0: elimina legacy y ordena arquitectura modular"
 - pago mixto;
 - reverso autorizado;
 - crédito y abonos;
-- impresión fallida y reintento sin alterar preparación;
+- impresión fallida y reintento;
 - dos dispositivos emitiendo/cobrando;
 - finalización y limpieza de responsables;
 - una venta global con múltiples pagos;
-- tablero Kitchen en monitor, tablet y móvil;
-- experiencia operativa PC y móvil.
+- PC y móvil.
 
 ### Criterio final
 
@@ -1968,8 +1734,6 @@ MundiPOS 3.0 queda cerrado cuando:
 - pagar no cierra mesas;
 - finalizar servicio libera integralmente;
 - Kitchen y Printing están desacoplados;
-- la cuenta departamental Cocina solo accede al tablero autorizado;
-- el tablero visual conserva origen humano, instrucciones y estado operativo;
 - Configuración administra impresoras;
 - Dashboard y reportes concilian ventas y Caja;
 - realtime mantiene todos los dispositivos coordinados;
@@ -1981,14 +1745,6 @@ MundiPOS 3.0 queda cerrado cuando:
 ```powershell
 git commit -m "v3.7.0: cierra arquitectura operativa de MundiPOS 3.0"
 ```
-
----
-
-# Límite de este roadmap
-
-Este documento define únicamente el trabajo de MundiPOS `v3.0.0` a `v3.7.0`.
-
-No se asignan todavía versiones, contratos, módulos ni objetivos a MundiPOS 4.0. Su definición deberá comenzar en un documento independiente únicamente después de que `v3.7.0` esté implementada, probada, validada operativamente, documentada y publicada con Git seguro.
 
 ---
 

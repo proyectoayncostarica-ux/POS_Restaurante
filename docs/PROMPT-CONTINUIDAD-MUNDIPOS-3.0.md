@@ -22,11 +22,11 @@ Debes trabajar de forma incremental, auditable y compatible con la operación re
 3. Confirma rama `main`, sincronización con `origin/main` y árbol limpio antes de aplicar una nueva entrega.
 4. Mantén `data/restaurant.db` local, ignorada y fuera de cualquier ZIP o commit.
 5. Trabaja con el flujo rápido aprobado: implementación → pruebas específicas → suite completa → validación operativa → Git seguro.
-6. La fase implementada más reciente es `v3.6.0 · Limpieza legacy y orden estructural`. Las entregas desde `v3.4.0` pueden permanecer pendientes de validación/publicación y deben comprobarse en orden antes de sus commits individuales.
+6. La fase implementada más reciente es `v3.7.0 · Pruebas cruzadas y cierre MundiPOS 3.0`, pendiente de validación final y publicación. Las entregas desde `v3.4.0` pueden permanecer pendientes de validación/publicación y deben comprobarse en orden antes de sus commits individuales.
 7. Printing debe persistir trabajos e intentos sin recalcular negocio. Una falla de dispositivo no revierte ni duplica el documento origen.
 8. No uses staging global: los commits se preparan con rutas explícitas y solo después de la validación operativa.
 
-Mantén sin cambios los contratos de cuenta global, división, Caja, Payments, créditos, finalización de servicio, impresión posterior a la persistencia, autorización backend e idempotencia. No adelantes `v3.7.0 · Pruebas cruzadas y cierre MundiPOS 3.0` sin autorización del usuario.
+Mantén sin cambios los contratos de cuenta global, división, Caja, Payments, créditos, finalización de servicio, impresión posterior a la persistencia, autorización backend e idempotencia. La matriz final vive en `docs/checklist-cierre-mundipos-3.0.md` y las pruebas cruzadas en `tests/mundiPos3CrossDomain.test.js`. No declares MundiPOS 3.0 cerrado ni definas un roadmap V4 canónico hasta aprobar y publicar v3.7.0 con suite completa, validación operativa y Git seguro.
 
 Trabaja en español. En tareas de PowerShell entrega un solo bloque por turno y espera la salida completa. Nunca uses `git add .`, `git add -A`, `git clean`, `git reset --hard`, `git commit -a`, `stash pop`, `stash apply`, `stash drop`, `npm audit fix --force` ni force-push sin autorización expresa.
 

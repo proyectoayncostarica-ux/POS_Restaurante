@@ -54,7 +54,7 @@ test('la navegación transversal Orders a Caja vive en un servicio frontend dedi
     assert.match(ordersUiSource, /return OrderWorkflow\.openInCash\(orderId\)/);
     assert.match(orderWorkflowSource, /Navigation\.showSection\('cash'\)/);
     assert.match(orderWorkflowSource, /Cash\.focusAccount\(id\)/);
-    assert.match(indexSource, /js\/services\/order-workflow\.js\?v=3\.6\.0-legacy-cleanup/);
+    assert.match(indexSource, /js\/services\/order-workflow\.js\?v=3\.7\.0-cross-domain-closure/);
 });
 
 
@@ -72,7 +72,7 @@ test('Dashboard continúa siendo solo lectura financiera', () => {
 });
 
 
-test('PWA identifica la limpieza estructural v3.6.0', () => {
-    assert.match(serviceWorkerSource, /v3\.6\.0-legacy-cleanup/);
-    assert.match(serviceWorkerSource, /services\/order-workflow\.js\?v=3\.6\.0-legacy-cleanup/);
+test('PWA conserva la limpieza estructural dentro del cierre v3.7.0', () => {
+    assert.match(serviceWorkerSource, /v3\.7\.0-cross-domain-closure/);
+    assert.match(serviceWorkerSource, /services\/order-workflow\.js\?v=3\.7\.0-cross-domain-closure/);
 });

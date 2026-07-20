@@ -949,3 +949,18 @@ Mapa de dependencias: `docs/arquitectura-v3.6.0-dependencias.md`.
 Documento de avance: `docs/avance-v3.6.0-limpieza-legacy.md`.
 
 Siguiente fase: `v3.7.0 · Pruebas cruzadas y cierre MundiPOS 3.0`, únicamente después de autorización explícita para continuar.
+
+
+## v3.7.0 · Pruebas cruzadas y cierre MundiPOS 3.0
+
+La fase final de la línea 3.0 agrega pruebas que atraviesan varios dominios en un mismo escenario y comprueban los contratos que no deben romperse al integrar toda la arquitectura.
+
+La matriz cubre cuenta dividida, pagos múltiples, consumo posterior a un pago, saldo temporal cero, crédito y abonos, reintentos de impresión, desacople entre Kitchen y Printing, finalización explícita y ausencia de rutas monetarias legacy.
+
+Se incorporan comandos dedicados `npm run test:cross-domain` y `npm run test:closure`, además del checklist `docs/checklist-cierre-mundipos-3.0.md`.
+
+El estado de esta entrega es **implementada y pendiente de validación final**. MundiPOS 3.0 solo puede declararse cerrado y publicado después de completar la suite nativa, validación sobre `restaurant.db`, revisión operativa PC/móvil y Git seguro.
+
+Documento de avance: `docs/avance-v3.7.0-cierre-mundipos-3.0.md`.
+
+V4 permanece sin definición canónica hasta completar ese cierre.

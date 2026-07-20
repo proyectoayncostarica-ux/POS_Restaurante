@@ -44,10 +44,10 @@ test('Orders ya no contiene un flujo monetario o de crédito directo', () => {
     assert.doesNotMatch(orders, /recordLegacyBalancePayment/);
 });
 
-test('PWA conserva Créditos y Caja dentro del caché vigente de v3.6.0', () => {
+test('PWA conserva Créditos y Caja dentro del caché vigente de v3.7.0', () => {
     const sw = read('public/service-worker.js');
     const index = read('public/index.html');
-    assert.match(sw, /v3\.6\.0-legacy-cleanup/);
-    assert.match(index, /accounts\.js\?v=3\.6\.0-legacy-cleanup/);
-    assert.match(index, /cash\.js\?v=3\.6\.0-legacy-cleanup/);
+    assert.match(sw, /v3\.7\.0-cross-domain-closure/);
+    assert.match(index, /accounts\.js\?v=3\.7\.0-cross-domain-closure/);
+    assert.match(index, /cash\.js\?v=3\.7\.0-cross-domain-closure/);
 });
