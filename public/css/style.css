@@ -8502,9 +8502,7 @@ body {
         animation: none;
     }
 
-    .app-container.dashboard-focus-mode #dashboard-section .dashboard-hero,
-    .app-container.dashboard-focus-mode #dashboard-section .dashboard-credit-card,
-    .app-container.dashboard-focus-mode #dashboard-section .dashboard-recent {
+    .app-container.dashboard-focus-mode #dashboard-section > :not(#dashboard-zones-filter):not(.dashboard-operation-panel) {
         display: none !important;
     }
 
