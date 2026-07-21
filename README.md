@@ -7,9 +7,9 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.7
 - **Estado de producto:** MundiPOS 3.0 cerrado, validado y publicado; MundiPOS v4 en curso
-- **Línea de trabajo actual:** v4.1.2 · Recuperación de sesión SPA/PWA, implementada, validada y cerrada técnicamente; pendiente de publicación Git
+- **Línea de trabajo actual:** v4.2.1 · Modelo persistente `sesiones_usuario`, implementada, validada y cerrada técnicamente; pendiente de publicación Git
 
-La versión visible para usuarios, configuración pública y metadata base de la app es **3.7**. La modernización MundiPOS 3.0 reorganizó internamente Cuentas, Pagos, Comandas e Impresiones, preservando los contratos operativos y financieros canónicos. La etapa 3 queda cerrada técnicamente en **v3.7.0-fix1**. La línea MundiPOS v4 inició con persistencia y continuidad operativa de sesiones; v4.1.1 quedó publicada en `a8525e0f8110935b2cad20326313c9c73745b677` y v4.1.2 quedó implementada, validada y cerrada técnicamente, pendiente únicamente de publicación Git.
+La versión visible para usuarios, configuración pública y metadata base de la app es **3.7**. La modernización MundiPOS 3.0 reorganizó internamente Cuentas, Pagos, Comandas e Impresiones, preservando los contratos operativos y financieros canónicos. La etapa 3 queda cerrada técnicamente en **v3.7.0-fix1**. La línea MundiPOS v4 inició con persistencia y continuidad operativa de sesiones; v4.1.1 quedó publicada en `a8525e0f8110935b2cad20326313c9c73745b677`, v4.1.2 quedó publicada en `1830711fea951b3c5a43eb041e927c5073de1b14` y v4.2.1 quedó implementada, validada y cerrada técnicamente, pendiente únicamente de publicación Git.
 
 ## Control de versionado del proyecto
 
@@ -24,7 +24,7 @@ Este proyecto se trabajará con versionado trazable por etapa, fase y fix.
 | v2.1 | Estabilidad | Etapa cerrada: estabilidad visual, navegación, PWA y base técnica. |
 | v2.2 | Estabilización funcional | Etapa cerrada: Dashboard, zonas, roles, permisos y normalización base de Menú. |
 | v3.0 | Arquitectura modular | Etapa cerrada: Cuentas, Pagos, Comandas, Printing, Dashboard y Realtime normalizados y validados transversalmente. |
-| v4 | Sesiones y continuidad operativa | Etapa en curso. v4.1.1 está publicada y v4.1.2 está implementada, validada y cerrada técnicamente; pendiente de publicación Git. |
+| v4 | Sesiones y continuidad operativa | Etapa en curso. v4.1 está publicada y v4.2.1 está implementada, validada y cerrada técnicamente; pendiente de publicación Git. |
 
 ### Fases de estabilidad
 
@@ -87,6 +87,19 @@ No se continúa con la siguiente subfase hasta que la subfase actual esté compr
 
 ## Registro de cambios canónico
 
+### v4.2.1 · Modelo persistente `sesiones_usuario`
+
+- **Objetivo:** crear la base persistente y auditable del ciclo histórico de sesiones sin conectarla todavía a login, logout o verify.
+- **Persistencia:** `sesiones_usuario` vive en la base principal `data/restaurant.db`; permanece separada del store técnico `express_sessions` de `data/sessions.db`.
+- **Identidad:** cada registro usa `session_uuid` único; `express_session_id` se conserva únicamente como correlación interna no única y no se expone como identidad pública.
+- **Modelo:** relaciona `usuarios.id`, `client_id`, estado, inicio, última actividad nullable, finalización, motivo y fecha de actualización.
+- **Estados preparados:** `activa`, `cerrada`, `revocada`, `reemplazada` y `expirada`.
+- **Infraestructura:** creación e índices idempotentes en la inicialización SQLite existente, más un repositorio mínimo no conectado a rutas.
+- **Alcance diferido:** lifecycle real en v4.2.2; responsabilidad, concurrencia, presencia, transferencia, administración y reportería en sus fases posteriores.
+- **Validación:** pruebas específicas **4/4**; regresión del store técnico **2/2**; regresión de migraciones SQLite **2/2**; suite completa **202/202**, 0 fallos.
+- **Estado:** implementada, validada y cerrada técnicamente; pendiente de publicación Git.
+- **Documento:** `docs/avance-v4.2.1-modelo-sesiones-usuario.md`.
+
 ### v4.1.2 · Recuperación de sesión SPA/PWA
 
 - **Objetivo:** evitar que una pérdida temporal de red o del servidor se interprete como logout y recuperar de forma transparente una sesión todavía válida en la SPA/PWA.
@@ -97,8 +110,9 @@ No se continúa con la siguiente subfase hasta que la subfase actual esté compr
 - **Resultado:** MundiPOS conserva el contexto autenticado durante interrupciones temporales y recupera automáticamente la operación cuando vuelve la red o Node; una sesión realmente inválida continúa llevando al login.
 - **Riesgo diferido:** v4.1.2 no limita sesiones concurrentes por usuario; ese control corresponde a v4.4.
 - **Validación:** pruebas específicas v4.1.2 **7/7**; regresión v4.1.1 + Realtime **5/5**; suite completa **198/198**, 0 fallos; validación manual **aprobada**.
-- **Estado:** implementada, validada y cerrada técnicamente; pendiente de publicación Git.
+- **Estado:** cerrada y publicada en `1830711fea951b3c5a43eb041e927c5073de1b14`.
 - **Documento:** `docs/avance-v4.1.2-recuperacion-sesion-spa-pwa.md`.
+
 ### v4.1.1 · Store persistente de sesiones
 
 - **Objetivo:** eliminar la pérdida de sesiones técnicas causada por `MemoryStore` cuando se reinicia el proceso Node.

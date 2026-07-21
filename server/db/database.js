@@ -81,6 +81,21 @@ class Database {
                 fecha_creacion TEXT NOT NULL
             )`,
 
+            `CREATE TABLE IF NOT EXISTS sesiones_usuario (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_uuid TEXT NOT NULL UNIQUE,
+                usuario_id INTEGER NOT NULL,
+                express_session_id TEXT NOT NULL,
+                client_id TEXT,
+                estado TEXT NOT NULL DEFAULT 'activa' CHECK(estado IN ('activa', 'cerrada', 'revocada', 'reemplazada', 'expirada')),
+                iniciada_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                ultima_actividad_en TEXT,
+                finalizada_en TEXT,
+                motivo_finalizacion TEXT,
+                actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE RESTRICT
+            )`,
+
             `CREATE TABLE IF NOT EXISTS zonas (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 nombre TEXT NOT NULL UNIQUE,
@@ -824,6 +839,11 @@ class Database {
             'CREATE INDEX IF NOT EXISTS idx_rol_trabajo_zonas_zona ON rol_trabajo_zonas(zona_id)',
             'CREATE INDEX IF NOT EXISTS idx_usuario_roles_trabajo_usuario ON usuario_roles_trabajo(usuario_id)',
             'CREATE INDEX IF NOT EXISTS idx_usuario_roles_trabajo_rol ON usuario_roles_trabajo(rol_trabajo_id)',
+            'CREATE INDEX IF NOT EXISTS idx_sesiones_usuario_usuario_inicio ON sesiones_usuario(usuario_id, iniciada_en DESC)',
+            'CREATE INDEX IF NOT EXISTS idx_sesiones_usuario_estado_inicio ON sesiones_usuario(estado, iniciada_en DESC)',
+            'CREATE INDEX IF NOT EXISTS idx_sesiones_usuario_cliente_inicio ON sesiones_usuario(client_id, iniciada_en DESC)',
+            'CREATE INDEX IF NOT EXISTS idx_sesiones_usuario_express_sid ON sesiones_usuario(express_session_id)',
+            'CREATE INDEX IF NOT EXISTS idx_sesiones_usuario_inicio ON sesiones_usuario(iniciada_en)',
             'CREATE INDEX IF NOT EXISTS idx_mesa_responsables_mesa ON mesa_responsables(mesa_id)',
             'CREATE INDEX IF NOT EXISTS idx_mesa_responsables_usuario ON mesa_responsables(usuario_id)',
             'CREATE INDEX IF NOT EXISTS idx_mesa_responsables_rol ON mesa_responsables(rol_trabajo_id)',
