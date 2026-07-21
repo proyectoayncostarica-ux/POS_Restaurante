@@ -138,6 +138,10 @@ async function navigationHandler(request) {
   try {
     const response = await fetch(request, { cache: 'no-store', redirect: 'follow' });
 
+    if (!response.ok && response.status >= 500) {
+      return navigationFallback(request);
+    }
+
     if (isCacheableResponse(response)) {
       const cache = await caches.open(RUNTIME_CACHE);
       await cache.put('/POS/', response.clone()).catch(() => null);

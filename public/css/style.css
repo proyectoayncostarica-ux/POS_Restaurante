@@ -12681,3 +12681,147 @@ body.kitchen-department-mode #kitchen-section.content-section.active {
 .kitchen-offline-banner[hidden] {
     display: none;
 }
+/* v4.1.2 · Estados de verificación y recuperación de sesión */
+.session-recovery-status {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 1.2rem 1rem;
+    border: 1px solid rgba(52, 152, 219, 0.22);
+    border-radius: 16px;
+    background: rgba(245, 249, 252, 0.92);
+    color: #203247;
+    text-align: center;
+}
+
+.session-recovery-status[hidden],
+.connection-status-header[hidden] {
+    display: none !important;
+}
+
+.session-recovery-status strong {
+    font-size: 1rem;
+}
+
+.session-recovery-status > span:last-child {
+    color: #5e7184;
+    font-size: 0.84rem;
+    line-height: 1.45;
+}
+
+.session-recovery-spinner {
+    width: 34px;
+    height: 34px;
+    border: 3px solid rgba(52, 152, 219, 0.18);
+    border-top-color: #3498db;
+    border-radius: 50%;
+    animation: sessionRecoverySpin 850ms linear infinite;
+}
+
+@keyframes sessionRecoverySpin {
+    to { transform: rotate(360deg); }
+}
+
+.connection-status-header {
+    grid-area: header;
+    position: relative;
+    z-index: 1200;
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    min-width: 0;
+    padding: 0.75rem 1.25rem;
+    color: #fff;
+    background: linear-gradient(135deg, #8d2b20, #c0392b 58%, #e67e22);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.28);
+    box-shadow: 0 8px 24px rgba(108, 33, 25, 0.28);
+}
+
+.connection-status-icon {
+    display: grid;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    flex: 0 0 42px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.16);
+    font-size: 1.15rem;
+}
+
+.connection-status-copy {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.25;
+}
+
+.connection-status-copy strong {
+    font-size: 1rem;
+}
+
+.connection-status-copy span {
+    color: rgba(255, 255, 255, 0.86);
+    font-size: 0.8rem;
+}
+
+.connection-status-brand {
+    margin-left: auto;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+}
+
+body.auth-reconnecting .app-header {
+    display: none !important;
+}
+
+body.kitchen-department-mode.auth-reconnecting .app-container {
+    grid-template-areas: "header" "main";
+    grid-template-rows: 72px 1fr;
+    grid-template-columns: 1fr;
+}
+
+body.auth-reconnecting .app-container.session-interaction-blocked .sidebar,
+body.auth-reconnecting .app-container.session-interaction-blocked .main-content,
+body.auth-reconnecting .app-container.session-interaction-blocked .mobile-subnav,
+body.auth-reconnecting .app-container.session-interaction-blocked .sidebar-overlay {
+    pointer-events: none !important;
+    user-select: none;
+}
+
+body.auth-reconnecting .app-container.session-interaction-blocked .sidebar,
+body.auth-reconnecting .app-container.session-interaction-blocked .main-content,
+body.auth-reconnecting .app-container.session-interaction-blocked .mobile-subnav {
+    opacity: 0.78;
+    filter: saturate(0.72);
+}
+
+body.auth-reconnecting .modal-overlay {
+    pointer-events: none !important;
+}
+
+@media (max-width: 768px) {
+    .connection-status-header {
+        gap: 0.65rem;
+        padding: 0.55rem 0.75rem;
+    }
+
+    .connection-status-icon {
+        width: 36px;
+        height: 36px;
+        flex-basis: 36px;
+        font-size: 1rem;
+    }
+
+    .connection-status-copy strong {
+        font-size: 0.9rem;
+    }
+
+    .connection-status-copy span {
+        font-size: 0.72rem;
+    }
+
+    .connection-status-brand {
+        font-size: 0.76rem;
+    }
+}

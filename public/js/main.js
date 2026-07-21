@@ -174,6 +174,12 @@ const INTERNAL_SUBNAV = {
 const API_BASE = '/api';
 const MUNDIPOS_CLIENT_ID = getOrCreateClientId();
 const MUNDIPOS_BUILD_TRACK = '3.5.1';
+const SESSION_STATES = Object.freeze({
+    VERIFYING: 'VERIFYING',
+    AUTHENTICATED_ONLINE: 'AUTHENTICATED_ONLINE',
+    AUTHENTICATED_RECONNECTING: 'AUTHENTICATED_RECONNECTING',
+    UNAUTHENTICATED: 'UNAUTHENTICATED'
+});
 
 // Utilidades
 const Utils = {
@@ -223,6 +229,11 @@ const Utils = {
             return data;
         } catch (error) {
             if (error && error.status === undefined) error.isNetworkError = true;
+            if (currentUser
+                && typeof Auth !== 'undefined'
+                && Auth.isTemporarySessionRecoveryError(error)) {
+                Auth.handleTemporaryConnectionFailure(error);
+            }
             console.error('Error en petición:', error);
             throw error;
         }
@@ -410,12 +421,33 @@ const Utils = {
 const Auth = {
     requiresBootstrapSetup: false,
     pendingRoleChangeIds: [],
+    sessionState: SESSION_STATES.VERIFYING,
+    sessionRecoveryTimer: null,
+    sessionRecoveryAttempt: 0,
+    sessionRecoveryInFlight: false,
 
     // Verificar sesión
     async checkSession() {
+        if (this.sessionRecoveryInFlight) return false;
+        const resumeExistingView = Boolean(currentUser)
+            && this.sessionState === SESSION_STATES.AUTHENTICATED_RECONNECTING
+            && this.isMainAppVisible();
+        this.sessionRecoveryInFlight = true;
+
+        if (!currentUser) {
+            const retrying = this.sessionRecoveryAttempt > 0;
+            this.showSessionVerifying({
+                title: retrying ? 'Sin conexión al servidor' : 'Verificando sesión...',
+                message: retrying
+                    ? 'Esperando recuperación de la red para comprobar la sesión guardada.'
+                    : 'Comprobando la sesión guardada en este dispositivo.'
+            });
+        }
+
         try {
             const bootstrapStatus = await this.checkBootstrapStatus();
             if (bootstrapStatus.requiresSetup) {
+                this.cancelSessionRecovery();
                 currentUser = null;
                 this.showBootstrapSetup();
                 return false;
@@ -423,20 +455,180 @@ const Auth = {
 
             const response = await Utils.request('/auth/verify');
             if (response.authenticated) {
+                this.cancelSessionRecovery();
                 currentUser = response.user;
-                await this.continueAuthenticatedSession({ animated: false });
+
+                if (resumeExistingView
+                    && !this.requiresOperationalRoleSelection()
+                    && this.canOperateWithCurrentSession()) {
+                    this.resumeAuthenticatedSession();
+                } else {
+                    await this.continueAuthenticatedSession({ animated: false });
+                }
                 return true;
             }
 
+            this.cancelSessionRecovery();
+            currentUser = null;
             this.showLogin();
             return false;
         } catch (error) {
             console.error('Error verificando sesión:', error);
+
+            if (this.isTemporarySessionRecoveryError(error)) {
+                this.showSessionRecoveryPending();
+                this.scheduleSessionRecovery();
+                return false;
+            }
+
+            this.cancelSessionRecovery();
+            currentUser = null;
             this.showLogin();
             return false;
+        } finally {
+            this.sessionRecoveryInFlight = false;
         }
     },
 
+    isTemporarySessionRecoveryError(error) {
+        return error?.isNetworkError === true || Number(error?.status || 0) >= 500;
+    },
+
+    isMainAppVisible() {
+        const mainApp = document.getElementById('main-app');
+        return Boolean(mainApp && mainApp.style.display !== 'none');
+    },
+
+    setSessionState(state) {
+        this.sessionState = state;
+        document.body.dataset.sessionState = state;
+    },
+
+    scheduleSessionRecovery() {
+        if (this.sessionRecoveryTimer) return;
+
+        const delayMs = Math.min(15000, 1500 * (2 ** Math.min(this.sessionRecoveryAttempt, 4)));
+        this.sessionRecoveryAttempt += 1;
+        this.sessionRecoveryTimer = window.setTimeout(() => {
+            this.sessionRecoveryTimer = null;
+            this.checkSession();
+        }, delayMs);
+    },
+
+    retrySessionRecoveryNow() {
+        const recoveryActive = this.sessionState === SESSION_STATES.VERIFYING
+            || this.sessionState === SESSION_STATES.AUTHENTICATED_RECONNECTING;
+        if (!this.sessionRecoveryTimer && !recoveryActive) return;
+        if (this.sessionRecoveryInFlight) return;
+        if (this.sessionRecoveryTimer) window.clearTimeout(this.sessionRecoveryTimer);
+        this.sessionRecoveryTimer = window.setTimeout(() => {
+            this.sessionRecoveryTimer = null;
+            this.checkSession();
+        }, 0);
+    },
+
+    cancelSessionRecovery() {
+        if (this.sessionRecoveryTimer) {
+            window.clearTimeout(this.sessionRecoveryTimer);
+            this.sessionRecoveryTimer = null;
+        }
+        this.sessionRecoveryAttempt = 0;
+    },
+
+    handleTemporaryConnectionFailure() {
+        if (!currentUser) return;
+        this.showAuthenticatedReconnecting();
+        this.scheduleSessionRecovery();
+    },
+
+    showSessionVerifying(options = {}) {
+        const loginScreen = document.getElementById('login-screen');
+        const mainApp = document.getElementById('main-app');
+        const operationalScreen = document.getElementById('operational-session-screen');
+
+        this.setSessionState(SESSION_STATES.VERIFYING);
+        this.setAuthenticatedReconnectingUi(false);
+        if (operationalScreen) operationalScreen.style.display = 'none';
+        if (mainApp) mainApp.style.display = 'none';
+        if (loginScreen) loginScreen.style.display = 'flex';
+        setLoginMode('verifying', options);
+    },
+
+    showSessionRecoveryPending() {
+        if (currentUser) {
+            this.showAuthenticatedReconnecting();
+            return;
+        }
+
+        this.showSessionVerifying({
+            title: 'Sin conexión al servidor',
+            message: 'Esperando recuperación de la red para comprobar la sesión guardada.'
+        });
+    },
+
+    showAuthenticatedReconnecting() {
+        if (!currentUser) {
+            this.showSessionRecoveryPending();
+            return;
+        }
+
+        this.setSessionState(SESSION_STATES.AUTHENTICATED_RECONNECTING);
+        if (this.isMainAppVisible()) {
+            document.getElementById('login-screen')?.style.setProperty('display', 'none');
+            this.setAuthenticatedReconnectingUi(true);
+            return;
+        }
+
+        this.setAuthenticatedReconnectingUi(false);
+        document.getElementById('operational-session-screen')?.style.setProperty('display', 'none');
+        document.getElementById('login-screen')?.style.setProperty('display', 'flex');
+        setLoginMode('recovery', {
+            title: 'Sin conexión al servidor',
+            message: 'La sesión sigue pendiente de verificación. Esperando recuperación de la red.'
+        });
+    },
+
+    setAuthenticatedReconnectingUi(active) {
+        const mainApp = document.getElementById('main-app');
+        const connectionHeader = document.getElementById('connection-status-header');
+        const blockedSelectors = [
+            '.app-header',
+            '.sidebar',
+            '.main-content',
+            '#mobile-subnav',
+            '#sidebar-overlay',
+            '#modal-overlay'
+        ];
+
+        document.body.classList.toggle('auth-reconnecting', active);
+        if (connectionHeader) connectionHeader.hidden = !active;
+        if (mainApp) mainApp.setAttribute('aria-busy', active ? 'true' : 'false');
+        mainApp?.classList.toggle('session-interaction-blocked', active);
+
+        blockedSelectors.forEach(selector => {
+            const element = document.querySelector(selector);
+            if (!element) return;
+            element.inert = active;
+            if (active) {
+                element.setAttribute('aria-disabled', 'true');
+            } else {
+                element.removeAttribute('aria-disabled');
+            }
+        });
+    },
+
+    resumeAuthenticatedSession() {
+        this.setSessionState(SESSION_STATES.AUTHENTICATED_ONLINE);
+        this.setAuthenticatedReconnectingUi(false);
+        this.updateUserInfo();
+        Access.applyNavigation();
+        if (!Access.canOpen(currentSection)) {
+            Navigation.showSection(Access.getInitialSection());
+        }
+        startHeaderClock();
+        Realtime.reconnectForSession();
+        Realtime.scheduleRecovery('session-recovered');
+    },
     async checkBootstrapStatus() {
         const response = await Utils.request('/public/bootstrap-status', {
             method: 'GET',
@@ -545,6 +737,10 @@ const Auth = {
         const mainApp = document.getElementById('main-app');
         const operationalScreen = document.getElementById('operational-session-screen');
 
+        this.cancelSessionRecovery();
+        this.setAuthenticatedReconnectingUi(false);
+        this.setSessionState(SESSION_STATES.UNAUTHENTICATED);
+
         if (operationalScreen) operationalScreen.style.display = 'none';
         stopHeaderClock();
         Realtime.disconnect();
@@ -571,6 +767,10 @@ const Auth = {
         const mainApp = document.getElementById('main-app');
         const operationalScreen = document.getElementById('operational-session-screen');
 
+        this.cancelSessionRecovery();
+        this.setAuthenticatedReconnectingUi(false);
+        this.setSessionState(SESSION_STATES.UNAUTHENTICATED);
+
         if (operationalScreen) operationalScreen.style.display = 'none';
         stopHeaderClock();
         Realtime.disconnect();
@@ -595,6 +795,9 @@ const Auth = {
         const loginScreen = document.getElementById('login-screen');
         const mainApp = document.getElementById('main-app');
         const operationalScreen = document.getElementById('operational-session-screen');
+
+        this.setSessionState(SESSION_STATES.AUTHENTICATED_ONLINE);
+        this.setAuthenticatedReconnectingUi(false);
 
         if (operationalScreen) operationalScreen.style.display = 'none';
 
@@ -621,6 +824,9 @@ const Auth = {
         const loginScreen = document.getElementById('login-screen');
         const mainApp = document.getElementById('main-app');
         const operationalScreen = document.getElementById('operational-session-screen');
+
+        this.setSessionState(SESSION_STATES.AUTHENTICATED_ONLINE);
+        this.setAuthenticatedReconnectingUi(false);
 
         if (operationalScreen) operationalScreen.style.display = 'none';
 
@@ -680,6 +886,9 @@ const Auth = {
         const rolesContainer = document.getElementById('operational-role-options');
         const blockedMessage = document.getElementById('operational-session-blocked');
         const enterButton = document.getElementById('operational-session-enter-btn');
+
+        this.setSessionState(SESSION_STATES.AUTHENTICATED_ONLINE);
+        this.setAuthenticatedReconnectingUi(false);
 
         stopHeaderClock();
         Realtime.disconnect();
@@ -1283,24 +1492,50 @@ function resetSubmitButton(button, iconHtml, label) {
     `;
 }
 
-function setLoginMode(mode = 'login') {
+function setLoginMode(mode = 'login', options = {}) {
     const loginCard = document.getElementById('login-card');
     const loginForm = document.getElementById('login-form');
     const bootstrapForm = document.getElementById('bootstrap-admin-form');
+    const recoveryStatus = document.getElementById('session-recovery-status');
+    const recoveryTitle = document.getElementById('session-recovery-title');
+    const recoveryMessage = document.getElementById('session-recovery-message');
+    const errorDiv = document.getElementById('login-error');
     const eyebrow = document.querySelector('.login-eyebrow');
     const title = document.querySelector('.login-header h1');
     const restaurantName = document.getElementById('login-restaurant-name');
     const isBootstrap = mode === 'bootstrap';
+    const isRecovery = mode === 'recovery';
+    const isVerifying = mode === 'verifying';
+    const isSessionPending = isRecovery || isVerifying;
 
     loginCard?.classList.toggle('is-bootstrap-setup', isBootstrap);
 
-    if (loginForm) loginForm.hidden = isBootstrap;
+    if (loginForm) {
+        loginForm.hidden = isBootstrap || isSessionPending;
+        loginForm.setAttribute('aria-hidden', loginForm.hidden ? 'true' : 'false');
+        loginForm.querySelectorAll('input, button').forEach(control => {
+            control.disabled = isBootstrap || isSessionPending;
+        });
+    }
     if (bootstrapForm) bootstrapForm.hidden = !isBootstrap;
+    if (recoveryStatus) recoveryStatus.hidden = !isSessionPending;
+    if (recoveryTitle && isSessionPending) {
+        recoveryTitle.textContent = options.title || (isRecovery ? 'Sin conexión al servidor' : 'Verificando sesión...');
+    }
+    if (recoveryMessage && isSessionPending) {
+        recoveryMessage.textContent = options.message || 'Comprobando la sesión guardada en este dispositivo.';
+    }
+    if (errorDiv && isSessionPending) {
+        errorDiv.textContent = '';
+        errorDiv.style.display = 'none';
+    }
 
     if (eyebrow) {
         eyebrow.textContent = isBootstrap
             ? 'Configuración inicial'
-            : 'Punto de venta inteligente';
+            : isSessionPending
+                ? 'Recuperación segura de sesión'
+                : 'Punto de venta inteligente';
     }
 
     if (title) {
@@ -1315,7 +1550,6 @@ function setLoginMode(mode = 'login') {
             : (restaurantName.dataset.businessName || restaurantName.textContent || 'Cargando negocio...');
     }
 }
-
 // Navegación
 const Navigation = {
     mobileSubnavMoreOpen: false,
@@ -1765,6 +1999,7 @@ const Realtime = {
             this.isConnected = false;
             this.needsRecovery = true;
             if (typeof Kitchen !== 'undefined') Kitchen.updateConnectionStatus(false);
+            Auth.handleTemporaryConnectionFailure();
             this.scheduleReconnect();
         };
     },
@@ -2136,7 +2371,9 @@ const PWA = {
 
 // Event Listeners
 document.addEventListener('DOMContentLoaded', async function() {
+    Auth.showSessionVerifying();
     PWA.init();
+    window.addEventListener('online', () => Auth.retrySessionRecoveryNow());
     await loadPublicBranding();
 
     // Verificar sesión al cargar
