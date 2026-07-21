@@ -9,6 +9,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const session = require('express-session');
 const database = require('./db/database');
+const { SQLiteSessionStore } = require('./services/sqliteSessionStore');
 const { APP_NAME, APP_VERSION, STABILITY_TRACK } = require('./config/appInfo');
 const realtime = require('./utils/realtime');
 const printingService = require('./services/printingService');
@@ -34,6 +35,9 @@ const HOST = process.env.HOST || '0.0.0.0';
 const HTTPS_ENABLED = ['true', '1', 'yes', 'on'].includes(String(process.env.HTTPS_ENABLED || '').toLowerCase());
 const HTTPS_KEY_PATH = process.env.HTTPS_KEY_PATH || '';
 const HTTPS_CERT_PATH = process.env.HTTPS_CERT_PATH || '';
+const SESSION_DB_PATH = process.env.SESSION_DB_PATH
+    ? resolveProjectPath(process.env.SESSION_DB_PATH)
+    : path.join(__dirname, '../data/sessions.db');
 
 function loadEnvFile(envPath) {
     if (!fs.existsSync(envPath)) return;
@@ -134,8 +138,10 @@ app.use(bodyParser.json({ limit: '10mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
 
 // Configuración de sesiones
+const sessionStore = new SQLiteSessionStore({ dbPath: SESSION_DB_PATH });
 app.use(session({
     secret: SESSION_SECRET,
+    store: sessionStore,
     resave: false,
     saveUninitialized: false,
     name: 'pos.sid',
@@ -276,6 +282,7 @@ app.use((err, req, res, next) => {
 if (require.main === module) {
     database.initializeDatabase().then(async () => {
         const recovery = await printingService.recoverStale({ olderThanMinutes: 10 });
+        await sessionStore.ready();
         if (recovery.recuperados > 0) {
             console.log(`Printing: ${recovery.recuperados} trabajo(s) interrumpido(s) devueltos a la cola`);
         }
@@ -285,6 +292,7 @@ if (require.main === module) {
             console.log(`Servidor POS ejecutándose en ${protocol}://${HOST}:${PORT}`);
             console.log(`Frontend disponible en ${protocol}://localhost:${PORT}/POS/`);
 
+            console.log(`Sesiones persistentes SQLite: ${SESSION_DB_PATH}`);
             if (protocol === 'http') {
                 console.log('PWA: instalable en PC usando localhost/127.0.0.1. Para instalar desde móvil por IP local se requiere HTTPS con certificado confiable.');
             } else {

@@ -55,11 +55,12 @@ test('package expone comandos dedicados para pruebas cruzadas y contrato de cier
     assert.equal(pkg.scripts['test:closure'], 'node --test --test-concurrency=1 tests/mundiPos3CrossDomain.test.js tests/mundiPos3ClosureContract.test.js');
 });
 
-test('la documentación de continuidad no declara cerrado o publicado v3.7.0 antes de completar Git seguro', () => {
+test('la continuidad conserva el estado previo al cierre y el README refleja el cierre publicado', () => {
     const continuity = read('docs/PROMPT-CONTINUIDAD-MUNDIPOS-3.0.md');
     const readme = read('README.md');
     assert.match(continuity, /v3\.7\.0 · Pruebas cruzadas y cierre MundiPOS 3\.0/);
     assert.match(continuity, /pendiente de validación final/i);
     assert.match(readme, /v3\.7\.0 · Pruebas cruzadas y cierre MundiPOS 3\.0/);
-    assert.match(readme, /pendiente de validación final/i);
+    assert.match(readme, /MundiPOS 3\.0 cerrado, validado y publicado/i);
+    assert.match(readme, /v3\.7\.0-fix1/i);
 });

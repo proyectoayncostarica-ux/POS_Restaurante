@@ -6,10 +6,10 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.7
-- **Estado de producto:** MundiPOS 3.0 cerrado, validado y publicado; base estable para definir la futura Etapa 4
-- **Línea de trabajo actual:** v3.7.0-fix1 · Cierre validado y publicado de MundiPOS 3.0
+- **Estado de producto:** MundiPOS 3.0 cerrado, validado y publicado; MundiPOS v4 en curso
+- **Línea de trabajo actual:** v4.1.1 · Store persistente de sesiones, cerrada técnicamente y pendiente de publicación Git
 
-La versión visible para usuarios, configuración pública y metadata base de la app es **3.7**. La modernización MundiPOS 3.0 reorganizó internamente Cuentas, Pagos, Comandas e Impresiones, preservando los contratos operativos y financieros canónicos. La etapa 3 queda cerrada técnicamente en **v3.7.0-fix1**.
+La versión visible para usuarios, configuración pública y metadata base de la app es **3.7**. La modernización MundiPOS 3.0 reorganizó internamente Cuentas, Pagos, Comandas e Impresiones, preservando los contratos operativos y financieros canónicos. La etapa 3 queda cerrada técnicamente en **v3.7.0-fix1**. La línea MundiPOS v4 inició con persistencia y continuidad operativa de sesiones; v4.1.1 está validada y cerrada técnicamente, pendiente únicamente de publicación Git.
 
 ## Control de versionado del proyecto
 
@@ -24,7 +24,7 @@ Este proyecto se trabajará con versionado trazable por etapa, fase y fix.
 | v2.1 | Estabilidad | Etapa cerrada: estabilidad visual, navegación, PWA y base técnica. |
 | v2.2 | Estabilización funcional | Etapa cerrada: Dashboard, zonas, roles, permisos y normalización base de Menú. |
 | v3.0 | Arquitectura modular | Etapa cerrada: Cuentas, Pagos, Comandas, Printing, Dashboard y Realtime normalizados y validados transversalmente. |
-| v4 | Pendiente de definición | Etapa no iniciada. El usuario aún no ha entregado las instrucciones de la Etapa 4 ni existe un roadmap canónico aprobado. |
+| v4 | Sesiones y continuidad operativa | Etapa en curso. v4.1.1 está implementada, validada y cerrada técnicamente; pendiente de publicación Git. |
 
 ### Fases de estabilidad
 
@@ -86,6 +86,18 @@ No se continúa con la siguiente subfase hasta que la subfase actual esté compr
 ```
 
 ## Registro de cambios canónico
+
+### v4.1.1 · Store persistente de sesiones
+
+- **Objetivo:** eliminar la pérdida de sesiones técnicas causada por `MemoryStore` cuando se reinicia el proceso Node.
+- **Implementación:** `express-session` utiliza un store SQLite persistente separado de la base financiera.
+- **Store runtime:** `data/sessions.db`, archivo local, ignorado y no trackeado.
+- **Dependencias:** no se agregó ninguna; se utiliza directamente la dependencia SQLite existente.
+- **Contratos preservados:** `pos.sid`, TTL de 24 horas, login, logout, `/api/auth/verify`, `req.session` y compatibilidad de `req.sessionStore.all()`.
+- **Resultado:** una sesión válida sobrevive a F5, reapertura o reconexión normal y reinicio de Node mientras no haya expirado ni haya sido destruida mediante logout.
+- **Validación:** pruebas específicas de persistencia aprobadas; contrato de cierre MundiPOS 3.0 **5/5**; suite completa **191/191**; validación manual aprobada.
+- **Estado:** implementada, validada y cerrada técnicamente; pendiente de publicación Git.
+- **Documento:** `docs/avance-v4.1.1-store-persistente-sesiones.md`.
 
 ### v3.7.0-fix1 · Cierre validado de MundiPOS 3.0
 
