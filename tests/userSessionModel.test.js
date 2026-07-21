@@ -160,19 +160,29 @@ test('el repositorio conserva historia y permite correlacionar varias filas con 
     assert.deepEqual(foreignKeyIssues, []);
 });
 
-test('v4.2.1 mantiene separado el historial del store técnico y no integra auth prematuramente', () => {
+test('v4.2.2 integra el ciclo de vida sin mezclar el historial con el store técnico', () => {
     const authSource = fs.readFileSync(path.join(PROJECT_ROOT, 'server/routes/auth.js'), 'utf8');
     const storeSource = fs.readFileSync(path.join(PROJECT_ROOT, 'server/services/sqliteSessionStore.js'), 'utf8');
     const serviceMethods = Object.getOwnPropertyNames(UserSessionService.prototype);
+    const verifyStart = authSource.indexOf("router.get('/verify'");
+    const verifyEnd = authSource.indexOf("router.get('/operational-session'", verifyStart);
+    const verifySource = authSource.slice(verifyStart, verifyEnd);
 
-    assert.doesNotMatch(authSource, /sesiones_usuario|userSessionService/);
-    assert.match(storeSource, /SESSION_TABLE\s*=\s*['"]express_sessions['"]/);
+    assert.ok(verifyStart >= 0 && verifyEnd > verifyStart);
+    assert.match(authSource, /userSessionService/);
+    assert.match(authSource, /persistAuthenticatedSession/);
+    assert.match(storeSource, /SESSION_TABLE.*express_sessions/);
     assert.doesNotMatch(storeSource, /sesiones_usuario/);
+    assert.doesNotMatch(verifySource, /persistAuthenticatedSession|startAuthenticatedSession/);
     assert.ok(serviceMethods.includes('create'));
     assert.ok(serviceMethods.includes('findByUuid'));
     assert.ok(serviceMethods.includes('findByExpressSessionId'));
     assert.ok(serviceMethods.includes('listByUser'));
     assert.ok(serviceMethods.includes('updateStatus'));
+    assert.ok(serviceMethods.includes('startAuthenticatedSession'));
+    assert.ok(serviceMethods.includes('closeActiveByExpressSessionId'));
+    assert.ok(serviceMethods.includes('expireActiveByExpressSessionId'));
+    assert.ok(serviceMethods.includes('reconcileActiveSessions'));
     assert.ok(!serviceMethods.includes('heartbeat'));
     assert.ok(!serviceMethods.includes('transfer'));
     assert.ok(!serviceMethods.includes('revokeAutomatically'));

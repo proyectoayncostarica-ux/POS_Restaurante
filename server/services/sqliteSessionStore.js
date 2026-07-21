@@ -33,6 +33,10 @@ class SQLiteSessionStore extends session.Store {
         this.cleanupIntervalMs = Number(options.cleanupIntervalMs) >= 0
             ? Number(options.cleanupIntervalMs)
             : DEFAULT_CLEANUP_INTERVAL_MS;
+        this.expirationHandler = typeof options.expirationHandler === 'function'
+            ? options.expirationHandler
+            : null;
+        this.deferInitialCleanup = Boolean(options.deferInitialCleanup);
         this.db = null;
         this.cleanupTimer = null;
         this.readyPromise = this.initialize();
@@ -52,7 +56,9 @@ class SQLiteSessionStore extends session.Store {
         )`);
         await this.run(`CREATE INDEX IF NOT EXISTS idx_${SESSION_TABLE}_expires_at
             ON ${SESSION_TABLE} (expires_at)`);
-        await this.deleteExpired();
+        if (!this.deferInitialCleanup || this.expirationHandler) {
+            await this.deleteExpired();
+        }
 
         if (this.cleanupIntervalMs > 0) {
             this.cleanupTimer = setInterval(() => {
@@ -68,6 +74,13 @@ class SQLiteSessionStore extends session.Store {
         return this.readyPromise;
     }
 
+    setExpirationHandler(handler) {
+        if (handler !== null && typeof handler !== 'function') {
+            throw new TypeError('expirationHandler debe ser una función o null');
+        }
+        this.expirationHandler = handler;
+    }
+
     run(sql, params = []) {
         return new Promise((resolve, reject) => {
             this.db.run(sql, params, function onRun(error) {
@@ -77,22 +90,76 @@ class SQLiteSessionStore extends session.Store {
         });
     }
 
-    deleteExpired() {
-        return this.run(`DELETE FROM ${SESSION_TABLE} WHERE expires_at <= ?`, [Date.now()]);
+    queryGet(sql, params = []) {
+        return new Promise((resolve, reject) => {
+            this.db.get(sql, params, (error, row) => error ? reject(error) : resolve(row || null));
+        });
+    }
+
+    queryAll(sql, params = []) {
+        return new Promise((resolve, reject) => {
+            this.db.all(sql, params, (error, rows = []) => error ? reject(error) : resolve(rows));
+        });
+    }
+
+    async processExpiredRow(row) {
+        if (this.expirationHandler) {
+            let parsedSession = null;
+            try {
+                parsedSession = JSON.parse(row.sess);
+            } catch (error) {
+                this.emit('expirationError', error);
+            }
+
+            try {
+                await this.expirationHandler({
+                    sid: row.sid,
+                    session: parsedSession,
+                    expiresAt: Number(row.expires_at)
+                });
+            } catch (error) {
+                this.emit('expirationError', error);
+                return false;
+            }
+        }
+
+        await this.run(
+            `DELETE FROM ${SESSION_TABLE} WHERE sid = ? AND expires_at <= ?`,
+            [row.sid, Date.now()]
+        );
+        return true;
+    }
+
+    async deleteExpired() {
+        if (!this.db) await this.ready();
+        const rows = await this.queryAll(
+            `SELECT sid, sess, expires_at FROM ${SESSION_TABLE} WHERE expires_at <= ? ORDER BY expires_at, sid`,
+            [Date.now()]
+        );
+        let changes = 0;
+        for (const row of rows) {
+            if (await this.processExpiredRow(row)) changes += 1;
+        }
+        return { changes };
     }
 
     get(sid, callback) {
         const done = callbackOrNoop(callback);
-        this.ready().then(() => {
-            this.db.get(`SELECT sess FROM ${SESSION_TABLE} WHERE sid = ? AND expires_at > ?`, [sid, Date.now()], (error, row) => {
-                if (error) return done(error);
-                if (!row) return done(null, null);
-                try {
-                    done(null, JSON.parse(row.sess));
-                } catch (parseError) {
-                    done(parseError);
-                }
-            });
+        this.ready().then(async () => {
+            const row = await this.queryGet(
+                `SELECT sid, sess, expires_at FROM ${SESSION_TABLE} WHERE sid = ?`,
+                [sid]
+            );
+            if (!row) return done(null, null);
+            if (Number(row.expires_at) <= Date.now()) {
+                await this.processExpiredRow(row);
+                return done(null, null);
+            }
+            try {
+                done(null, JSON.parse(row.sess));
+            } catch (parseError) {
+                done(parseError);
+            }
         }).catch(done);
     }
 
@@ -121,31 +188,45 @@ class SQLiteSessionStore extends session.Store {
     touch(sid, storedSession, callback) {
         const done = callbackOrNoop(callback);
         const expiresAt = resolveExpiresAt(storedSession, this.defaultTtlMs);
-        this.ready().then(() => {
-            this.db.run(`UPDATE ${SESSION_TABLE} SET expires_at = ? WHERE sid = ? AND expires_at > ?`,
-                [expiresAt, sid, Date.now()], error => done(error || null));
+        this.ready().then(async () => {
+            const row = await this.queryGet(
+                `SELECT sid, sess, expires_at FROM ${SESSION_TABLE} WHERE sid = ?`,
+                [sid]
+            );
+            if (!row) return done(null);
+            if (Number(row.expires_at) <= Date.now()) {
+                await this.processExpiredRow(row);
+                return done(null);
+            }
+            await this.run(
+                `UPDATE ${SESSION_TABLE} SET expires_at = ? WHERE sid = ? AND expires_at > ?`,
+                [expiresAt, sid, Date.now()]
+            );
+            done(null);
         }).catch(done);
     }
 
     all(callback) {
         const done = callbackOrNoop(callback);
-        this.ready().then(() => {
-            this.db.all(`SELECT sess FROM ${SESSION_TABLE} WHERE expires_at > ? ORDER BY sid`, [Date.now()], (error, rows = []) => {
-                if (error) return done(error);
-                try {
-                    done(null, rows.map(row => JSON.parse(row.sess)));
-                } catch (parseError) {
-                    done(parseError);
-                }
-            });
+        this.ready().then(async () => {
+            await this.deleteExpired();
+            const rows = await this.queryAll(
+                `SELECT sess FROM ${SESSION_TABLE} WHERE expires_at > ? ORDER BY sid`,
+                [Date.now()]
+            );
+            done(null, rows.map(row => JSON.parse(row.sess)));
         }).catch(done);
     }
 
     length(callback) {
         const done = callbackOrNoop(callback);
-        this.ready().then(() => {
-            this.db.get(`SELECT COUNT(*) AS total FROM ${SESSION_TABLE} WHERE expires_at > ?`, [Date.now()],
-                (error, row) => done(error || null, error ? undefined : Number(row?.total || 0)));
+        this.ready().then(async () => {
+            await this.deleteExpired();
+            const row = await this.queryGet(
+                `SELECT COUNT(*) AS total FROM ${SESSION_TABLE} WHERE expires_at > ?`,
+                [Date.now()]
+            );
+            done(null, Number(row?.total || 0));
         }).catch(done);
     }
 
@@ -154,6 +235,20 @@ class SQLiteSessionStore extends session.Store {
         this.ready().then(() => {
             this.db.run(`DELETE FROM ${SESSION_TABLE}`, error => done(error || null));
         }).catch(done);
+    }
+
+    async listActiveSessions() {
+        await this.ready();
+        await this.deleteExpired();
+        const rows = await this.queryAll(
+            `SELECT sid, sess, expires_at FROM ${SESSION_TABLE} WHERE expires_at > ? ORDER BY sid`,
+            [Date.now()]
+        );
+        return rows.map(row => ({
+            sid: row.sid,
+            session: JSON.parse(row.sess),
+            expiresAt: Number(row.expires_at)
+        }));
     }
 
     close(callback) {

@@ -7,9 +7,9 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.7
 - **Estado de producto:** MundiPOS 3.0 cerrado, validado y publicado; MundiPOS v4 en curso
-- **Línea de trabajo actual:** v4.2 · Registro persistente y ciclo de vida en curso; v4.2.1 publicada y v4.2.2 no iniciada
+- **Línea de trabajo actual:** v4.2 funcionalmente completada mediante v4.2.1 + v4.2.2; v4.2.2 está cerrada técnicamente y pendiente de publicación Git
 
-La versión visible para usuarios, configuración pública y metadata base de la app es **3.7**. La modernización MundiPOS 3.0 reorganizó internamente Cuentas, Pagos, Comandas e Impresiones, preservando los contratos operativos y financieros canónicos. La etapa 3 queda cerrada técnicamente en **v3.7.0-fix1**. En MundiPOS v4, v4.1 quedó completada y publicada mediante v4.1.1 (`a8525e0f8110935b2cad20326313c9c73745b677`) y v4.1.2 (`1830711fea951b3c5a43eb041e927c5073de1b14`). v4.2 está en curso: v4.2.1 fue publicada en `16822fb0be1fa2938737fb59f8d73982bc9f3e4a` y v4.2.2 todavía no ha sido iniciada.
+La versión visible para usuarios, configuración pública y metadata base de la app es **3.7**. La modernización MundiPOS 3.0 reorganizó internamente Cuentas, Pagos, Comandas e Impresiones, preservando los contratos operativos y financieros canónicos. La etapa 3 queda cerrada técnicamente en **v3.7.0-fix1**. En MundiPOS v4, v4.1 quedó completada y publicada mediante v4.1.1 (`a8525e0f8110935b2cad20326313c9c73745b677`) y v4.1.2 (`1830711fea951b3c5a43eb041e927c5073de1b14`). v4.2 está funcionalmente completada mediante v4.2.1 y v4.2.2. v4.2.1 fue publicada en `16822fb0be1fa2938737fb59f8d73982bc9f3e4a`; v4.2.2 está implementada, validada y cerrada técnicamente, pendiente de publicación Git.
 
 ## Control de versionado del proyecto
 
@@ -24,7 +24,7 @@ Este proyecto se trabajará con versionado trazable por etapa, fase y fix.
 | v2.1 | Estabilidad | Etapa cerrada: estabilidad visual, navegación, PWA y base técnica. |
 | v2.2 | Estabilización funcional | Etapa cerrada: Dashboard, zonas, roles, permisos y normalización base de Menú. |
 | v3.0 | Arquitectura modular | Etapa cerrada: Cuentas, Pagos, Comandas, Printing, Dashboard y Realtime normalizados y validados transversalmente. |
-| v4 | Sesiones y continuidad operativa | Etapa en curso. v4.1 está completada y publicada; v4.2 está en curso, con v4.2.1 publicada y v4.2.2 no iniciada. |
+| v4 | Sesiones y continuidad operativa | Etapa en curso. v4.1 está completada y publicada; v4.2 está funcionalmente completada mediante v4.2.1 + v4.2.2, pendiente de publicación Git de v4.2.2. |
 
 ### Fases de estabilidad
 
@@ -89,9 +89,26 @@ No se continúa con la siguiente subfase hasta que la subfase actual esté compr
 
 ### v4.2 · Registro persistente y ciclo de vida de sesiones
 
-- **Estado:** EN CURSO.
+- **Estado:** FUNCIONALMENTE COMPLETADA; pendiente de publicación Git de v4.2.2.
 - **Subfase publicada:** v4.2.1 · Modelo persistente `sesiones_usuario`, commit funcional `16822fb0be1fa2938737fb59f8d73982bc9f3e4a`.
-- **Próxima subfase:** v4.2.2 · Ciclo de vida login/logout/expiración — **NO INICIADA**.
+- **Subfase activa:** v4.2.2 · Ciclo de vida login/logout/expiración — **IMPLEMENTADA, VALIDADA Y CERRADA TÉCNICAMENTE; PENDIENTE DE PUBLICACIÓN GIT**.
+
+### v4.2.2 · Ciclo de vida login / logout / expiración
+
+- **Objetivo:** conectar el modelo auditable `sesiones_usuario` con el ciclo real de autenticación, sin mezclarlo con el store técnico.
+- **Login:** una autenticación aceptada persiste primero `req.session` y luego crea transaccionalmente una fila histórica `activa`, correlacionada por SID y por `client_id` nullable de `X-MundiPOS-Client`. Un login fallido no crea filas.
+- **SID reutilizado:** no se agregó `req.session.regenerate()`. Una reautenticación exitosa sobre el mismo SID marca la fila activa anterior como `reemplazada` y crea otra con nuevo `session_uuid`.
+- **Verify y recuperación:** `GET /api/auth/verify`, F5, reconexión y reinicio de Node reconocen la fila existente; no crean duplicados ni actualizan presencia.
+- **Logout:** conserva la fila histórica y la cambia a `cerrada`, con fecha y motivo `logout`, además de mantener el evento textual existente en `historial_transacciones`.
+- **Expiración:** el store SQLite informa por un hook desacoplado los TTL detectados por acceso, limpieza inicial/periódica o consultas del store; el historial activo pasa a `expirada` antes de eliminar la fila técnica.
+- **Reconciliación:** al arrancar, compara sesiones históricas activas con SID técnicos válidos; expira huérfanas, conserva sesiones válidas tras reinicio y reconstruye de forma idempotente sesiones técnicas heredadas sin historial.
+- **Ciclo validado:** login crea `activa`; verify/F5 y reinicio conservan la misma fila; logout produce `cerrada`; TTL produce `expirada`; reautenticación sobre el mismo SID deja la anterior `reemplazada` y crea una nueva `activa`.
+- **Separación:** `express_sessions` permanece en `data/sessions.db`; `sesiones_usuario` permanece en `data/restaurant.db`. No se eliminan filas históricas.
+- **Compatibilidad:** se preservan `pos.sid`, TTL de 24 horas, `req.session`, `req.sessionStore.all()`, recuperación SPA/PWA e `historial_transacciones`. No hay heartbeat, límites, bloqueo de logout, transferencia, revocación remota ni cambios de frontend.
+- **Validación:** lifecycle **4/4**; modelo **4/4**; store persistente **2/2**; SPA/PWA + Realtime **10/10**; suite completa **206/206**, 0 fallos; validación manual **APROBADA** sobre `restaurant.db` y `sessions.db`.
+- **Estado:** **implementada, validada y cerrada técnicamente — pendiente únicamente de publicación Git**.
+- **Documento:** `docs/avance-v4.2.2-ciclo-vida-sesiones.md`.
+
 ### v4.2.1 · Modelo persistente `sesiones_usuario`
 
 - **Objetivo:** crear la base persistente y auditable del ciclo histórico de sesiones sin conectarla todavía a login, logout o verify.

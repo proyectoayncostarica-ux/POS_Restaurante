@@ -10,6 +10,7 @@ const bodyParser = require('body-parser');
 const session = require('express-session');
 const database = require('./db/database');
 const { SQLiteSessionStore } = require('./services/sqliteSessionStore');
+const userSessionService = require('./services/userSessionService');
 const { APP_NAME, APP_VERSION, STABILITY_TRACK } = require('./config/appInfo');
 const realtime = require('./utils/realtime');
 const printingService = require('./services/printingService');
@@ -138,7 +139,25 @@ app.use(bodyParser.json({ limit: '10mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
 
 // Configuración de sesiones
-const sessionStore = new SQLiteSessionStore({ dbPath: SESSION_DB_PATH });
+const sessionStore = new SQLiteSessionStore({
+    dbPath: SESSION_DB_PATH,
+    deferInitialCleanup: true
+});
+sessionStore.on('expirationError', error => {
+    console.error('No se pudo reflejar una expiración técnica en sesiones_usuario:', error);
+});
+
+async function initializeUserSessionLifecycle() {
+    sessionStore.setExpirationHandler(async ({ sid, expiresAt }) => {
+        const endedAt = Number.isFinite(expiresAt)
+            ? new Date(expiresAt).toISOString()
+            : new Date().toISOString();
+        await userSessionService.expireActiveByExpressSessionId(sid, { endedAt });
+    });
+
+    const technicalSessions = await sessionStore.listActiveSessions();
+    await userSessionService.reconcileActiveSessions(technicalSessions);
+}
 app.use(session({
     secret: SESSION_SECRET,
     store: sessionStore,
@@ -281,8 +300,9 @@ app.use((err, req, res, next) => {
 // Inicializar la base de datos y arrancar el servidor
 if (require.main === module) {
     database.initializeDatabase().then(async () => {
-        const recovery = await printingService.recoverStale({ olderThanMinutes: 10 });
         await sessionStore.ready();
+        await initializeUserSessionLifecycle();
+        const recovery = await printingService.recoverStale({ olderThanMinutes: 10 });
         if (recovery.recuperados > 0) {
             console.log(`Printing: ${recovery.recuperados} trabajo(s) interrumpido(s) devueltos a la cola`);
         }

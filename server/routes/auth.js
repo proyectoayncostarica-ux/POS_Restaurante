@@ -1,6 +1,8 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const database = require('../db/database');
+const userSessionService = require('../services/userSessionService');
+const { UserSessionService } = require('../services/userSessionService');
 const realtime = require('../utils/realtime');
 const {
     allCapabilityCodes,
@@ -45,6 +47,64 @@ function registerAdminVerificationFailure(req) {
 
 function clearAdminVerificationFailures(req) {
     adminVerificationAttempts.delete(getAttemptKey(req));
+}
+
+function saveRequestSession(req) {
+    return new Promise((resolve, reject) => {
+        req.session.save(error => error ? reject(error) : resolve());
+    });
+}
+
+function destroyRequestSession(req) {
+    return new Promise((resolve, reject) => {
+        req.session.destroy(error => error ? reject(error) : resolve());
+    });
+}
+
+function getSessionClientId(req) {
+    const clientId = String(req.get?.('X-MundiPOS-Client') || '').trim();
+    return clientId ? clientId.slice(0, 255) : null;
+}
+
+async function persistAuthenticatedSession(req, res, input = {}) {
+    const startedAt = input.startedAt || new Date().toISOString();
+    const sessionUuid = userSessionService.generateUuid();
+    const clientId = getSessionClientId(req);
+
+    req.session.userSessionUuid = sessionUuid;
+    req.session.userSessionClientId = clientId;
+
+    try {
+        await saveRequestSession(req);
+        await database.withTransaction(async tx => {
+            const lifecycle = new UserSessionService({
+                db: tx,
+                uuidFactory: () => sessionUuid,
+                clock: () => startedAt
+            });
+            await lifecycle.startAuthenticatedSession({
+                sessionUuid,
+                userId: input.userId,
+                expressSessionId: req.sessionID,
+                clientId,
+                startedAt
+            });
+            await tx.run(
+                'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+                [input.historyAction, input.userId, input.historyDescription, startedAt]
+            );
+        });
+    } catch (error) {
+        try {
+            await destroyRequestSession(req);
+        } catch (destroyError) {
+            error.sessionDestroyError = destroyError;
+        }
+        res.clearCookie('pos.sid');
+        throw error;
+    }
+
+    return sessionUuid;
 }
 
 function sanitizeUserName(nombre = '') {
@@ -781,10 +841,12 @@ router.post('/bootstrap-admin', async (req, res) => {
         req.session.userType = 'administrador';
         clearSessionActiveWorkRoles(req);
 
-        await database.run(
-            'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
-            ['bootstrap_admin', req.session.userId, `Administrador inicial ${payload.nombre} creado`, createdAt]
-        );
+        await persistAuthenticatedSession(req, res, {
+            userId: req.session.userId,
+            historyAction: 'bootstrap_admin',
+            historyDescription: `Administrador inicial ${payload.nombre} creado`,
+            startedAt: createdAt
+        });
 
         const user = { id: req.session.userId, nombre: payload.nombre, tipo: 'administrador' };
         const rolesTrabajo = [];
@@ -841,10 +903,13 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        await database.run(
-            'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
-            ['login', user.id, `Usuario ${user.nombre} inició sesión`, new Date().toISOString()]
-        );
+        const startedAt = new Date().toISOString();
+        await persistAuthenticatedSession(req, res, {
+            userId: user.id,
+            historyAction: 'login',
+            historyDescription: `Usuario ${user.nombre} inició sesión`,
+            startedAt
+        });
 
         res.json({
             success: true,
@@ -859,23 +924,39 @@ router.post('/login', async (req, res) => {
 // Logout
 router.post('/logout', async (req, res) => {
     try {
-        if (req.session.userId) {
-            await database.run(
-                'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
-                ['logout', req.session.userId, `Usuario ${req.session.userName} cerró sesión`, new Date().toISOString()]
-            );
+        const userId = Number(req.session?.userId);
+        const userName = req.session?.userName;
+        const expressSessionId = req.sessionID;
+        const sessionUuid = req.session?.userSessionUuid || null;
+        const endedAt = new Date().toISOString();
+
+        if (Number.isSafeInteger(userId) && userId > 0) {
+            await database.withTransaction(async tx => {
+                const lifecycle = new UserSessionService({ db: tx, clock: () => endedAt });
+                let closed = await lifecycle.closeActiveByExpressSessionId(expressSessionId, {
+                    sessionUuid,
+                    endedAt
+                });
+                if (!closed && sessionUuid) {
+                    closed = await lifecycle.closeActiveByExpressSessionId(expressSessionId, {
+                        endedAt
+                    });
+                }
+                await tx.run(
+                    'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+                    ['logout', userId, `Usuario ${userName} cerró sesión`, endedAt]
+                );
+                await destroyRequestSession(req);
+            });
+        } else {
+            await destroyRequestSession(req);
         }
 
-        req.session.destroy((err) => {
-            if (err) {
-                return res.status(500).json({ error: 'Error al cerrar sesión' });
-            }
-            res.clearCookie('pos.sid');
-            res.json({ success: true, message: 'Sesión cerrada exitosamente' });
-        });
+        res.clearCookie('pos.sid');
+        res.json({ success: true, message: 'Sesión cerrada exitosamente' });
     } catch (error) {
         console.error('Error en logout:', error);
-        res.status(500).json({ error: 'Error interno del servidor' });
+        res.status(500).json({ error: 'Error al cerrar sesión' });
     }
 });
 
