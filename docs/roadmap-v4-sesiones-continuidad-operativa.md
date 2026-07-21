@@ -187,6 +187,30 @@ El resumen debe indicar como mínimo:
 El README canónico refleja únicamente resultados confirmados.
 
 No debe declarar cerrada una fase pendiente de validación.
+## 5.1 Regla canónica de consolidación post-publicación
+
+Antes de iniciar cualquier nueva subfase debe verificarse que el `README.md` canónico y el documento de avance de la subfase inmediatamente anterior reflejen su estado real de publicación y el SHA del commit funcional publicado.
+
+Ninguna nueva subfase puede comenzar mientras la anterior permanezca documentalmente marcada como “pendiente de publicación Git” si el commit ya fue publicado y se confirmó `main == origin/main`.
+
+El procedimiento distingue dos estados:
+
+### Cierre técnico previo al commit
+
+```text
+Cerrada técnicamente — pendiente de publicación Git
+```
+
+Este estado solo corresponde al intervalo posterior a la validación y anterior al commit/push.
+
+### Consolidación posterior al push
+
+```text
+Publicada
+Commit funcional/publicado de la subfase: <SHA>
+```
+
+El SHA registrado identifica el commit funcional de la subfase. Una corrección documental post-publicación puede pertenecer a otro commit y no debe sustituirlo ni presentarse como el commit funcional original.
 
 ---
 
@@ -199,6 +223,14 @@ Eliminar la dependencia de MemoryStore como única fuente de las sesiones HTTP y
 Esta fase no introduce todavía límites de dispositivos, transferencia administrativa ni bloqueo por responsabilidades.
 
 Su único objetivo es estabilizar la persistencia base.
+## Estado consolidado
+
+**COMPLETADA Y PUBLICADA.**
+
+Subfases publicadas:
+
+- v4.1.1 → `a8525e0f8110935b2cad20326313c9c73745b677`.
+- v4.1.2 → `1830711fea951b3c5a43eb041e927c5073de1b14`.
 
 ---
 
@@ -286,6 +318,8 @@ PC y móvil/PWA:
 
 Solo se cierra cuando la persistencia técnica funciona sin introducir cambios todavía en la política de sesiones concurrentes.
 
+Estado actual: **v4.1 está COMPLETADA Y PUBLICADA** mediante los commits funcionales de v4.1.1 y v4.1.2 registrados arriba.
+
 ---
 
 # v4.2 — Registro persistente y ciclo de vida de sesiones
@@ -297,10 +331,21 @@ Crear una representación estructurada de las sesiones de usuario para control o
 La sesión de Express seguirá autenticando peticiones.
 
 El nuevo registro permitirá conocer y controlar el ciclo de vida de cada sesión.
+## Estado actual
+
+**EN CURSO.**
+
+- v4.2.1 está publicada en `16822fb0be1fa2938737fb59f8d73982bc9f3e4a`.
+- v4.2.2 · Ciclo login/logout/expiración está **NO INICIADA**.
 
 ---
 
 ## v4.2.1 — Modelo `sesiones_usuario`
+### Estado consolidado
+
+**PUBLICADA.**
+
+Commit funcional/publicado de la subfase: `16822fb0be1fa2938737fb59f8d73982bc9f3e4a`.
 
 ### Qué
 
@@ -343,6 +388,9 @@ Debe utilizarse un identificador interno independiente.
 ---
 
 ## v4.2.2 — Ciclo login/logout/expiración
+### Estado actual
+
+**NO INICIADA.**
 
 ### Qué
 
@@ -895,6 +943,7 @@ Cada unidad de trabajo cerrada seguirá:
 28. Confirmar `main == origin/main`.
 29. Confirmar working tree limpio.
 30. Registrar SHA final en documentación.
+31. Consolidar el documento de avance y el README.md como Publicada, con el commit funcional/publicado, antes de iniciar la siguiente subfase.
 
 Nunca utilizar:
 
@@ -970,12 +1019,12 @@ El cierre requiere evidencia real de pruebas y, cuando el comportamiento sea ope
 ## 9. Secuencia resumida
 
 `v4.1`
-Persistencia técnica de sesiones.
+Persistencia técnica de sesiones — **COMPLETADA Y PUBLICADA**.
 
 ↓
 
 `v4.2`
-Registro persistente del ciclo de vida.
+Registro persistente del ciclo de vida — **EN CURSO**; v4.2.1 publicada y v4.2.2 no iniciada.
 
 ↓
 

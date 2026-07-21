@@ -132,8 +132,8 @@ La validación funcional manual adicional no fue requerida porque v4.2.1 es una 
 
 ## 11. Estado
 
-**Cerrada — pendiente únicamente de publicación Git.**
+**Publicada.**
 
-## 12. Commit de cierre
+## 12. Commit funcional/publicado de la subfase
 
-Pendiente. No se realizó staging, commit ni push.
+`16822fb0be1fa2938737fb59f8d73982bc9f3e4a`

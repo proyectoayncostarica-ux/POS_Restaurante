@@ -195,10 +195,10 @@ La persistencia, destrucción y no reaparición de sesiones quedaron validadas e
 
 ## Estado
 
-**Cerrada — pendiente únicamente de publicación Git.**
+**Publicada.**
 
-v4.1.1 está implementada, probada y validada manualmente. No se declara publicada porque todavía no existen commit ni push de cierre.
+v4.1.1 está implementada, probada, validada manualmente y consolidada en el repositorio remoto.
 
-## Commit de cierre
+## Commit funcional/publicado de la subfase
 
-Pendiente. No existe todavía un SHA de cierre; no se realizó staging, commit ni push.
+`a8525e0f8110935b2cad20326313c9c73745b677`

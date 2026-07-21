@@ -179,7 +179,7 @@ No fue necesario cambiar el identificador de versión PWA.
 
 La validación manual confirmó que F5 no muestra el login; la sesión persiste tras reiniciar Node; una pérdida de Wi-Fi o del servidor conserva la vista y muestra el estado de desconexión; las operaciones quedan bloqueadas; el retorno de Node o de la red recupera automáticamente la sesión, Realtime, los datos y la sección autorizada sin F5 ni credenciales; la PWA cacheada conserva el shell; y una sesión realmente inválida sí muestra el login.
 
-La fase queda cerrada técnicamente y pendiente únicamente de publicación Git.
+La fase quedó validada técnica y manualmente y posteriormente fue publicada.
 
 ## Riesgo de concurrencia de sesiones
 
@@ -197,8 +197,8 @@ La fase queda cerrada técnicamente y pendiente únicamente de publicación Git.
 
 ## Estado
 
-**Cerrada — pendiente únicamente de publicación Git.**
+**Publicada.**
 
-## Commit de cierre
+## Commit funcional/publicado de la subfase
 
-Pendiente. No se realizó staging, commit ni push.
+`1830711fea951b3c5a43eb041e927c5073de1b14`
