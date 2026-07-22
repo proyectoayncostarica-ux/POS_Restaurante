@@ -166,6 +166,14 @@ Se validaron: mesa liberada; modal ausente; login responsive; vista operativa ce
 
 `POST /api/auth/logout` consulta directamente al backend, que decide autoritativamente. No existe preflight frontend de responsabilidad.
 
+El cierre de v4.3 mantiene explícitamente estas separaciones contractuales:
+
+- sesión técnica ≠ responsabilidad operativa ≠ historial de acceso;
+- pagar una cuenta ≠ terminar el servicio;
+- saldo cero ≠ liberar la mesa.
+
+El backend continúa siendo autoritativo para decidir el logout y el frontend no anticipa esa decisión.
+
 - Para HTTP `409` + `OPERATIONAL_RESPONSIBILITY_ACTIVE`, se preservan `currentUser`, sesión, navegación, Dashboard, Cocina, timers, Realtime y vista actual, y se muestra el modal operativo.
 - Para HTTP `500` + `OPERATIONAL_RESPONSIBILITY_CHECK_FAILED`, se conserva la sesión y se presenta un error técnico distinto sin afirmar que existen responsabilidades.
 - Para HTTP `200`, se conserva el logout normal: limpieza del usuario, detención de Dashboard y Cocina cuando aplica, desconexión de Realtime y navegación al login.
@@ -196,8 +204,18 @@ No se modificaron backend, esquema, bases de datos, dependencias ni contratos de
 
 ## 22. Estado
 
-**CERRADA TÉCNICAMENTE — PENDIENTE ÚNICAMENTE DE PUBLICACIÓN GIT.**
+**PUBLICADA.**
 
-v4.3.3 está implementada, probada específicamente, sometida a regresiones dirigidas, corregida y revalidada tras la regresión PWA, validada manualmente en PC y móvil y aprobada por la suite completa definitiva.
+- **SHA funcional/publicado de v4.3.3:** `930291c34981803bc56e2cb3360677e30357be36`.
+- v4.3.3 quedó implementada, probada específicamente, sometida a regresiones dirigidas, corregida y revalidada tras la regresión PWA, validada manualmente en PC y móvil, aprobada por la suite completa definitiva y publicada.
+- Con la publicación de v4.3.3, la fase v4.3 queda **COMPLETADA Y PUBLICADA**.
+- v4.4 permanece **NO INICIADA**; no se adelantaron límites ni políticas de concurrencia.
 
-No se asigna SHA funcional ni se marca como publicada. La fase v4.3 permanece **EN CURSO** hasta completar el commit funcional, push y consolidación documental post-publicación.
+## 23. Publicación
+
+- **Commit funcional/publicado:** `930291c34981803bc56e2cb3360677e30357be36` (`v4.3.3: corrige logout bloqueado en frontend`).
+- **Rama publicada:** `main`.
+- **Convergencia confirmada:** `main == origin/main` en `930291c34981803bc56e2cb3360677e30357be36`.
+- **Estado posterior al push funcional:** working tree limpio.
+
+Este SHA funcional completa también el cierre de v4.3; no se inventa un SHA global de fase diferente.

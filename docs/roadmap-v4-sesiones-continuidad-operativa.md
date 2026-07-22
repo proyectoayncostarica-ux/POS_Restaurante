@@ -421,13 +421,15 @@ Esta fase todavía no limita cuántos dispositivos puede utilizar un usuario.
 
 ## Estado actual
 
-**EN CURSO.**
+**COMPLETADA Y PUBLICADA.**
 
-Subfases pendientes:
+- **SHA de cierre funcional v4.3:** `930291c34981803bc56e2cb3360677e30357be36`.
+
+Subfases publicadas:
 
 - v4.3.1 → **PUBLICADA**. Commit funcional/publicado: `599893301c91fa7644c8e5fc7f73d8753b9a20b9`.
 - v4.3.2 → **PUBLICADA**. Commit funcional/publicado: `a8c54d6fe54b88ce05362a36584254abd2f7d4ae`.
-- v4.3.3 → **CERRADA TÉCNICAMENTE — PENDIENTE ÚNICAMENTE DE PUBLICACIÓN GIT**.
+- v4.3.3 → **PUBLICADA**. Commit funcional/publicado: `930291c34981803bc56e2cb3360677e30357be36`.
 
 ## Objetivo
 
@@ -520,6 +522,10 @@ la aplicación mantiene al usuario autenticado y muestra el motivo correspondien
 ---
 
 # v4.4 — Política de sesiones concurrentes
+
+## Estado actual
+
+**NO INICIADA.**
 
 ## Objetivo
 
@@ -1045,12 +1051,12 @@ Registro persistente del ciclo de vida — **COMPLETADA Y PUBLICADA** mediante v
 ↓
 
 `v4.3`
-Responsabilidad activa y bloqueo de logout — **EN CURSO**.
+Responsabilidad activa y bloqueo de logout — **COMPLETADA Y PUBLICADA** mediante `930291c34981803bc56e2cb3360677e30357be36`.
 
 ↓
 
 `v4.4`
-Límites de dispositivos y política de cuentas.
+Límites de dispositivos y política de cuentas — **NO INICIADA**.
 
 ↓
 

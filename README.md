@@ -7,9 +7,9 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.7
 - **Estado de producto:** MundiPOS 3.0 cerrado, validado y publicado; MundiPOS v4 en curso
-- **Línea de trabajo actual:** v4.2 completada y publicada; v4.3 · Responsabilidad operativa y bloqueo de logout — EN CURSO mediante v4.3.3, cerrada técnicamente y pendiente únicamente de publicación Git
+- **Línea de trabajo actual:** v4.3 · Responsabilidad operativa y bloqueo de logout — COMPLETADA Y PUBLICADA; v4.4 · Política de sesiones concurrentes — NO INICIADA
 
-La versión visible para usuarios, configuración pública y metadata base de la app es **3.7**. La modernización MundiPOS 3.0 reorganizó internamente Cuentas, Pagos, Comandas e Impresiones, preservando los contratos operativos y financieros canónicos. La etapa 3 queda cerrada técnicamente en **v3.7.0-fix1**. En MundiPOS v4, v4.1 quedó completada y publicada mediante v4.1.1 (`a8525e0f8110935b2cad20326313c9c73745b677`) y v4.1.2 (`1830711fea951b3c5a43eb041e927c5073de1b14`). v4.2 quedó completada y publicada mediante v4.2.1 (`16822fb0be1fa2938737fb59f8d73982bc9f3e4a`) y v4.2.2 (`832be2673d540cd34b2701a0d00cf699c4120936`). v4.3 está en curso: v4.3.1 está publicada mediante el commit funcional `599893301c91fa7644c8e5fc7f73d8753b9a20b9`; v4.3.2 está publicada mediante el commit funcional `a8c54d6fe54b88ce05362a36584254abd2f7d4ae`; v4.3.3 está implementada, probada y validada manualmente en PC y móvil; cerrada técnicamente y pendiente únicamente de publicación Git, sin commit funcional ni publicación asignados.
+La versión visible para usuarios, configuración pública y metadata base de la app es **3.7**. La modernización MundiPOS 3.0 reorganizó internamente Cuentas, Pagos, Comandas e Impresiones, preservando los contratos operativos y financieros canónicos. La etapa 3 queda cerrada técnicamente en **v3.7.0-fix1**. En MundiPOS v4, v4.1 quedó completada y publicada mediante v4.1.1 (`a8525e0f8110935b2cad20326313c9c73745b677`) y v4.1.2 (`1830711fea951b3c5a43eb041e927c5073de1b14`). v4.2 quedó completada y publicada mediante v4.2.1 (`16822fb0be1fa2938737fb59f8d73982bc9f3e4a`) y v4.2.2 (`832be2673d540cd34b2701a0d00cf699c4120936`). v4.3 quedó completada y publicada: v4.3.1 está publicada mediante el commit funcional `599893301c91fa7644c8e5fc7f73d8753b9a20b9`; v4.3.2 está publicada mediante el commit funcional `a8c54d6fe54b88ce05362a36584254abd2f7d4ae`; v4.3.3 está publicada mediante el commit funcional `930291c34981803bc56e2cb3360677e30357be36`. Este último SHA completa el cierre funcional de v4.3. v4.4 permanece no iniciada.
 
 ## Control de versionado del proyecto
 
@@ -24,7 +24,7 @@ Este proyecto se trabajará con versionado trazable por etapa, fase y fix.
 | v2.1 | Estabilidad | Etapa cerrada: estabilidad visual, navegación, PWA y base técnica. |
 | v2.2 | Estabilización funcional | Etapa cerrada: Dashboard, zonas, roles, permisos y normalización base de Menú. |
 | v3.0 | Arquitectura modular | Etapa cerrada: Cuentas, Pagos, Comandas, Printing, Dashboard y Realtime normalizados y validados transversalmente. |
-| v4 | Sesiones y continuidad operativa | Etapa en curso. v4.1 y v4.2 están completadas y publicadas; v4.3 está en curso. |
+| v4 | Sesiones y continuidad operativa | Etapa en curso. v4.1, v4.2 y v4.3 están completadas y publicadas; v4.4 no ha comenzado. |
 
 ### Fases de estabilidad
 
@@ -89,7 +89,7 @@ No se continúa con la siguiente subfase hasta que la subfase actual esté compr
 
 ### v4.3 · Responsabilidad operativa y bloqueo de logout
 
-- **Estado:** EN CURSO.
+- **Estado:** COMPLETADA Y PUBLICADA.
 - **v4.3.1:** **PUBLICADA**.
 - **Commit funcional/publicado v4.3.1:** `599893301c91fa7644c8e5fc7f73d8753b9a20b9`.
 - **Validación v4.3.1:** prueba específica **8/8**; regresiones dirigidas **20/20**; suite completa **214/214**, 0 fallos; validación manual **no aplicable**.
@@ -98,18 +98,20 @@ No se continúa con la siguiente subfase hasta que la subfase actual esté compr
 - **Commit funcional/publicado v4.3.2:** `a8c54d6fe54b88ce05362a36584254abd2f7d4ae`.
 - **Validación v4.3.2:** pruebas específicas **11/11**; regresiones dirigidas **24/24**; suite completa **221/221**, 0 fallos; validación manual **aprobada**.
 - **Resumen v4.3.2:** el backend evalúa la responsabilidad antes de cualquier mutación; bloquea con HTTP `409` y `OPERATIONAL_RESPONSIBILITY_ACTIVE`, preserva la sesión y devuelve evidencia estructurada. Aplica fail-closed ante errores y conserva el lifecycle normal cuando no existe responsabilidad. El frontend todavía no incorpora UX específica para el conflicto.
-- **v4.3.3:** **CERRADA TÉCNICAMENTE — PENDIENTE ÚNICAMENTE DE PUBLICACIÓN GIT**.
+- **v4.3.3:** **PUBLICADA**.
 - **Resumen v4.3.3:** implementada, probada y validada manualmente en PC y móvil. El cliente conserva el error estructurado y reconoce exactamente el conflicto operativo; muestra un modal accesible con la evidencia recibida y mantiene sesión, navegación, Dashboard, Cocina, timers y Realtime activos. Distingue el fallo del evaluador, evita solicitudes duplicadas, renderiza datos backend de forma segura y conserva el logout exitoso.
 - **Validación v4.3.3:** prueba específica **16/16**; regresiones dirigidas **27/27**; validación del fix PWA **40/40**; suite completa definitiva **237/237**, 0 fallos; validación manual PC y móvil **APROBADA**.
 - **Historial PWA v4.3.3:** la primera suite completa obtuvo **233/237** y detectó cuatro incompatibilidades contractuales porque la revisión de assets se usó como namespace global. Se restauró `MUNDIPOS_SW_VERSION = v3.7.0-cross-domain-closure` y se mantuvo `v4.3.3-logout-blocked-ui` únicamente para `style.css` y `main.js`; la corrección quedó validada antes de la suite definitiva.
-- **Publicación v4.3.3:** pendiente; todavía no existe SHA funcional. v4.3 permanece **EN CURSO**.
+- **Commit funcional/publicado v4.3.3:** `930291c34981803bc56e2cb3360677e30357be36`.
+- **Cierre v4.3:** **COMPLETADA Y PUBLICADA** mediante la publicación de v4.3.3; SHA de cierre funcional `930291c34981803bc56e2cb3360677e30357be36`.
+- **Siguiente fase reservada:** v4.4 — **NO INICIADA**.
 
 ### v4.2 · Registro persistente y ciclo de vida de sesiones
 
 - **Estado:** COMPLETADA Y PUBLICADA.
 - **Subfase publicada:** v4.2.1 · Modelo persistente `sesiones_usuario`, commit funcional `16822fb0be1fa2938737fb59f8d73982bc9f3e4a`.
 - **Subfase publicada:** v4.2.2 · Ciclo de vida login/logout/expiración, commit funcional `832be2673d540cd34b2701a0d00cf699c4120936`.
-- **Fase actual:** v4.3 · Responsabilidad operativa y bloqueo de logout — **EN CURSO**.
+- **Fase posterior completada:** v4.3 · Responsabilidad operativa y bloqueo de logout — **COMPLETADA Y PUBLICADA**. v4.4 permanece **NO INICIADA**.
 
 ### v4.2.2 · Ciclo de vida login / logout / expiración
 
