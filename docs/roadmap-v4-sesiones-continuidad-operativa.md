@@ -427,7 +427,7 @@ Subfases pendientes:
 
 - v4.3.1 → **PUBLICADA**. Commit funcional/publicado: `599893301c91fa7644c8e5fc7f73d8753b9a20b9`.
 - v4.3.2 → **PUBLICADA**. Commit funcional/publicado: `a8c54d6fe54b88ce05362a36584254abd2f7d4ae`.
-- v4.3.3 → **NO INICIADA**.
+- v4.3.3 → **CERRADA TÉCNICAMENTE — PENDIENTE ÚNICAMENTE DE PUBLICACIÓN GIT**.
 
 ## Objetivo
 

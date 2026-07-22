@@ -183,9 +183,18 @@ const SESSION_STATES = Object.freeze({
 
 // Utilidades
 const Utils = {
+    modalReturnFocus: null,
+    modalOnClose: null,
+
     // Realizar peticiones HTTP
     async request(url, options = {}) {
         const requestOptions = { ...options };
+        const expectedErrorCodes = new Set(
+            Array.isArray(requestOptions.expectedErrorCodes)
+                ? requestOptions.expectedErrorCodes
+                : []
+        );
+        delete requestOptions.expectedErrorCodes;
         delete requestOptions.retryOnNetworkError;
         delete requestOptions.retryDelayMs;
 
@@ -222,6 +231,8 @@ const Utils = {
                 error.status = response.status;
                 error.code = data.code || null;
                 error.details = data.details || null;
+                error.payload = data;
+                error.body = data;
                 error.isNetworkError = false;
                 throw error;
             }
@@ -229,12 +240,15 @@ const Utils = {
             return data;
         } catch (error) {
             if (error && error.status === undefined) error.isNetworkError = true;
-            if (currentUser
+            if (!expectedErrorCodes.has(error?.code)
+                && currentUser
                 && typeof Auth !== 'undefined'
                 && Auth.isTemporarySessionRecoveryError(error)) {
                 Auth.handleTemporaryConnectionFailure(error);
             }
-            console.error('Error en petición:', error);
+            if (!expectedErrorCodes.has(error?.code)) {
+                console.error('Error en petición:', error);
+            }
             throw error;
         }
     },
@@ -280,62 +294,139 @@ const Utils = {
     },
 
     // Mostrar modal
-    showModal(title, content, actions = [], modalClass = '') {
-    const overlay = document.getElementById('modal-overlay');
-    const modalContent = document.getElementById('modal-content');
+    showModal(title, content, actions = [], modalClass = '', options = {}) {
+        const overlay = document.getElementById('modal-overlay');
+        const modalContent = document.getElementById('modal-content');
+        if (!overlay || !modalContent) return;
 
-    modalContent.className = `modal-content ${modalClass}`;
-    modalContent.innerHTML = `
-        <div class="modal-header">
-            <h3>${title}</h3>
-            <button class="modal-close" onclick="Utils.hideModal()">&times;</button>
-        </div>
-        <div class="modal-body">
-            ${content}
-        </div>
-    `;
+        const activeElement = document.activeElement;
+        if (activeElement && activeElement !== document.body) {
+            this.modalReturnFocus = activeElement;
+        }
+        this.modalOnClose = typeof options.onClose === 'function' ? options.onClose : null;
 
-    // Footer con botones
-    if (actions.length > 0) {
-        const footer = document.createElement('div');
-        footer.className = 'modal-footer d-flex justify-between mt-3';
+        modalContent.className = `modal-content ${modalClass}`;
+        modalContent.replaceChildren();
+        modalContent.setAttribute('role', 'dialog');
+        modalContent.setAttribute('aria-modal', 'true');
+        modalContent.setAttribute('aria-labelledby', 'modal-title');
+        modalContent.tabIndex = -1;
 
-        const leftGroup = document.createElement('div');
-        leftGroup.className = 'left-buttons';
+        const header = document.createElement('div');
+        header.className = 'modal-header';
 
-        const rightGroup = document.createElement('div');
-        rightGroup.className = 'right-buttons';
+        const titleElement = document.createElement('h3');
+        titleElement.id = 'modal-title';
+        titleElement.textContent = String(title || 'MundiPOS');
 
-        actions.forEach(action => {
-            const btn = document.createElement('button');
-            btn.className = `btn ${action.class || 'btn-secondary'}`;
-            btn.innerHTML = action.text;
-            btn.type = 'button';
+        const closeButton = document.createElement('button');
+        closeButton.className = 'modal-close';
+        closeButton.type = 'button';
+        closeButton.setAttribute('aria-label', 'Cerrar diálogo');
+        closeButton.textContent = '×';
+        closeButton.addEventListener('click', () => this.hideModal());
 
-            if (typeof action.onclick === 'function') {
-                btn.addEventListener('click', action.onclick);
-            } else {
-                btn.setAttribute('onclick', action.onclick || 'Utils.hideModal()');
-            }
+        header.appendChild(titleElement);
+        header.appendChild(closeButton);
 
-            if (action.align === 'right') {
-                rightGroup.appendChild(btn);
-            } else {
-                leftGroup.appendChild(btn);
-            }
-        });
+        const body = document.createElement('div');
+        body.className = 'modal-body';
+        if (content && typeof content === 'object' && Number(content.nodeType) > 0) {
+            body.appendChild(content);
+        } else {
+            body.innerHTML = String(content || '');
+        }
 
-        footer.appendChild(leftGroup);
-        footer.appendChild(rightGroup);
-        modalContent.appendChild(footer);
-    }
+        modalContent.appendChild(header);
+        modalContent.appendChild(body);
 
-    overlay.style.display = 'flex';
-},
+        // Footer con botones
+        if (actions.length > 0) {
+            const footer = document.createElement('div');
+            footer.className = 'modal-footer d-flex justify-between mt-3';
+
+            const leftGroup = document.createElement('div');
+            leftGroup.className = 'left-buttons';
+
+            const rightGroup = document.createElement('div');
+            rightGroup.className = 'right-buttons';
+
+            actions.forEach(action => {
+                const btn = document.createElement('button');
+                btn.className = `btn ${action.class || 'btn-secondary'}`;
+                btn.innerHTML = action.text;
+                btn.type = 'button';
+                if (action.autofocus) btn.dataset.autofocus = 'true';
+
+                if (typeof action.onclick === 'function') {
+                    btn.addEventListener('click', action.onclick);
+                } else {
+                    btn.setAttribute('onclick', action.onclick || 'Utils.hideModal()');
+                }
+
+                if (action.align === 'right') {
+                    rightGroup.appendChild(btn);
+                } else {
+                    leftGroup.appendChild(btn);
+                }
+            });
+
+            footer.appendChild(leftGroup);
+            footer.appendChild(rightGroup);
+            modalContent.appendChild(footer);
+        }
+
+        overlay.setAttribute('aria-hidden', 'false');
+        overlay.style.display = 'flex';
+        window.setTimeout(() => {
+            const focusTarget = modalContent.querySelector('[data-autofocus="true"], button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+            (focusTarget || modalContent).focus();
+        }, 0);
+    },
 
     // Ocultar modal
     hideModal() {
-        document.getElementById('modal-overlay').style.display = 'none';
+        const overlay = document.getElementById('modal-overlay');
+        if (!overlay) return;
+
+        overlay.style.display = 'none';
+        overlay.setAttribute('aria-hidden', 'true');
+
+        const onClose = this.modalOnClose;
+        const returnFocus = this.modalReturnFocus;
+        this.modalOnClose = null;
+        this.modalReturnFocus = null;
+
+        if (onClose) onClose();
+        if (returnFocus?.isConnected && typeof returnFocus.focus === 'function') {
+            window.setTimeout(() => returnFocus.focus(), 0);
+        }
+    },
+
+    trapModalFocus(event) {
+        const overlay = document.getElementById('modal-overlay');
+        const modalContent = document.getElementById('modal-content');
+        if (!overlay || !modalContent || overlay.getAttribute('aria-hidden') === 'true') return;
+
+        const focusable = Array.from(modalContent.querySelectorAll(
+            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )).filter(element => !element.hidden);
+
+        if (focusable.length === 0) {
+            event.preventDefault();
+            modalContent.focus();
+            return;
+        }
+
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+        }
     },
 
     // Confirmar acción
@@ -421,6 +512,8 @@ const Utils = {
 const Auth = {
     requiresBootstrapSetup: false,
     pendingRoleChangeIds: [],
+    logoutInFlight: false,
+    logoutBlockedModalOpen: false,
     sessionState: SESSION_STATES.VERIFYING,
     sessionRecoveryTimer: null,
     sessionRecoveryAttempt: 0,
@@ -709,25 +802,234 @@ const Auth = {
         }
     },
 
+    getLogoutControls() {
+        return Array.from(document.querySelectorAll('#logout-btn, [onclick="Auth.logout()"]'));
+    },
+
+    setLogoutControlsBusy(isBusy) {
+        this.getLogoutControls().forEach(control => {
+            if (isBusy) {
+                control.dataset.logoutWasDisabled = control.disabled ? 'true' : 'false';
+                control.disabled = true;
+                control.setAttribute('aria-busy', 'true');
+            } else {
+                if (control.dataset.logoutWasDisabled !== 'true') control.disabled = false;
+                delete control.dataset.logoutWasDisabled;
+                control.removeAttribute('aria-busy');
+            }
+        });
+    },
+
+    isOperationalResponsibilityLogoutError(error) {
+        return Number(error?.status) === 409
+            && error?.code === 'OPERATIONAL_RESPONSIBILITY_ACTIVE';
+    },
+
+    isOperationalResponsibilityCheckError(error) {
+        return Number(error?.status) === 500
+            && error?.code === 'OPERATIONAL_RESPONSIBILITY_CHECK_FAILED';
+    },
+
+    getResponsibilityCauseLabels(causes = []) {
+        const labels = {
+            mesa_ocupada: 'Mesa ocupada',
+            mesa_reservada: 'Mesa reservada',
+            cuenta_operativa_abierta: 'Servicio activo',
+            cuenta_operativa_finalizando: 'Servicio en finalización'
+        };
+
+        return Array.from(new Set(
+            (Array.isArray(causes) ? causes : [])
+                .map(cause => labels[String(cause || '')])
+                .filter(Boolean)
+        ));
+    },
+
+    buildOperationalResponsibilitiesContent(payload = {}) {
+        const responsibilities = Array.isArray(payload.responsabilidades)
+            ? payload.responsabilidades
+            : [];
+        const reportedTotal = Number(payload.total);
+        const total = Number.isSafeInteger(reportedTotal) && reportedTotal >= 0
+            ? reportedTotal
+            : responsibilities.length;
+
+        const container = document.createElement('div');
+        container.className = 'logout-responsibility-dialog';
+
+        const message = document.createElement('p');
+        message.className = 'logout-responsibility-message';
+        message.textContent = 'Tienes responsabilidades operativas activas. Finaliza correctamente estos servicios antes de cerrar sesión.';
+        container.appendChild(message);
+
+        const summary = document.createElement('p');
+        summary.className = 'logout-responsibility-summary';
+        summary.setAttribute('role', 'status');
+        summary.textContent = `${total} ${total === 1 ? 'responsabilidad activa' : 'responsabilidades activas'}`;
+        container.appendChild(summary);
+
+        const list = document.createElement('ul');
+        list.className = 'logout-responsibility-list';
+        list.setAttribute('aria-label', 'Responsabilidades que impiden cerrar sesión');
+
+        responsibilities.forEach((responsibility, index) => {
+            const mesa = responsibility?.mesa && typeof responsibility.mesa === 'object'
+                ? responsibility.mesa
+                : {};
+            const zone = mesa.zona && typeof mesa.zona === 'object' ? mesa.zona : {};
+            const accounts = Array.isArray(responsibility?.cuentas_operativas)
+                ? responsibility.cuentas_operativas
+                : [];
+            const visibleName = String(mesa.nombre_visible || '').trim();
+            const mesaNumber = Number(mesa.numero);
+            const title = visibleName
+                || (Number.isFinite(mesaNumber) ? `Mesa ${mesaNumber}` : `Responsabilidad ${index + 1}`);
+
+            const item = document.createElement('li');
+            item.className = 'logout-responsibility-item';
+
+            const heading = document.createElement('h4');
+            heading.textContent = title;
+            item.appendChild(heading);
+
+            const metadata = document.createElement('div');
+            metadata.className = 'logout-responsibility-meta';
+
+            const zoneName = String(zone.nombre || '').trim();
+            if (zoneName) {
+                const zoneLabel = document.createElement('span');
+                zoneLabel.textContent = `Zona: ${zoneName}`;
+                metadata.appendChild(zoneLabel);
+            }
+
+            const stateLabels = {
+                ocupada: 'Ocupada',
+                reservada: 'Reservada'
+            };
+            const stateLabel = stateLabels[String(mesa.estado || '').trim().toLowerCase()];
+            if (stateLabel) {
+                const state = document.createElement('span');
+                state.textContent = `Estado: ${stateLabel}`;
+                metadata.appendChild(state);
+            }
+
+            if (accounts.length > 0) {
+                const accountCount = document.createElement('span');
+                accountCount.textContent = `${accounts.length} ${accounts.length === 1 ? 'cuenta operativa relacionada' : 'cuentas operativas relacionadas'}`;
+                metadata.appendChild(accountCount);
+            }
+
+            if (metadata.childElementCount > 0) item.appendChild(metadata);
+
+            const causeLabels = this.getResponsibilityCauseLabels(responsibility?.causas);
+            if (causeLabels.length > 0) {
+                const reasons = document.createElement('ul');
+                reasons.className = 'logout-responsibility-reasons';
+                causeLabels.forEach(label => {
+                    const reason = document.createElement('li');
+                    reason.textContent = label;
+                    reasons.appendChild(reason);
+                });
+                item.appendChild(reasons);
+            }
+
+            list.appendChild(item);
+        });
+
+        if (responsibilities.length === 0) {
+            const empty = document.createElement('li');
+            empty.className = 'logout-responsibility-item logout-responsibility-item-empty';
+            empty.textContent = 'La evidencia operativa no está disponible. Inténtalo nuevamente.';
+            list.appendChild(empty);
+        }
+
+        container.appendChild(list);
+        return container;
+    },
+
+    showOperationalResponsibilityModal(payload = {}) {
+        if (this.logoutBlockedModalOpen) return;
+
+        this.logoutBlockedModalOpen = true;
+        const content = this.buildOperationalResponsibilitiesContent(payload);
+        Utils.showModal(
+            'No se puede cerrar sesión',
+            content,
+            [{
+                text: 'Entendido',
+                class: 'btn-primary',
+                align: 'right',
+                autofocus: true,
+                onclick: () => Utils.hideModal()
+            }],
+            'modal-logout-blocked',
+            {
+                onClose: () => {
+                    this.logoutBlockedModalOpen = false;
+                }
+            }
+        );
+    },
+
+    handleLogoutError(error) {
+        if (this.isOperationalResponsibilityLogoutError(error)) {
+            this.showOperationalResponsibilityModal(error.payload || {});
+            return true;
+        }
+
+        if (this.isOperationalResponsibilityCheckError(error)) {
+            console.warn('MundiPOS logout: no fue posible verificar responsabilidades.', {
+                status: error.status,
+                code: error.code
+            });
+            Utils.showNotification(
+                'No fue posible verificar si puedes cerrar sesión. Tu sesión permanece activa. Inténtalo nuevamente.',
+                'error'
+            );
+            return true;
+        }
+
+        return false;
+    },
+
     // Cerrar sesión
     async logout() {
+        if (this.logoutInFlight || this.logoutBlockedModalOpen) return false;
+
+        this.logoutInFlight = true;
+        this.setLogoutControlsBusy(true);
+        let logoutSucceeded = false;
+
         try {
-            await Utils.request('/auth/logout', { method: 'POST' });
+            await Utils.request('/auth/logout', {
+                method: 'POST',
+                expectedErrorCodes: [
+                    'OPERATIONAL_RESPONSIBILITY_ACTIVE',
+                    'OPERATIONAL_RESPONSIBILITY_CHECK_FAILED'
+                ]
+            });
             currentUser = null;
 
             Dashboard.stopAutoRefresh();
             Realtime.disconnect();
             this.showLogin();
 
+            logoutSucceeded = true;
             Utils.showNotification('Sesión cerrada correctamente', 'info');
+            return true;
         } catch (error) {
-            console.error('Error cerrando sesión:', error);
+            if (this.handleLogoutError(error)) return false;
 
-            // Forzar logout local
-            currentUser = null;
-            Dashboard.stopAutoRefresh();
-            Realtime.disconnect();
-            this.showLogin();
+            Utils.showNotification(
+                'No fue posible cerrar sesión. Tu sesión permanece activa. Inténtalo nuevamente.',
+                'error'
+            );
+            return false;
+        } finally {
+            this.logoutInFlight = false;
+            if (!logoutSucceeded && currentUser) {
+                this.setLogoutControlsBusy(false);
+            }
         }
     },
 
@@ -865,6 +1167,10 @@ const Auth = {
     },
 
     async continueAuthenticatedSession(options = {}) {
+        this.logoutInFlight = false;
+        this.logoutBlockedModalOpen = false;
+        this.setLogoutControlsBusy(false);
+
         if (this.requiresOperationalRoleSelection() || !this.canOperateWithCurrentSession()) {
             this.showOperationalSessionSelection();
             return;
@@ -2520,8 +2826,22 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     });
 
-    // Cerrar dropdown de zonas móviles al tocar fuera
+    // Teclado y foco del modal global
+    document.addEventListener('keydown', function(e) {
+        const overlay = document.getElementById('modal-overlay');
+        if (!overlay || overlay.getAttribute('aria-hidden') === 'true') return;
+
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            Utils.hideModal();
+        } else if (e.key === 'Tab') {
+            Utils.trapModalFocus(e);
+        }
+    });
+
     document.addEventListener('click', function(e) {
+        // Cerrar dropdown de zonas móviles al tocar fuera
         if (!e.target.closest?.('#mobile-subnav')) {
             Navigation.closeMobileSubnavMore();
         }
