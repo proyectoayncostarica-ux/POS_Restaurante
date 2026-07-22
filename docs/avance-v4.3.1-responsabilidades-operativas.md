@@ -93,6 +93,11 @@ Resultados registrados:
 - regresiones dirigidas: **20/20**;
 - suite completa: **214/214**;
 - fallos: **0**;
+- cancelados: **0**;
+- omitidos: **0**;
+- pendientes: **0**;
+- `node --check server/services/operationalResponsibilityService.js`: **Exit code 0**;
+- `node --check tests/operationalResponsibilityService.test.js`: **Exit code 0**;
 - `git diff --check`: **OK**;
 - validación manual: **no aplicable**.
 
@@ -125,6 +130,7 @@ No se implementó:
 
 ## 10. Estado
 
-**Cerrada técnicamente — pendiente únicamente de publicación Git.**
+**PUBLICADA.**
 
-No está publicada. No existe todavía SHA funcional de publicación.
+Commit funcional/publicado de v4.3.1: `599893301c91fa7644c8e5fc7f73d8753b9a20b9`.
+Después del push funcional se confirmó `main == origin/main` y el working tree limpio.
