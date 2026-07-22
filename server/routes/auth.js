@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const database = require('../db/database');
 const userSessionService = require('../services/userSessionService');
 const { UserSessionService } = require('../services/userSessionService');
+const operationalResponsibilityService = require('../services/operationalResponsibilityService');
 const realtime = require('../utils/realtime');
 const {
     allCapabilityCodes,
@@ -928,9 +929,46 @@ router.post('/logout', async (req, res) => {
         const userName = req.session?.userName;
         const expressSessionId = req.sessionID;
         const sessionUuid = req.session?.userSessionUuid || null;
-        const endedAt = new Date().toISOString();
 
         if (Number.isSafeInteger(userId) && userId > 0) {
+            let responsibilityResult;
+            try {
+                responsibilityResult = await operationalResponsibilityService.getUserResponsibilities(userId);
+                if (
+                    !responsibilityResult
+                    || typeof responsibilityResult.tiene_responsabilidad !== 'boolean'
+                    || !Array.isArray(responsibilityResult.responsabilidades)
+                    || !Number.isSafeInteger(responsibilityResult.total)
+                    || responsibilityResult.total !== responsibilityResult.responsabilidades.length
+                    || responsibilityResult.tiene_responsabilidad !== (responsibilityResult.total > 0)
+                ) {
+                    throw new TypeError('Respuesta inválida del evaluador de responsabilidad operacional');
+                }
+            } catch (evaluationError) {
+                console.error('Error evaluando responsabilidades antes del logout:', evaluationError);
+                const message = 'No fue posible verificar las responsabilidades operativas. La sesión permanece activa.';
+                return res.status(500).json({
+                    success: false,
+                    error: message,
+                    code: 'OPERATIONAL_RESPONSIBILITY_CHECK_FAILED',
+                    message
+                });
+            }
+
+            if (responsibilityResult.tiene_responsabilidad) {
+                const message = 'No puede cerrar sesión mientras mantenga responsabilidades operativas activas.';
+                return res.status(409).json({
+                    success: false,
+                    error: message,
+                    code: 'OPERATIONAL_RESPONSIBILITY_ACTIVE',
+                    message,
+                    tiene_responsabilidad: true,
+                    total: responsibilityResult.total,
+                    responsabilidades: responsibilityResult.responsabilidades
+                });
+            }
+
+            const endedAt = new Date().toISOString();
             await database.withTransaction(async tx => {
                 const lifecycle = new UserSessionService({ db: tx, clock: () => endedAt });
                 let closed = await lifecycle.closeActiveByExpressSessionId(expressSessionId, {

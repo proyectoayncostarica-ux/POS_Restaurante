@@ -461,7 +461,7 @@ test('la reconciliación conserva sesiones válidas, expira huérfanas y reconst
     assert.equal(allRows.filter(row => row.estado === 'activa').length, 2);
 });
 
-test('v4.2.2 conserva la separación técnica y no adelanta políticas posteriores', async () => {
+test('v4.2.2 conserva la separación técnica y v4.3.2 usa el evaluador canónico', async () => {
     const [authSource, storeSource] = await Promise.all([
         fs.readFile(path.join(PROJECT_ROOT, 'server/routes/auth.js'), 'utf8'),
         fs.readFile(path.join(PROJECT_ROOT, 'server/services/sqliteSessionStore.js'), 'utf8')
@@ -474,9 +474,13 @@ test('v4.2.2 conserva la separación técnica y no adelanta políticas posterior
     assert.ok(logoutStart >= 0 && logoutEnd > logoutStart);
     assert.doesNotMatch(authSource, /\.regenerate\s*\(/);
     assert.doesNotMatch(storeSource, /sesiones_usuario/);
+    assert.match(
+        logoutSource,
+        /operationalResponsibilityService\.getUserResponsibilities\s*\(/
+    );
     assert.doesNotMatch(
         logoutSource,
-        /mesa_responsables|cuentas|saldos|pedidos|responsabilidad/i
+        /mesa_responsables|cuenta_responsables|estado_operativo|FROM\s+pedidos/i
     );
     assert.ok(!serviceMethods.includes('heartbeat'));
     assert.ok(!serviceMethods.includes('transfer'));
