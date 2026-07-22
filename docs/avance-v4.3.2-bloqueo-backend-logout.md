@@ -8,6 +8,12 @@ La intervención parte exclusivamente de la consolidación documental publicada 
 
 La base se verificó sobre la rama `main` con árbol de trabajo inicialmente limpio.
 
+La implementación funcional de v4.3.2 fue publicada en:
+
+`a8c54d6fe54b88ce05362a36584254abd2f7d4ae`
+
+Después del push funcional se confirmó `main == origin/main` y working tree limpio.
+
 ## 2. Objetivo
 
 Impedir que un usuario autenticado cierre sesión cuando el evaluador canónico confirme que conserva responsabilidad operacional activa. El bloqueo debe preservar íntegramente la sesión y devolver evidencia estructurada reutilizable por la futura UX de v4.3.3.
@@ -118,6 +124,9 @@ También se ajustó la prueba estática del lifecycle para exigir el uso del eva
 - Regresiones dirigidas (`tests/operationalResponsibilityService.test.js`, `tests/userSessionModel.test.js`, `tests/persistentSessionStore.test.js`, `tests/sessionRecoveryUi.test.js` y `tests/realtimeRecovery.test.js`): **24/24**.
 - Suite completa: **221/221**.
 - Fallos: **0**.
+- Cancelados: **0**.
+- Omitidos: **0**.
+- Pendientes: **0**.
 - `node --check server/routes/auth.js`: **APROBADA**.
 - `node --check tests/userSessionLifecycle.test.js`: **APROBADA**.
 - `node --check tests/logoutOperationalResponsibility.test.js`: **APROBADA**.
@@ -164,6 +173,8 @@ No se implementa:
 
 ## 11. Estado
 
-**Cerrada técnicamente — pendiente únicamente de publicación Git.**
+**PUBLICADA.**
 
-La fase no se marca publicada y no se asigna SHA funcional.
+Commit funcional/publicado:
+
+`a8c54d6fe54b88ce05362a36584254abd2f7d4ae`

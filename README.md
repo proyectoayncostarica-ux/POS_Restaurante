@@ -9,7 +9,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Estado de producto:** MundiPOS 3.0 cerrado, validado y publicado; MundiPOS v4 en curso
 - **Línea de trabajo actual:** v4.2 completada y publicada; v4.3 · Responsabilidad operativa y bloqueo de logout — en curso mediante v4.3.2
 
-La versión visible para usuarios, configuración pública y metadata base de la app es **3.7**. La modernización MundiPOS 3.0 reorganizó internamente Cuentas, Pagos, Comandas e Impresiones, preservando los contratos operativos y financieros canónicos. La etapa 3 queda cerrada técnicamente en **v3.7.0-fix1**. En MundiPOS v4, v4.1 quedó completada y publicada mediante v4.1.1 (`a8525e0f8110935b2cad20326313c9c73745b677`) y v4.1.2 (`1830711fea951b3c5a43eb041e927c5073de1b14`). v4.2 quedó completada y publicada mediante v4.2.1 (`16822fb0be1fa2938737fb59f8d73982bc9f3e4a`) y v4.2.2 (`832be2673d540cd34b2701a0d00cf699c4120936`). v4.3 está en curso: v4.3.1 está publicada mediante el commit funcional `599893301c91fa7644c8e5fc7f73d8753b9a20b9`; v4.3.2 está cerrada técnicamente y pendiente únicamente de publicación Git; v4.3.3 no se ha iniciado.
+La versión visible para usuarios, configuración pública y metadata base de la app es **3.7**. La modernización MundiPOS 3.0 reorganizó internamente Cuentas, Pagos, Comandas e Impresiones, preservando los contratos operativos y financieros canónicos. La etapa 3 queda cerrada técnicamente en **v3.7.0-fix1**. En MundiPOS v4, v4.1 quedó completada y publicada mediante v4.1.1 (`a8525e0f8110935b2cad20326313c9c73745b677`) y v4.1.2 (`1830711fea951b3c5a43eb041e927c5073de1b14`). v4.2 quedó completada y publicada mediante v4.2.1 (`16822fb0be1fa2938737fb59f8d73982bc9f3e4a`) y v4.2.2 (`832be2673d540cd34b2701a0d00cf699c4120936`). v4.3 está en curso: v4.3.1 está publicada mediante el commit funcional `599893301c91fa7644c8e5fc7f73d8753b9a20b9`; v4.3.2 está publicada mediante el commit funcional `a8c54d6fe54b88ce05362a36584254abd2f7d4ae`; v4.3.3 no se ha iniciado.
 
 ## Control de versionado del proyecto
 
@@ -94,7 +94,8 @@ No se continúa con la siguiente subfase hasta que la subfase actual esté compr
 - **Commit funcional/publicado v4.3.1:** `599893301c91fa7644c8e5fc7f73d8753b9a20b9`.
 - **Validación v4.3.1:** prueba específica **8/8**; regresiones dirigidas **20/20**; suite completa **214/214**, 0 fallos; validación manual **no aplicable**.
 - **Resumen v4.3.1:** evaluación backend centralizada y read-only de responsabilidad operacional, con `mesa_responsables` como fuente actual autoritativa y los estados operativos reales de mesas y servicios; es independiente de sesiones técnicas, y pagar o conciliar no finaliza el servicio por sí solo. Todavía no bloquea el logout.
-- **v4.3.2:** **IMPLEMENTADA · PROBADA · VALIDADA MANUALMENTE · CERRADA TÉCNICAMENTE — PENDIENTE ÚNICAMENTE DE PUBLICACIÓN GIT**.
+- **v4.3.2:** **PUBLICADA**.
+- **Commit funcional/publicado v4.3.2:** `a8c54d6fe54b88ce05362a36584254abd2f7d4ae`.
 - **Validación v4.3.2:** pruebas específicas **11/11**; regresiones dirigidas **24/24**; suite completa **221/221**, 0 fallos; validación manual **aprobada**.
 - **Resumen v4.3.2:** el backend evalúa la responsabilidad antes de cualquier mutación; bloquea con HTTP `409` y `OPERATIONAL_RESPONSIBILITY_ACTIVE`, preserva la sesión y devuelve evidencia estructurada. Aplica fail-closed ante errores y conserva el lifecycle normal cuando no existe responsabilidad. El frontend todavía no incorpora UX específica para el conflicto.
 - **v4.3.3:** NO INICIADA.
