@@ -241,4 +241,15 @@ No se modificaron `server/db/database.js`, frontend, dependencias, versión visi
 
 ## 12. Estado
 
-**Cerrada técnicamente — pendiente únicamente de publicación Git.**
+**Publicada.**
+
+## 13. Commit funcional/publicado de la subfase
+
+`832be2673d540cd34b2701a0d00cf699c4120936`
+
+Después del push funcional se confirmó:
+
+```text
+main == origin/main
+working tree limpio
+```

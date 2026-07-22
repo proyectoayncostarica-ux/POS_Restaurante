@@ -331,12 +331,15 @@ Crear una representación estructurada de las sesiones de usuario para control o
 La sesión de Express seguirá autenticando peticiones.
 
 El nuevo registro permitirá conocer y controlar el ciclo de vida de cada sesión.
-## Estado actual
 
-**EN CURSO.**
+## Estado consolidado
 
-- v4.2.1 está publicada en `16822fb0be1fa2938737fb59f8d73982bc9f3e4a`.
-- v4.2.2 · Ciclo login/logout/expiración está **NO INICIADA**.
+**COMPLETADA Y PUBLICADA.**
+
+Subfases publicadas:
+
+- v4.2.1 → `16822fb0be1fa2938737fb59f8d73982bc9f3e4a`.
+- v4.2.2 → `832be2673d540cd34b2701a0d00cf699c4120936`.
 
 ---
 
@@ -388,9 +391,12 @@ Debe utilizarse un identificador interno independiente.
 ---
 
 ## v4.2.2 — Ciclo login/logout/expiración
-### Estado actual
 
-**NO INICIADA.**
+### Estado consolidado
+
+**PUBLICADA.**
+
+Commit funcional/publicado de la subfase: `832be2673d540cd34b2701a0d00cf699c4120936`.
 
 ### Qué
 
@@ -412,6 +418,16 @@ Esta fase todavía no limita cuántos dispositivos puede utilizar un usuario.
 ---
 
 # v4.3 — Responsabilidad operativa y bloqueo de logout
+
+## Estado actual
+
+**NO INICIADA.**
+
+Subfases pendientes:
+
+- v4.3.1 → **NO INICIADA**.
+- v4.3.2 → **NO INICIADA**.
+- v4.3.3 → **NO INICIADA**.
 
 ## Objetivo
 
@@ -1024,12 +1040,12 @@ Persistencia técnica de sesiones — **COMPLETADA Y PUBLICADA**.
 ↓
 
 `v4.2`
-Registro persistente del ciclo de vida — **EN CURSO**; v4.2.1 publicada y v4.2.2 no iniciada.
+Registro persistente del ciclo de vida — **COMPLETADA Y PUBLICADA** mediante v4.2.1 (`16822fb0be1fa2938737fb59f8d73982bc9f3e4a`) y v4.2.2 (`832be2673d540cd34b2701a0d00cf699c4120936`).
 
 ↓
 
 `v4.3`
-Responsabilidad activa y bloqueo de logout.
+Responsabilidad activa y bloqueo de logout — **NO INICIADA**.
 
 ↓
 
