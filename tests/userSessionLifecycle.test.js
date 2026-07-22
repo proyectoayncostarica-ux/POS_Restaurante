@@ -108,7 +108,7 @@ function extractCookie(response) {
     return setCookie.split(';', 1)[0];
 }
 
-test('login, verify, reautenticación, reinicio y logout mantienen un historial coherente', { timeout: 90000 }, async t => {
+test('login, verify, rechazo de reautenticación, reinicio y logout mantienen un historial coherente', { timeout: 90000 }, async t => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mundipos-v422-http-'));
     const restaurantDbPath = path.join(tempDir, 'restaurant.db');
     const sessionDbPath = path.join(tempDir, 'sessions.db');
@@ -218,22 +218,24 @@ test('login, verify, reautenticación, reinicio y logout mantienen un historial 
         },
         body: JSON.stringify({ nombre: 'Admin_v422', password: 'Prueba-v422-segura' })
     });
-    assert.equal(reauthentication.status, 200, runningServer.getLogs());
+    assert.equal(reauthentication.status, 409, runningServer.getLogs());
+    assert.deepEqual(await reauthentication.json(), {
+        success: false,
+        error: 'Ya existe una sesión autenticada. Cierre la sesión actual antes de iniciar con otra identidad.',
+        message: 'Ya existe una sesión autenticada. Cierre la sesión actual antes de iniciar con otra identidad.',
+        code: 'SESSION_ALREADY_AUTHENTICATED'
+    });
 
     const correlatedRows = await reader.all(`
         SELECT * FROM sesiones_usuario
         WHERE express_session_id = ?
         ORDER BY id
     `, [firstLoginRow.express_session_id]);
-    assert.equal(correlatedRows.length, 2);
-    assert.equal(correlatedRows[0].estado, 'reemplazada');
-    assert.equal(
-        correlatedRows[0].motivo_finalizacion,
-        USER_SESSION_END_REASONS.REAUTHENTICATION
-    );
-    assert.ok(correlatedRows[0].finalizada_en);
-    assert.equal(correlatedRows[1].estado, 'activa');
-    assert.notEqual(correlatedRows[0].session_uuid, correlatedRows[1].session_uuid);
+    assert.equal(correlatedRows.length, 1);
+    assert.equal(correlatedRows[0].estado, 'activa');
+    assert.equal(correlatedRows[0].finalizada_en, null);
+    assert.equal(correlatedRows[0].motivo_finalizacion, null);
+    assert.equal(correlatedRows[0].session_uuid, firstLoginRow.session_uuid);
 
     const countBeforeRestart = (await reader.all('SELECT * FROM sesiones_usuario')).length;
     await stopServer(runningServer.child);
@@ -249,7 +251,7 @@ test('login, verify, reautenticación, reinicio y logout mantienen un historial 
     assert.equal(sessionRows.length, countBeforeRestart);
     const activeAfterRestart = sessionRows.filter(row => row.estado === 'activa');
     assert.equal(activeAfterRestart.length, 1);
-    assert.equal(activeAfterRestart[0].session_uuid, correlatedRows[1].session_uuid);
+    assert.equal(activeAfterRestart[0].session_uuid, correlatedRows[0].session_uuid);
 
     const logoutResponse = await fetch(`${runningServer.url}/api/auth/logout`, {
         method: 'POST',
@@ -259,14 +261,14 @@ test('login, verify, reautenticación, reinicio y logout mantienen un historial 
 
     const finalLifecycle = await reader.get(
         'SELECT * FROM sesiones_usuario WHERE session_uuid = ?',
-        [correlatedRows[1].session_uuid]
+        [correlatedRows[0].session_uuid]
     );
     assert.equal(finalLifecycle.estado, 'cerrada');
     assert.ok(finalLifecycle.finalizada_en);
     assert.equal(finalLifecycle.motivo_finalizacion, USER_SESSION_END_REASONS.LOGOUT);
     const destroyedTechnical = await sessionReader.get(
         'SELECT sid FROM express_sessions WHERE sid = ?',
-        [correlatedRows[1].express_session_id]
+        [correlatedRows[0].express_session_id]
     );
     assert.equal(destroyedTechnical, undefined);
     const verifyAfterLogout = await fetch(`${runningServer.url}/api/auth/verify`, {
@@ -283,7 +285,7 @@ test('login, verify, reautenticación, reinicio y logout mantienen un historial 
     `);
     assert.deepEqual(
         historyActions.map(row => row.tipo_accion),
-        ['bootstrap_admin', 'logout', 'login', 'login', 'logout']
+        ['bootstrap_admin', 'logout', 'login', 'logout']
     );
 });
 

@@ -8,6 +8,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Versión visible/funcional de la app:** 3.7
 - **Estado de producto:** MundiPOS 3.0 cerrado, validado y publicado; MundiPOS v4 en curso
 - **Línea de trabajo actual:** v4.3 · Responsabilidad operativa y bloqueo de logout — COMPLETADA Y PUBLICADA; v4.4 · Política de sesiones concurrentes — NO INICIADA
+- **Fix técnico en curso:** v4.3.2-fix1 · rechazo de login sobre sesión autenticada — IMPLEMENTADO Y VALIDADO TÉCNICAMENTE; validación manual y publicación pendientes.
 
 La versión visible para usuarios, configuración pública y metadata base de la app es **3.7**. La modernización MundiPOS 3.0 reorganizó internamente Cuentas, Pagos, Comandas e Impresiones, preservando los contratos operativos y financieros canónicos. La etapa 3 queda cerrada técnicamente en **v3.7.0-fix1**. En MundiPOS v4, v4.1 quedó completada y publicada mediante v4.1.1 (`a8525e0f8110935b2cad20326313c9c73745b677`) y v4.1.2 (`1830711fea951b3c5a43eb041e927c5073de1b14`). v4.2 quedó completada y publicada mediante v4.2.1 (`16822fb0be1fa2938737fb59f8d73982bc9f3e4a`) y v4.2.2 (`832be2673d540cd34b2701a0d00cf699c4120936`). v4.3 quedó completada y publicada: v4.3.1 está publicada mediante el commit funcional `599893301c91fa7644c8e5fc7f73d8753b9a20b9`; v4.3.2 está publicada mediante el commit funcional `a8c54d6fe54b88ce05362a36584254abd2f7d4ae`; v4.3.3 está publicada mediante el commit funcional `930291c34981803bc56e2cb3360677e30357be36`. Este último SHA completa el cierre funcional de v4.3. v4.4 permanece no iniciada.
 
@@ -86,6 +87,20 @@ No se continúa con la siguiente subfase hasta que la subfase actual esté compr
 ```
 
 ## Registro de cambios canónico
+
+### v4.3.2-fix1 · Reautenticación sobre sesión ya autenticada
+
+- **Estado:** IMPLEMENTADO Y VALIDADO TÉCNICAMENTE; VALIDACIÓN MANUAL Y PUBLICACIÓN PENDIENTES.
+- **Defecto:** `POST /api/auth/login` podía ejecutarse sobre una sesión autenticada, reutilizar el SID, reemplazar identidad e historia activa y eludir indirectamente la responsabilidad que bloquea el logout.
+- **Corrección:** rechazo autoritativo antes de consultar credenciales o mutar sesión, historial u operación.
+- **Contrato:** HTTP `409`, código estable `SESSION_ALREADY_AUTHENTICATED`, `success: false` y mensaje legible.
+- **Invariantes:** conserva SID/cookie, identidad, `userSessionUuid`, fila histórica `activa`, responsabilidades, roles/capacidades, operación y Realtime; no crea login/logout ni historia de reemplazo.
+- **Compatibilidad:** login válido e inválido sin sesión autenticada conservan el comportamiento anterior; Admin no tiene excepción.
+- **Validación específica:** **6/6**, 0 fallos.
+- **Regresiones dirigidas:** **59/59**, 0 fallos.
+- **Suite completa:** **243/243**, 0 fallos.
+- **Publicación:** no existe commit funcional ni SHA publicado para este fix.
+- **Documento:** `docs/avance-v4.3.2-fix1-login-sesion-autenticada.md`.
 
 ### v4.3 · Responsabilidad operativa y bloqueo de logout
 

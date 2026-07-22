@@ -867,6 +867,16 @@ router.post('/bootstrap-admin', async (req, res) => {
 // Login
 router.post('/login', async (req, res) => {
     try {
+        if (req.session?.userId) {
+            const message = 'Ya existe una sesión autenticada. Cierre la sesión actual antes de iniciar con otra identidad.';
+            return res.status(409).json({
+                success: false,
+                error: message,
+                message,
+                code: 'SESSION_ALREADY_AUTHENTICATED'
+            });
+        }
+
         const { nombre, password } = req.body;
 
         if (!nombre || !password) {
