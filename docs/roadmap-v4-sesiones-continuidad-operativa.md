@@ -421,11 +421,11 @@ Esta fase todavía no limita cuántos dispositivos puede utilizar un usuario.
 
 ## Estado actual
 
-**NO INICIADA.**
+**EN CURSO.**
 
 Subfases pendientes:
 
-- v4.3.1 → **NO INICIADA**.
+- v4.3.1 → **CERRADA TÉCNICAMENTE — PENDIENTE ÚNICAMENTE DE PUBLICACIÓN GIT**.
 - v4.3.2 → **NO INICIADA**.
 - v4.3.3 → **NO INICIADA**.
 
@@ -1045,7 +1045,7 @@ Registro persistente del ciclo de vida — **COMPLETADA Y PUBLICADA** mediante v
 ↓
 
 `v4.3`
-Responsabilidad activa y bloqueo de logout — **NO INICIADA**.
+Responsabilidad activa y bloqueo de logout — **EN CURSO**.
 
 ↓
 
