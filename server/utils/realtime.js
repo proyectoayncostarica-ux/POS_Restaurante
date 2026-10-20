@@ -524,11 +524,40 @@ function getClientCount() {
     return clients.size;
 }
 
+function isClientConnected(clientId) {
+    if (!clientId) return false;
+    return clients.has(String(clientId).trim());
+}
+
+function sendToClient(clientId, eventName, payload = {}) {
+    const key = String(clientId || '').trim();
+    if (!key) return false;
+    const client = clients.get(key);
+    if (!client) return false;
+
+    const event = {
+        id: ++eventCounter,
+        at: new Date().toISOString(),
+        ...payload
+    };
+
+    try {
+        sendEvent(client.res, eventName, event);
+        return true;
+    } catch (error) {
+        clearInterval(client.heartbeat);
+        clients.delete(key);
+        return false;
+    }
+}
+
 module.exports = {
     eventsHandler,
     stateHandler,
     operationMutationNotifier,
     broadcast,
     getRealtimeState,
-    getClientCount
+    getClientCount,
+    isClientConnected,
+    sendToClient
 };

@@ -765,11 +765,17 @@ const Auth = {
     },
 
     // Iniciar sesión
-    async login(username, password) {
+    async login(username, password, options = {}) {
         try {
+            const body = { nombre: username, password };
+            if (options.forceClose) {
+                body.forceClose = true;
+            }
+
             const response = await Utils.request('/auth/login', {
                 method: 'POST',
-                body: JSON.stringify({ nombre: username, password })
+                body: JSON.stringify(body),
+                expectedErrorCodes: ['CONCURRENT_SESSION_ACTIVE']
             });
 
             if (response.success) {
@@ -797,8 +803,158 @@ const Auth = {
 
             return false;
         } catch (error) {
+            if (error?.code === 'CONCURRENT_SESSION_ACTIVE') {
+                return this.showConcurrentSessionModal(username, password);
+            }
             Utils.showNotification(error.message, 'error');
+            const errorDiv = document.getElementById('login-error');
+            if (errorDiv) {
+                errorDiv.textContent = error.message || 'Usuario o contraseña incorrectos';
+                errorDiv.style.display = 'block';
+            }
             return false;
+        }
+    },
+
+showConcurrentSessionModal(username, password) {
+        return new Promise(resolve => {
+            const loginForm = document.getElementById('login-form');
+            const submitBtn = loginForm?.querySelector('button[type="submit"]');
+
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.classList.remove('is-loading');
+                submitBtn.innerHTML = '<span class="btn-content"><i class="fas fa-sign-in-alt"></i> Iniciar sesión</span>';
+            }
+
+            const message = 'Ya hay una sesión activa para este usuario en otro dispositivo. ¿Desea cerrarla e ingresar aquí?';
+            Utils.showModal(
+                'Sesión activa en otro dispositivo',
+                `<div class="concurrent-session-modal-content">
+                    <p style="margin: 0 0 0.5rem 0; font-size: 1.05rem; line-height: 1.5; color: var(--text-color, #1e293b); font-weight: 500;">${message}</p>
+                    <small style="color: var(--text-muted, #64748b);">Al ingresar aquí, la sesión del equipo anterior quedará cerrada.</small>
+                </div>`,
+                [
+                    {
+                        text: 'Cancelar',
+                        class: 'btn-secondary',
+                        onclick: async () => {
+                            Utils.hideModal();
+                            // Notificar al servidor que se canceló el intento en el dispositivo nuevo
+                            try {
+                                await Utils.request('/auth/cancel-takeover', { method: 'POST' });
+                            } catch (e) {}
+                            resolve(false);
+                        }
+                    },
+                    {
+                        text: 'Cerrar otra sesión e ingresar',
+                        class: 'btn-primary',
+                        onclick: async () => {
+                            Utils.hideModal();
+                            
+                            // Mostrar modal de espera en el dispositivo nuevo mientras el otro equipo responde o expira
+                            Utils.showModal(
+                                'Solicitando acceso...',
+                                `<div style="text-align: center; padding: 1.5rem;">
+                                    <div class="loading" style="margin: 0 auto 1rem auto; width: 36px; height: 36px;"></div>
+                                    <p style="margin: 0; font-size: 1rem; color: var(--text-color, #1e293b);">Esperando respuesta del dispositivo anterior (cuenta regresiva de 5s)...</p>
+                                </div>`,
+                                [],
+                                'modal-md'
+                            );
+
+                            const success = await Auth.login(username, password, { forceClose: true });
+                            Utils.hideModal();
+
+                            if (!success) {
+                                Utils.showNotification('No obtuvo autorización para iniciar sesión', 'warning');
+                                if (submitBtn) {
+                                    submitBtn.disabled = false;
+                                    submitBtn.classList.remove('is-loading');
+                                    submitBtn.innerHTML = '<span class="btn-content"><i class="fas fa-sign-in-alt"></i> Iniciar sesión</span>';
+                                }
+                            }
+                            resolve(success);
+                        }
+                    }
+                ],
+                'modal-md'
+            );
+        });
+    },
+
+    handleSessionClosureRequested(payload) {
+        const message = payload?.message || 'Un nuevo dispositivo desea iniciar sesión con tu usuario. ¿Deseas cerrar tu sesión actual?';
+        let countdown = payload?.countdownSeconds || 5;
+
+        const updateModalBody = (currentSecs) => {
+            const bodyContainer = document.getElementById('session-closure-body-content');
+            if (bodyContainer) {
+                bodyContainer.innerHTML = `
+                    <p style="margin: 0 0 0.75rem 0; font-size: 1.05rem; line-height: 1.5; color: var(--text-color, #1e293b); font-weight: 500;">${message}</p>
+                    <p style="margin: 0; font-size: 0.95rem; color: var(--danger-color, #dc2626); font-weight: 600;">Este dispositivo se cerrará en ${currentSecs} segundos (cuenta regresiva). Si desea continuar da clic en Mantener Activa.</p>
+                `;
+            }
+        };
+
+        Utils.showModal(
+            'Aviso de inicio de sesión',
+            `<div id="session-closure-body-content" class="session-closure-warning">
+                <p style="margin: 0 0 0.75rem 0; font-size: 1.05rem; line-height: 1.5; color: var(--text-color, #1e293b); font-weight: 500;">${message}</p>
+                <small style="color: var(--text-muted, #64748b);">Si no deseas cerrarla, selecciona "Mantener activa".</small>
+            </div>`,
+            [
+                {
+                    text: 'Mantener activa',
+                    class: 'btn-secondary',
+                    onclick: async () => {
+                        if (window.sessionTakeoverTimer) clearInterval(window.sessionTakeoverTimer);
+                        Utils.hideModal();
+                        try {
+                            await Utils.request('/auth/reject-takeover', { method: 'POST' });
+                        } catch (e) {}
+                    }
+                },
+                {
+                    text: 'Cerrar mi sesión',
+                    class: 'btn-danger',
+                    onclick: async () => {
+                        if (window.sessionTakeoverTimer) clearInterval(window.sessionTakeoverTimer);
+                        Utils.hideModal();
+                        try {
+                            await Utils.request('/auth/accept-takeover', { method: 'POST' });
+                        } catch (e) {}
+                        await Auth.logout();
+                    }
+                }
+            ],
+            'modal-md'
+        );
+
+        if (window.sessionTakeoverTimer) clearInterval(window.sessionTakeoverTimer);
+        window.sessionTakeoverTimer = setInterval(async () => {
+            countdown -= 1;
+            if (countdown > 0) {
+                updateModalBody(countdown);
+            } else {
+                clearInterval(window.sessionTakeoverTimer);
+                window.sessionTakeoverTimer = null;
+                Utils.hideModal();
+                // Al llegar a 0 sin acción, el servidor procesa el timeout cerrando la sesión anterior automáticamente
+            }
+        }, 1000);
+    },
+
+    handleSessionClosureCancelled() {
+        if (window.sessionTakeoverTimer) {
+            clearInterval(window.sessionTakeoverTimer);
+            window.sessionTakeoverTimer = null;
+        }
+        const overlay = document.getElementById('modal-overlay');
+        if (overlay && overlay.style.display !== 'none') {
+            Utils.hideModal();
+            Utils.showNotification('La solicitud de inicio de sesión en otro dispositivo fue cancelada.', 'info');
         }
     },
 
@@ -2301,6 +2457,20 @@ const Realtime = {
             if (payload) this.signalVersionObsolete(payload);
         });
 
+        this.source.addEventListener('session-closure-requested', (event) => {
+            const payload = this.handleServerEvent(event, false);
+            if (payload && typeof Auth !== 'undefined') {
+                Auth.handleSessionClosureRequested(payload);
+            }
+        });
+
+        this.source.addEventListener('session-revoked', (event) => {
+            const payload = this.handleServerEvent(event, false);
+            if (payload && typeof Auth !== 'undefined') {
+                Auth.handleSessionRevoked(payload);
+            }
+        });
+
         this.source.onerror = () => {
             this.isConnected = false;
             this.needsRecovery = true;
@@ -2714,8 +2884,6 @@ document.addEventListener('DOMContentLoaded', async function() {
             button.innerHTML = originalText;
             button.disabled = false;
             button.classList.remove('is-loading');
-            errorDiv.textContent = 'Usuario o contraseña incorrectos';
-            errorDiv.style.display = 'block';
         }
 
     });

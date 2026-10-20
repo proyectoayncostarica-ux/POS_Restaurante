@@ -16,7 +16,10 @@ const USER_SESSION_END_REASONS = Object.freeze({
     RECONCILIATION_MISSING: 'reconciliacion_sin_sesion_tecnica',
     RECONCILIATION_DUPLICATE: 'reconciliacion_duplicado_sid',
     RECONCILIATION_USER_CHANGED: 'reconciliacion_usuario_distinto',
-    RECONCILIATION_NO_USER: 'reconciliacion_sin_usuario_autenticado'
+    RECONCILIATION_NO_USER: 'reconciliacion_sin_usuario_autenticado',
+    REPLACED_CONCURRENT: 'reemplazo_nuevo_dispositivo',
+    REPLACED_FORCE: 'reemplazo_forzado_nuevo_dispositivo',
+    REPLACED_INACTIVE: 'reemplazo_dispositivo_inactivo'
 });
 
 function normalizeRequiredText(value, field, maxLength = 512) {
@@ -189,6 +192,61 @@ class UserSessionService {
         `, [normalizeUserId(userId)]);
     }
 
+    findActiveByUserId(userId) {
+        return this.db.all(`
+            SELECT *
+            FROM sesiones_usuario
+            WHERE usuario_id = ? AND estado = 'activa'
+            ORDER BY iniciada_en DESC, id DESC
+        `, [normalizeUserId(userId)]);
+    }
+
+    async revokeActiveSessionsForUser(userId, input = {}) {
+        const normalizedUserId = normalizeUserId(userId);
+        const endedAt = normalizeRequiredText(
+            input.endedAt ?? input.finalizada_en ?? this.clock(),
+            'finalizada_en',
+            80
+        );
+        const endReason = normalizeRequiredText(
+            input.endReason ?? input.motivo_finalizacion ?? USER_SESSION_END_REASONS.REPLACED_CONCURRENT,
+            'motivo_finalizacion',
+            120
+        );
+        const updatedAt = normalizeRequiredText(
+            input.updatedAt ?? input.actualizado_en ?? endedAt,
+            'actualizado_en',
+            80
+        );
+        const excludeSid = normalizeOptionalText(input.excludeExpressSessionId);
+
+        let query = "SELECT * FROM sesiones_usuario WHERE usuario_id = ? AND estado = 'activa'";
+        const queryParams = [normalizedUserId];
+        if (excludeSid) {
+            query += " AND express_session_id != ?";
+            queryParams.push(excludeSid);
+        }
+
+        const activeRows = await this.db.all(query, queryParams);
+        if (activeRows.length > 0) {
+            let updateQuery = `
+                UPDATE sesiones_usuario
+                SET estado = 'reemplazada',
+                    finalizada_en = ?,
+                    motivo_finalizacion = ?,
+                    actualizado_en = ?
+                WHERE usuario_id = ? AND estado = 'activa'
+            `;
+            const updateParams = [endedAt, endReason, updatedAt, normalizedUserId];
+            if (excludeSid) {
+                updateQuery += " AND express_session_id != ?";
+                updateParams.push(excludeSid);
+            }
+            await this.db.run(updateQuery, updateParams);
+        }
+        return activeRows;
+    }
+
     async updateStatus(sessionUuid, input = {}) {
         const normalizedUuid = normalizeRequiredText(sessionUuid, 'session_uuid', 120);
         const status = normalizeStatus(input.status ?? input.estado);
@@ -292,6 +350,13 @@ class UserSessionService {
                 endedAt: values.startedAt,
                 endReason: USER_SESSION_END_REASONS.REAUTHENTICATION
             });
+            if (input.revokeOtherDevices) {
+                await service.revokeActiveSessionsForUser(values.userId, {
+                    excludeExpressSessionId: values.expressSessionId,
+                    endedAt: values.startedAt,
+                    endReason: input.revokeReason || USER_SESSION_END_REASONS.REPLACED_CONCURRENT
+                });
+            }
             await service.insert(values);
             return service.findByUuid(values.sessionUuid);
         };

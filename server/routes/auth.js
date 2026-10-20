@@ -88,7 +88,9 @@ async function persistAuthenticatedSession(req, res, input = {}) {
                 userId: input.userId,
                 expressSessionId: req.sessionID,
                 clientId,
-                startedAt
+                startedAt,
+                revokeOtherDevices: Boolean(input.revokeOtherDevices),
+                revokeReason: input.revokeReason
             });
             await tx.run(
                 'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
@@ -877,7 +879,8 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        const { nombre, password } = req.body;
+        const { nombre, password, forceClose, forzar_cierre } = req.body || {};
+        const shouldForceClose = Boolean(forceClose || forzar_cierre);
 
         if (!nombre || !password) {
             return res.status(400).json({ error: 'Nombre y contraseña son requeridos' });
@@ -895,6 +898,65 @@ router.post('/login', async (req, res) => {
         const isValidPassword = await bcrypt.compare(password, user.password);
         if (!isValidPassword) {
             return res.status(401).json({ error: 'Contraseña incorrecta' });
+        }
+
+        const currentClientId = getSessionClientId(req);
+        const activeSessions = await userSessionService.findActiveByUserId(user.id);
+        const otherDeviceSessions = activeSessions.filter(s => {
+            if (s.express_session_id === req.sessionID) return false;
+            if (currentClientId && s.client_id && s.client_id === currentClientId) return false;
+            return true;
+        });
+
+        if (otherDeviceSessions.length > 0) {
+            const connectedOldSession = otherDeviceSessions.find(s =>
+                s.client_id && realtime.isClientConnected(s.client_id)
+            );
+
+            if (connectedOldSession && !shouldForceClose) {
+                // Caso B1: Dispositivo anterior conectado y el nuevo no ha confirmado forzar cierre
+                realtime.sendToClient(connectedOldSession.client_id, 'session-closure-requested', {
+                    targetClientId: connectedOldSession.client_id,
+                    newClientId: currentClientId,
+                    userName: user.nombre,
+                    message: 'Un nuevo dispositivo desea iniciar sesión con tu usuario. ¿Deseas cerrar tu sesión actual?'
+                });
+
+                return res.status(409).json({
+                    success: false,
+                    code: 'CONCURRENT_SESSION_ACTIVE',
+                    error: 'Ya hay una sesión activa en otro dispositivo.',
+                    message: 'Ya hay una sesión activa en otro dispositivo. ¿Desea cerrarla?',
+                    details: {
+                        clientId: connectedOldSession.client_id,
+                        startedAt: connectedOldSession.iniciada_en,
+                        deviceActive: true
+                    }
+                });
+            }
+
+            // Caso A (desconectado) o Caso B2 (shouldForceClose = true):
+            const endReason = shouldForceClose
+                ? 'reemplazo_forzado_nuevo_dispositivo'
+                : 'reemplazo_dispositivo_inactivo';
+
+            const revokedSessions = await userSessionService.revokeActiveSessionsForUser(user.id, {
+                excludeExpressSessionId: req.sessionID,
+                endReason
+            });
+
+            for (const oldSession of revokedSessions) {
+                if (req.sessionStore && typeof req.sessionStore.destroy === 'function') {
+                    req.sessionStore.destroy(oldSession.express_session_id, () => {});
+                }
+                if (oldSession.client_id && shouldForceClose) {
+                    realtime.sendToClient(oldSession.client_id, 'session-revoked', {
+                        targetClientId: oldSession.client_id,
+                        reason: 'session_replaced_by_new_device',
+                        message: 'Tu sesión fue cerrada porque se inició sesión desde otro dispositivo.'
+                    });
+                }
+            }
         }
 
         req.session.userId = user.id;
