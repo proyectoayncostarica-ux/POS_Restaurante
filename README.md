@@ -7,10 +7,20 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Nombre oficial de la app:** MundiPOS
 - **Versión visible/funcional de la app:** 3.7
 - **Estado de producto:** MundiPOS 3.0 cerrado, validado y publicado; MundiPOS v4 en curso
-- **Línea de trabajo actual:** v4.3 · Responsabilidad operativa y bloqueo de logout — COMPLETADA Y PUBLICADA; v4.4 · Política de sesiones concurrentes — NO INICIADA
+- **Línea de trabajo actual:** v4.1–v4.3 conservan su cierre histórico; contrato de Terminal y concurrencia revisado documentalmente el 22 de octubre de 2026. Las fases futuras no están implementadas/validadas completamente; Session Takeover está en integración incompleta.
 - **Fix técnico en curso:** v4.3.2-fix1 · rechazo de login sobre sesión autenticada — IMPLEMENTADO Y VALIDADO TÉCNICAMENTE; validación manual y publicación pendientes.
 
-La versión visible para usuarios, configuración pública y metadata base de la app es **3.7**. La modernización MundiPOS 3.0 reorganizó internamente Cuentas, Pagos, Comandas e Impresiones, preservando los contratos operativos y financieros canónicos. La etapa 3 queda cerrada técnicamente en **v3.7.0-fix1**. En MundiPOS v4, v4.1 quedó completada y publicada mediante v4.1.1 (`a8525e0f8110935b2cad20326313c9c73745b677`) y v4.1.2 (`1830711fea951b3c5a43eb041e927c5073de1b14`). v4.2 quedó completada y publicada mediante v4.2.1 (`16822fb0be1fa2938737fb59f8d73982bc9f3e4a`) y v4.2.2 (`832be2673d540cd34b2701a0d00cf699c4120936`). v4.3 quedó completada y publicada: v4.3.1 está publicada mediante el commit funcional `599893301c91fa7644c8e5fc7f73d8753b9a20b9`; v4.3.2 está publicada mediante el commit funcional `a8c54d6fe54b88ce05362a36584254abd2f7d4ae`; v4.3.3 está publicada mediante el commit funcional `930291c34981803bc56e2cb3360677e30357be36`. Este último SHA completa el cierre funcional de v4.3. v4.4 permanece no iniciada.
+La versión visible para usuarios, configuración pública y metadata base de la app es **3.7**. La modernización MundiPOS 3.0 reorganizó internamente Cuentas, Pagos, Comandas e Impresiones, preservando los contratos operativos y financieros canónicos. La etapa 3 queda cerrada técnicamente en **v3.7.0-fix1**. En MundiPOS v4, v4.1 quedó completada y publicada mediante v4.1.1 (`a8525e0f8110935b2cad20326313c9c73745b677`) y v4.1.2 (`1830711fea951b3c5a43eb041e927c5073de1b14`). v4.2 quedó completada y publicada mediante v4.2.1 (`16822fb0be1fa2938737fb59f8d73982bc9f3e4a`) y v4.2.2 (`832be2673d540cd34b2701a0d00cf699c4120936`). v4.3 quedó completada y publicada: v4.3.1 está publicada mediante el commit funcional `599893301c91fa7644c8e5fc7f73d8753b9a20b9`; v4.3.2 está publicada mediante el commit funcional `a8c54d6fe54b88ce05362a36584254abd2f7d4ae`; v4.3.3 está publicada mediante el commit funcional `930291c34981803bc56e2cb3360677e30357be36`. Este último SHA completa el cierre funcional de v4.3. La revisión documental posterior no declara cerradas v4.4–v4.6 ni valida su integración actual.
+
+## Revisión contractual de sesiones · 22 de octubre de 2026
+
+- **Referencia vigente:** [roadmap v4, contrato revisado y dependencias](docs/roadmap-v4-sesiones-continuidad-operativa.md#52-contrato-revisado-de-terminal-concurrencia-y-continuidad), secciones 5.2–5.4. Los avances publicados y las entradas históricas siguientes conservan su alcance y evidencia originales.
+- **Terminal:** nueva dependencia arquitectónica de identidad lógica acreditada de navegador/perfil; clientId se conserva como correlación/realtime y no es credencial. Cada instalación admite una sola Terminal con condición de consola servidor.
+- **Instalación y servidor:** [ampliación contractual de v4.4](docs/roadmap-v4-sesiones-continuidad-operativa.md#54-ampliación-contractual-instalación-servidor-y-migración-verificable): instalación persistente del restaurante y servidor acreditable reemplazable. Primera instalación crea ambas identidades con autoridad inicial del Admin; la consola pertenece a la instalación. Backup normal no revoca el servidor. Migración planificada o recuperación por daño conserva la instalación, crea nueva identidad servidor y exige reacreditar Terminales; evidencia verificable permite autoinvalidar al servidor antiguo que reaparece. Es contrato futuro, sin implementación ni garantía de detectar copias totalmente aisladas.
+- **Concurrencia:** Admin tiene como máximo consola protegida + una externa; Salonero/Mesero y Bartender sujetos a continuidad permiten takeover; Cocina tiene una sesión, sin takeover ni Admin. Cajero Admin/Básico tiene máximo una ocupación Caja por usuario y por Terminal autorizada, sin takeover de Caja; puede coexistir la consola Admin no-Cajero conforme a la política Admin.
+- **Transferencia:** aceptación y timeout autorizan revocar A; B solo obtiene capacidad operativa después de revocación efectiva confirmada. El plazo definitivo sigue pendiente; 10 segundos no es contractual. Se sustituye expresamente la autorización Admin adicional offline del plan anterior para takeover del mismo usuario.
+- **Estado real:** políticas definidas documentalmente, Terminal no implementada y Session Takeover en integración incompleta. La deuda global Cocina + Admin, las carreras de revocación y los demás pendientes/deudas están registrados en el roadmap. No hay cierre ni validación completa de las fases futuras.
+- **Trazabilidad:** la entrada histórica v4.3.2-fix1 mantiene pendientes documentales; Git contiene 2928828, sin que esta revisión certifique validación manual o publicación remota.
 
 ## Control de versionado del proyecto
 
@@ -25,7 +35,7 @@ Este proyecto se trabajará con versionado trazable por etapa, fase y fix.
 | v2.1 | Estabilidad | Etapa cerrada: estabilidad visual, navegación, PWA y base técnica. |
 | v2.2 | Estabilización funcional | Etapa cerrada: Dashboard, zonas, roles, permisos y normalización base de Menú. |
 | v3.0 | Arquitectura modular | Etapa cerrada: Cuentas, Pagos, Comandas, Printing, Dashboard y Realtime normalizados y validados transversalmente. |
-| v4 | Sesiones y continuidad operativa | Etapa en curso. v4.1, v4.2 y v4.3 están completadas y publicadas; v4.4 no ha comenzado. |
+| v4 | Sesiones y continuidad operativa | v4.1–v4.3 publicadas. Contrato futuro revisado con Terminal como dependencia; concurrencia/takeover sin cierre funcional completo. |
 
 ### Fases de estabilidad
 
