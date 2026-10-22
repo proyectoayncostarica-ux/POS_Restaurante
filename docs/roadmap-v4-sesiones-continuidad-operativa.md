@@ -395,7 +395,7 @@ Se preservan numeración, avances y cierres de v4.1–v4.3. Se reorganiza solo l
 
 | Fase futura | Alcance revisado | Dependencia y estado |
 |---|---|---|
-| v4.4 | Identidad persistente de instalación, servidor acreditable reemplazable, primera instalación, Terminal/consola única, asociación con sesiones, backup/migración, recuperación, reacreditación y detección de servidor reemplazado. | Contrato conceptual ampliado en 5.4; implementación y validación pendientes; mecanismos y procedimientos técnicos pendientes. |
+| v4.4 | Identidad persistente de instalación, servidor acreditable reemplazable, primera instalación, Terminal/consola única, asociación con sesiones, backup/migración, recuperación, reacreditación y detección de servidor reemplazado. | Contrato conceptual ampliado en 5.4; implementación y validación pendientes. La primera entrega v4.4.1 requiere A y B implementadas y validadas según 5.4.12; mecanismos y procedimientos técnicos pendientes. |
 | v4.5 | Políticas por tipo/contexto, integración con selección automática/cambio de contexto y ocupación de estación Caja. | Requiere Terminal; implementación y validación pendientes. |
 | v4.6 | Frontera de revocación efectiva, correlación de negociación y Session Takeover manual/timeout. | Requiere identidad/políticas; la frontera debe validarse antes de habilitar transferencias; integración actual incompleta. |
 | v4.7 | Administración de Terminales/sesiones, presencia, realtime validado, recuperación Cocina/Cajero y transición de sesiones heredadas; visibilidad administrativa de la conciliación definida en v4.4. | Requiere el núcleo de migración/reacreditación de v4.4 y resolver los pendientes aplicables; sin cierre. |
@@ -517,6 +517,8 @@ Si T99 estuvo aislada durante toda la migración y K1 reaparece antes de que T99
 
 Es una secuencia de dependencias conceptual; no fija identificadores v4.4.x, commits ni cierres. Las verificaciones acompañan cada área, sin esperar al último punto. La administración posterior de v4.7 usa este núcleo; no posterga a v4.7 las garantías de reemplazo y reacreditación de v4.4.
 
+La decisión posterior de 5.4.12 divide el trabajo de la primera entrega v4.4.1 en A/B como unidades internas, sin exigir versiones públicas independientes ni alterar avances publicados.
+
 ### 5.4.10 Decisiones técnicas y operativas que siguen PENDIENTES
 
 1. Nombre técnico de installationId.
@@ -553,6 +555,65 @@ Esta ampliación concreta flujos antes pendientes en 5.2.9, sin cerrar sus detal
 - La divergencia de datos tras el reemplazo es un conflicto, no sincronización implícita.
 
 Estos riesgos son distintos de las deudas de sesiones de 5.2.10, que se conservan. No se afirma que las mitigaciones, el backup validable, la identidad verificable ni la autoinvalidación existan hoy. Esta actualización solo documenta el contrato; no implementa tablas, criptografía, backup/restore ni pruebas.
+
+### 5.4.12 Recuperación administrativa legacy y condición de entrega de v4.4.1
+
+**Decisión adicional aprobada el 22 de octubre de 2026; implementación y validación pendientes.** Una instalación pre-v4.4 con datos existentes y sin Admin activo sigue siendo legacy: no se convierte en nueva, no vuelve al bootstrap inicial ni a AWAITING_INITIAL_ADMIN. Debe conservar conceptualmente:
+
+```text
+origin = adopted_legacy
+state = IDENTIFIED
+installationId = la identidad ya adoptada
+requiresSetup = false
+administrativeRecoveryRequired = true
+```
+
+La ausencia de Admin no autoriza una segunda inicialización. La recuperación administrativa soportada es una condición obligatoria para desplegar la transición, no una capacidad que pueda dejarse indefinidamente para una fase posterior.
+
+**Autoridad y alcance:** se aprueba una herramienta administrativa local, ejecutada en el host/backend y fuera del acceso HTTP normal. Su autoridad es el acceso autorizado al sistema operativo y a los archivos de la instalación. No bastan LAN, localhost, IP, clientId, cero administradores, datos públicos del negocio, un endpoint HTTP abierto ni una sesión con tipo Admin cacheado. La herramienta todavía no existe; esta decisión no implementa scripts, servicios ni recuperación.
+
+| Caso | Acción contractual de recuperación |
+|---|---|
+| Admin desactivado y contraseña conocida | Seleccionar ese Admin, validar su contraseña y reactivarlo. |
+| Admin desactivado y contraseña desconocida | Operación local explícita de restablecimiento y reactivación de la cuenta seleccionada. |
+| Sin Admin recuperable, con DB legacy válida | Creación explícita de un Admin humano de recuperación. |
+| DB inconsistente/corrupta | Detener y exigir diagnóstico/reparación; no crear Admin para ocultar corrupción ni reclasificar como instalación nueva. |
+
+La contraseña nueva se introduce de forma segura e interactiva. La acción administrativa no altera los roles ni las responsabilidades operativas ajenas a esa acción.
+
+**Precondiciones:** la futura herramienta debe usar la ruta efectiva de DB, operar con backend detenido, validar adopted_legacy, IDENTIFIED e installationId y confirmar ausencia de Admin activo. Debe exigir acción/cuenta explícita, volver a comprobar condiciones dentro de transacción, resolver adecuadamente las sesiones técnicas afectadas y registrar auditoría. No cambia installationId ni reabre bootstrap. Los detalles técnicos y la coordinación con el store de sesiones quedan para implementación; un fallo al resolver sesiones no permite declarar recuperación completada ni liberar responsabilidades de negocio.
+
+**Auditoría:** conservar identificador de operación, installationId, fecha, motivo, cuenta afectada, tipo de acción (reactivación, restablecimiento o creación), resultado y contexto de mantenimiento local. Nunca registrar contraseña, hash ni secretos. El operador local no debe figurar falsamente como un Admin autenticado de MundiPOS.
+
+**Cierre e idempotencia:** después de recuperar un Admin, administrativeRecoveryRequired pasa a false y requiresSetup permanece false. El Admin accede después mediante login normal; la recuperación no crea automáticamente una sesión autenticada. Repetir la herramienta cuando ya existe un Admin activo debe rechazarse/no producir efectos adicionales. La recuperación y sus reintentos conservan identidad, procedencia y estado de instalación.
+
+**División de entrega; ambas partes pendientes de implementación y validación:**
+
+| Unidad interna | Alcance y condición |
+|---|---|
+| v4.4.1A | Reconocimiento, identidad, procedencia, estados y bootstrap protegido. Puede implementarse y probarse primero; por sí sola no constituye una transición desplegable completa. |
+| v4.4.1B | Recuperación administrativa local de legacy sin Admin: herramienta local, servicio de recuperación, auditoría, sesiones afectadas, señal administrativeRecoveryRequired y comportamiento frontend informativo. |
+
+**v4.4.1 solo puede considerarse terminada/desplegable cuando A y B hayan sido implementadas y validadas.** A/B no tienen que ser versiones públicas independientes. Esta división no modifica el bloque histórico v4.4–v4.6 ni declara completada una fase.
+
+**Frontend:** en legacy identificada sin Admin no se muestra el formulario de primer Admin; se informa que hace falta recuperación administrativa local y no se ofrece un botón remoto para crear/restablecer Admin. Los usuarios normales válidos pueden seguir usando login/operación cuando el estado de la instalación permita operación normal. No se fija UI detallada.
+
+**Pruebas contractuales adicionales, futuras y no ejecutadas por esta actualización:**
+
+- Legacy con Admin activo: actualización normal y rechazo de recuperación innecesaria.
+- Admin desactivado con contraseña válida: reactivación de la cuenta seleccionada.
+- Contraseña incorrecta: ningún acceso ni modificación administrativa.
+- Restablecimiento local explícito de contraseña y reactivación.
+- Sin Admin recuperable: creación explícita de Admin humano de recuperación.
+- Intento HTTP/remoto de recovery rechazado, sin elevación de privilegios.
+- Recuperación repetida/concurrente: sin efectos duplicados.
+- Reinicio/fallo antes y después del commit: rollback o reconocimiento del resultado confirmado.
+- Fallo al invalidar/resolver sesiones afectadas: recuperación no declarada completada.
+- UUID/installationId inmutable durante recuperación y reintentos.
+- Bootstrap inicial sigue bloqueado; no se vuelve a created_empty ni AWAITING_INITIAL_ADMIN.
+- DB inconsistente: no se reclasifica ni se genera Admin para ocultar el problema.
+
+Se preservan los contratos de Terminal, serverIdentity, migración, SUPERSEDED, Caja/Cocina/Admin y Session Takeover. La recuperación administrativa de acceso legacy es distinta de recuperar una sesión operativa Cocina/Cajero o de reemplazar servidor. Este registro documental no inicia v4.4.1A ni implementa ninguna función.
 
 ---
 
