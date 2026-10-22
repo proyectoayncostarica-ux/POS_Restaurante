@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const database = require('../db/database');
 const userSessionService = require('../services/userSessionService');
+const sessionTakeoverService = require('../services/sessionTakeoverService');
 const { UserSessionService } = require('../services/userSessionService');
 const operationalResponsibilityService = require('../services/operationalResponsibilityService');
 const realtime = require('../utils/realtime');
@@ -867,6 +868,7 @@ router.post('/bootstrap-admin', async (req, res) => {
 });
 
 // Login
+// Login con soporte de Takeover interactivo
 router.post('/login', async (req, res) => {
     try {
         if (req.session?.userId) {
@@ -880,7 +882,7 @@ router.post('/login', async (req, res) => {
         }
 
         const { nombre, password, forceClose, forzar_cierre } = req.body || {};
-        const shouldForceClose = Boolean(forceClose || forzar_cierre);
+        let shouldForceClose = Boolean(forceClose || forzar_cierre);
 
         if (!nombre || !password) {
             return res.status(400).json({ error: 'Nombre y contraseña son requeridos' });
@@ -913,20 +915,13 @@ router.post('/login', async (req, res) => {
                 s.client_id && realtime.isClientConnected(s.client_id)
             );
 
+            // Si hay una sesión activa y el cliente NUEVO aún no ha confirmado forzar el cierre (es decir, el primer intento)
             if (connectedOldSession && !shouldForceClose) {
-                // Caso B1: Dispositivo anterior conectado y el nuevo no ha confirmado forzar cierre
-                realtime.sendToClient(connectedOldSession.client_id, 'session-closure-requested', {
-                    targetClientId: connectedOldSession.client_id,
-                    newClientId: currentClientId,
-                    userName: user.nombre,
-                    message: 'Un nuevo dispositivo desea iniciar sesión con tu usuario. ¿Deseas cerrar tu sesión actual?'
-                });
-
                 return res.status(409).json({
                     success: false,
                     code: 'CONCURRENT_SESSION_ACTIVE',
                     error: 'Ya hay una sesión activa en otro dispositivo.',
-                    message: 'Ya hay una sesión activa en otro dispositivo. ¿Desea cerrarla?',
+                    message: 'Ya hay una sesión activa en otro dispositivo. ¿Desea solicitar acceso?',
                     details: {
                         clientId: connectedOldSession.client_id,
                         startedAt: connectedOldSession.iniciada_en,
@@ -935,7 +930,26 @@ router.post('/login', async (req, res) => {
                 });
             }
 
-            // Caso A (desconectado) o Caso B2 (shouldForceClose = true):
+            // Si ya se confirmó el "Solicitar Acceso" (via forceClose: true), aquí sí iniciamos el takeover real esperando al dispositivo anterior:
+            if (connectedOldSession && shouldForceClose) {
+                const takeoverResult = await sessionTakeoverService.initiateTakeover({
+                    userId: user.id,
+                    targetClientId: connectedOldSession.client_id,
+                    requesterClientId: currentClientId,
+                    timeoutMs: 10000
+                });
+
+                if (takeoverResult.outcome === 'rejected') {
+                    return res.status(403).json({
+                        success: false,
+                        code: 'SESSION_TAKEOVER_REJECTED',
+                        error: 'Acceso no autorizado.',
+                        message: 'Acceso no autorizado.'
+                    });
+                }
+            }
+
+            // Revocación de sesiones antiguas...
             const endReason = shouldForceClose
                 ? 'reemplazo_forzado_nuevo_dispositivo'
                 : 'reemplazo_dispositivo_inactivo';
@@ -953,7 +967,7 @@ router.post('/login', async (req, res) => {
                     realtime.sendToClient(oldSession.client_id, 'session-revoked', {
                         targetClientId: oldSession.client_id,
                         reason: 'session_replaced_by_new_device',
-                        message: 'Tu sesión fue cerrada porque se inició sesión desde otro dispositivo.'
+                        message: 'Tu sesión fue cerrada porque se autorizó el ingreso desde otro dispositivo.'
                     });
                 }
             }
@@ -961,7 +975,7 @@ router.post('/login', async (req, res) => {
 
         req.session.userId = user.id;
         req.session.userName = user.nombre;
-        req.session.userNombre = user.nombre; // compatibilidad con código viejo
+        req.session.userNombre = user.nombre;
         req.session.userType = user.tipo;
         req.session.userAccountClass = user.clase_cuenta || 'humana';
         req.session.userDepartmentCode = user.cuenta_departamental_codigo || null;
@@ -994,7 +1008,57 @@ router.post('/login', async (req, res) => {
     }
 });
 
-// Logout
+// Endpoints auxiliares para el control de sesiones concurrentes
+router.post('/cancel-takeover', requireSession, (req, res) => {
+    sessionTakeoverService.cancelTakeover(req.session.userId, { targetClientId: getSessionClientId(req) });
+    res.json({ success: true });
+});
+
+router.post('/reject-takeover', requireSession, (req, res) => {
+    sessionTakeoverService.rejectTakeover(req.session.userId);
+    res.json({ success: true });
+});
+
+// Aceptar takeover y cerrar sesión anterior de forma inmediata y segura (sin bloqueo por mesas)
+router.post('/accept-takeover', requireSession, async (req, res) => {
+    try {
+        sessionTakeoverService.acceptTakeover(req.session.userId);
+
+        const userId = Number(req.session?.userId);
+        const userName = req.session?.userName;
+        const expressSessionId = req.sessionID;
+        const sessionUuid = req.session?.userSessionUuid || null;
+        const endedAt = new Date().toISOString();
+
+        if (Number.isSafeInteger(userId) && userId > 0) {
+            await database.withTransaction(async tx => {
+                const lifecycle = new UserSessionService({ db: tx, clock: () => endedAt });
+                
+                // Cerrar sesión activa correctamente usando fecha_fin IS NULL
+                await lifecycle.closeActiveByExpressSessionId(expressSessionId, {
+                    sessionUuid,
+                    endedAt
+                });
+
+                await tx.run(
+                    'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+                    ['takeover_aceptado', userId, `Usuario ${userName} cedió la sesión a un nuevo dispositivo`, endedAt]
+                );
+                await destroyRequestSession(req);
+            });
+        } else {
+            await destroyRequestSession(req);
+        }
+
+        res.clearCookie('pos.sid');
+        res.json({ success: true, message: 'Takeover aceptado y sesión cerrada exitosamente' });
+    } catch (error) {
+        console.error('Error en accept-takeover:', error);
+        res.status(500).json({ error: 'Error al aceptar takeover' });
+    }
+});
+
+// Logout robusto usando el servicio de sesiones (sin usar columnas inexistentes)
 router.post('/logout', async (req, res) => {
     try {
         const userId = Number(req.session?.userId);
@@ -1006,15 +1070,8 @@ router.post('/logout', async (req, res) => {
             let responsibilityResult;
             try {
                 responsibilityResult = await operationalResponsibilityService.getUserResponsibilities(userId);
-                if (
-                    !responsibilityResult
-                    || typeof responsibilityResult.tiene_responsabilidad !== 'boolean'
-                    || !Array.isArray(responsibilityResult.responsabilidades)
-                    || !Number.isSafeInteger(responsibilityResult.total)
-                    || responsibilityResult.total !== responsibilityResult.responsabilidades.length
-                    || responsibilityResult.tiene_responsabilidad !== (responsibilityResult.total > 0)
-                ) {
-                    throw new TypeError('Respuesta inválida del evaluador de responsabilidad operacional');
+                if (!responsibilityResult || typeof responsibilityResult.tiene_responsabilidad !== 'boolean') {
+                    throw new TypeError('Respuesta inválida del evaluador de responsabilidad');
                 }
             } catch (evaluationError) {
                 console.error('Error evaluando responsabilidades antes del logout:', evaluationError);
@@ -1043,15 +1100,16 @@ router.post('/logout', async (req, res) => {
             const endedAt = new Date().toISOString();
             await database.withTransaction(async tx => {
                 const lifecycle = new UserSessionService({ db: tx, clock: () => endedAt });
+                
+                // Cierre formal usando el servicio nativo de sesiones (actualiza fecha_fin correctamente)
                 let closed = await lifecycle.closeActiveByExpressSessionId(expressSessionId, {
                     sessionUuid,
                     endedAt
                 });
                 if (!closed && sessionUuid) {
-                    closed = await lifecycle.closeActiveByExpressSessionId(expressSessionId, {
-                        endedAt
-                    });
+                    await lifecycle.closeActiveByExpressSessionId(expressSessionId, { endedAt });
                 }
+
                 await tx.run(
                     'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
                     ['logout', userId, `Usuario ${userName} cerró sesión`, endedAt]

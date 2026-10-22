@@ -6,7 +6,7 @@ class SessionTakeoverService {
         this.pendingTakeovers = new Map(); // userId -> takeover object
     }
 
-    initiateTakeover({ userId, targetClientId, requesterClientId, timeoutMs = 5500 }) {
+    initiateTakeover({ userId, targetClientId, requesterClientId, timeoutMs = 10000 }) {
         this.cancelTakeover(userId, { targetClientId });
 
         const takeoverId = typeof crypto.randomUUID === 'function'
@@ -17,6 +17,7 @@ class SessionTakeoverService {
             const timer = setTimeout(() => {
                 if (this.pendingTakeovers.get(userId)?.takeoverId === takeoverId) {
                     this.pendingTakeovers.delete(userId);
+                    // Si se acaban los 10 segundos sin respuesta, se toma como autorizado
                     resolve({ outcome: 'accepted', reason: 'countdown_expired' });
                 }
             }, timeoutMs);
@@ -33,12 +34,11 @@ class SessionTakeoverService {
 
             this.pendingTakeovers.set(userId, takeover);
 
-            // Emitir evento SSE al dispositivo objetivo con cuenta regresiva
             realtime.sendToClient(targetClientId, 'session-takeover-countdown', {
                 takeoverId,
-                countdownSeconds: 5,
+                countdownSeconds: 10,
                 requesterClientId,
-                message: 'Un nuevo dispositivo desea iniciar sesión con tu usuario.'
+                message: 'Un nuevo dispositivo desea ingresar con el usuario actual. ¿Deseas autorizar ingreso?'
             });
         });
     }
@@ -58,7 +58,11 @@ class SessionTakeoverService {
     acceptTakeover(userId, options = {}) {
         const numericUserId = Number(userId);
         const takeover = this.pendingTakeovers.get(numericUserId);
-        if (!takeover) return false;
+        if (!takeover) {
+            // Si el takeover ya expiró por timeout en el servidor, 
+            // permitimos continuar para asegurar el cierre de sesión local y en BD.
+            return true;
+        }
         if (options.takeoverId && takeover.takeoverId !== options.takeoverId) return false;
 
         clearTimeout(takeover.timer);
@@ -88,16 +92,7 @@ class SessionTakeoverService {
         }
         return true;
     }
-
-    clearTakeovers() {
-        for (const [userId, takeover] of this.pendingTakeovers.entries()) {
-            clearTimeout(takeover.timer);
-            takeover.resolve({ outcome: 'cancelled', reason: 'cleared' });
-        }
-        this.pendingTakeovers.clear();
-    }
 }
 
 const sessionTakeoverService = new SessionTakeoverService();
 module.exports = sessionTakeoverService;
-

@@ -816,7 +816,7 @@ const Auth = {
         }
     },
 
-showConcurrentSessionModal(username, password) {
+    showConcurrentSessionModal(username, password) {
         return new Promise(resolve => {
             const loginForm = document.getElementById('login-form');
             const submitBtn = loginForm?.querySelector('button[type="submit"]');
@@ -827,48 +827,46 @@ showConcurrentSessionModal(username, password) {
                 submitBtn.innerHTML = '<span class="btn-content"><i class="fas fa-sign-in-alt"></i> Iniciar sesión</span>';
             }
 
-            const message = 'Ya hay una sesión activa para este usuario en otro dispositivo. ¿Desea cerrarla e ingresar aquí?';
+            // PASO 1: Aparece el modal en el dispositivo NUEVO indicando la sesión activa
             Utils.showModal(
-                'Sesión activa en otro dispositivo',
+                'Ya hay una sesión activa para este usuario en otro dispositivo',
                 `<div class="concurrent-session-modal-content">
-                    <p style="margin: 0 0 0.5rem 0; font-size: 1.05rem; line-height: 1.5; color: var(--text-color, #1e293b); font-weight: 500;">${message}</p>
-                    <small style="color: var(--text-muted, #64748b);">Al ingresar aquí, la sesión del equipo anterior quedará cerrada.</small>
+                    <p style="margin: 0 0 0.5rem 0; font-size: 1.05rem; line-height: 1.5; color: var(--text-color, #1e293b); font-weight: 500;">¿Desea solicitar acceso?</p>
+                    <small style="color: var(--text-muted, #64748b);">Si cancela, no se enviará ninguna solicitud al otro dispositivo.</small>
                 </div>`,
                 [
                     {
                         text: 'Cancelar',
                         class: 'btn-secondary',
-                        onclick: async () => {
+                        onclick: () => {
+                            // BOTÓN 1: Cancelar -> Se cierra el modal y vuelve al login sin notificar a nadie
                             Utils.hideModal();
-                            // Notificar al servidor que se canceló el intento en el dispositivo nuevo
-                            try {
-                                await Utils.request('/auth/cancel-takeover', { method: 'POST' });
-                            } catch (e) {}
                             resolve(false);
                         }
                     },
                     {
-                        text: 'Cerrar otra sesión e ingresar',
+                        text: 'Solicitar Acceso',
                         class: 'btn-primary',
                         onclick: async () => {
+                            // BOTÓN 2: Solicitar Acceso -> Aquí se manda la señal y se muestra la pantalla de espera
                             Utils.hideModal();
-                            
-                            // Mostrar modal de espera en el dispositivo nuevo mientras el otro equipo responde o expira
+
                             Utils.showModal(
                                 'Solicitando acceso...',
                                 `<div style="text-align: center; padding: 1.5rem;">
                                     <div class="loading" style="margin: 0 auto 1rem auto; width: 36px; height: 36px;"></div>
-                                    <p style="margin: 0; font-size: 1rem; color: var(--text-color, #1e293b);">Esperando respuesta del dispositivo anterior (cuenta regresiva de 5s)...</p>
+                                    <p style="margin: 0; font-size: 1rem; color: var(--text-color, #1e293b);">Esperando respuesta del dispositivo anterior...</p>
                                 </div>`,
                                 [],
                                 'modal-md'
                             );
 
+                            // Ahora sí se reintenta el login con forceClose: true para disparar la alerta en el dispositivo anterior
                             const success = await Auth.login(username, password, { forceClose: true });
                             Utils.hideModal();
 
                             if (!success) {
-                                Utils.showNotification('No obtuvo autorización para iniciar sesión', 'warning');
+                                Utils.showNotification('Acceso no autorizado', 'warning');
                                 if (submitBtn) {
                                     submitBtn.disabled = false;
                                     submitBtn.classList.remove('is-loading');
@@ -885,24 +883,48 @@ showConcurrentSessionModal(username, password) {
     },
 
     handleSessionClosureRequested(payload) {
-        const message = payload?.message || 'Un nuevo dispositivo desea iniciar sesión con tu usuario. ¿Deseas cerrar tu sesión actual?';
-        let countdown = payload?.countdownSeconds || 5;
+        const title = 'Un nuevo dispositivo desea ingresar con el usuario actual. ¿Desea autorizar ingreso?';
+        let countdown = payload?.countdownSeconds || 10;
 
         const updateModalBody = (currentSecs) => {
             const bodyContainer = document.getElementById('session-closure-body-content');
             if (bodyContainer) {
                 bodyContainer.innerHTML = `
-                    <p style="margin: 0 0 0.75rem 0; font-size: 1.05rem; line-height: 1.5; color: var(--text-color, #1e293b); font-weight: 500;">${message}</p>
-                    <p style="margin: 0; font-size: 0.95rem; color: var(--danger-color, #dc2626); font-weight: 600;">Este dispositivo se cerrará en ${currentSecs} segundos (cuenta regresiva). Si desea continuar da clic en Mantener Activa.</p>
+                    <p style="margin: 0 0 0.75rem 0; font-size: 1.05rem; line-height: 1.5; color: var(--text-color, #1e293b); font-weight: 500;">Se ha recibido una solicitud de acceso desde otro equipo.</p>
+                    <p style="margin: 0; font-size: 0.95rem; color: var(--danger-color, #dc2626); font-weight: 600;">Este dispositivo se autorizará automáticamente en ${currentSecs} segundos si no responde.</p>
                 `;
             }
         };
 
+        // Función auxiliar unificada para cerrar la sesión localmente de inmediato
+        // Función auxiliar unificada para cerrar la sesión localmente de inmediato
+        const executeLocalSessionClosure = async () => {
+            if (window.sessionTakeoverTimer) {
+                clearInterval(window.sessionTakeoverTimer);
+                window.sessionTakeoverTimer = null;
+            }
+            Utils.hideModal();
+            try {
+                await Utils.request('/auth/accept-takeover', { method: 'POST' });
+            } catch (e) {}
+            
+            // Forzar limpieza y redirección al login en este dispositivo de forma incondicional
+            currentUser = null;
+            if (typeof Dashboard !== 'undefined' && typeof Dashboard.stopAutoRefresh === 'function') {
+                Dashboard.stopAutoRefresh();
+            }
+            if (typeof Realtime !== 'undefined' && typeof Realtime.disconnect === 'function') {
+                Realtime.disconnect();
+            }
+            Auth.showLogin();
+            Utils.showNotification('Tu sesión fue cerrada porque se autorizó el ingreso desde otro dispositivo.', 'warning');
+        };
+
         Utils.showModal(
-            'Aviso de inicio de sesión',
+            title,
             `<div id="session-closure-body-content" class="session-closure-warning">
-                <p style="margin: 0 0 0.75rem 0; font-size: 1.05rem; line-height: 1.5; color: var(--text-color, #1e293b); font-weight: 500;">${message}</p>
-                <small style="color: var(--text-muted, #64748b);">Si no deseas cerrarla, selecciona "Mantener activa".</small>
+                <p style="margin: 0 0 0.75rem 0; font-size: 1.05rem; line-height: 1.5; color: var(--text-color, #1e293b); font-weight: 500;">Se ha recibido una solicitud de acceso desde otro equipo.</p>
+                <small style="color: var(--text-muted, #64748b);">Si no deseas autorizarlo, selecciona "Mantener activa".</small>
             </div>`,
             [
                 {
@@ -917,15 +939,10 @@ showConcurrentSessionModal(username, password) {
                     }
                 },
                 {
-                    text: 'Cerrar mi sesión',
+                    text: 'Cerrar sesión',
                     class: 'btn-danger',
                     onclick: async () => {
-                        if (window.sessionTakeoverTimer) clearInterval(window.sessionTakeoverTimer);
-                        Utils.hideModal();
-                        try {
-                            await Utils.request('/auth/accept-takeover', { method: 'POST' });
-                        } catch (e) {}
-                        await Auth.logout();
+                        await executeLocalSessionClosure();
                     }
                 }
             ],
@@ -938,12 +955,25 @@ showConcurrentSessionModal(username, password) {
             if (countdown > 0) {
                 updateModalBody(countdown);
             } else {
-                clearInterval(window.sessionTakeoverTimer);
-                window.sessionTakeoverTimer = null;
-                Utils.hideModal();
-                // Al llegar a 0 sin acción, el servidor procesa el timeout cerrando la sesión anterior automáticamente
+                // Cuenta regresiva llega a 0: Se ejecuta exactamente el mismo cierre que el botón manual
+                await executeLocalSessionClosure();
             }
         }, 1000);
+    },
+
+    handleSessionRevoked(payload) {
+        currentUser = null;
+        if (typeof Dashboard !== 'undefined' && typeof Dashboard.stopAutoRefresh === 'function') {
+            Dashboard.stopAutoRefresh();
+        }
+        if (typeof Realtime !== 'undefined' && typeof Realtime.disconnect === 'function') {
+            Realtime.disconnect();
+        }
+        this.showLogin();
+        Utils.showNotification(
+            payload?.message || 'Tu sesión fue cerrada porque se autorizó el ingreso desde otro dispositivo.',
+            'warning'
+        );
     },
 
     handleSessionClosureCancelled() {
@@ -2461,6 +2491,28 @@ const Realtime = {
             const payload = this.handleServerEvent(event, false);
             if (payload && typeof Auth !== 'undefined') {
                 Auth.handleSessionClosureRequested(payload);
+            }
+        });
+
+        this.source.addEventListener('session-closure-requested', (event) => {
+            const payload = this.handleServerEvent(event, false);
+            if (payload && typeof Auth !== 'undefined') {
+                Auth.handleSessionClosureRequested(payload);
+            }
+        });
+
+        // <-- COLÓCALO AQUÍ -->
+        this.source.addEventListener('session-takeover-countdown', (event) => {
+            const payload = this.handleServerEvent(event, false);
+            if (payload && typeof Auth !== 'undefined') {
+                Auth.handleSessionClosureRequested(payload);
+            }
+        });
+
+        this.source.addEventListener('session-revoked', (event) => {
+            const payload = this.handleServerEvent(event, false);
+            if (payload && typeof Auth !== 'undefined') {
+                Auth.handleSessionRevoked(payload);
             }
         });
 
