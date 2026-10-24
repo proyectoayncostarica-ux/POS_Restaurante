@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#172033">
+  <title>MundiPOS Administración</title>
+  <link rel="icon" href="assets/brand/mundipos-mark.png">
+  <link rel="stylesheet" href="css/admin.css">
+  <script src="js/admin.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Ir al contenido</a>
+  <div class="admin-shell">
+    <aside class="sidebar" aria-label="Navegación principal">
+      <a class="brand" href="#inicio" aria-label="MundiPOS Administración, Inicio">
+        <span class="brand-mark"><img src="assets/brand/mundipos-mark.png" alt=""></span>
+        <span><strong>MundiPOS</strong><small>ADMINISTRACIÓN</small></span>
+      </a>
+      <div class="nav-caption">ESPACIO DE GESTIÓN</div>
+      <nav id="navigation" aria-label="Departamentos"></nav>
+      <div class="sidebar-note"><span class="prototype-dot"></span> Prototipo visual <span>v0.1</span><small>Un espacio para ver el negocio completo.</small></div>
+    </aside>
+    <div class="workspace">
+      <header class="topbar">
+        <div class="topbar-title">MundiPOS <span>Administración</span></div>
+        <form class="global-search" id="search-form" role="search">
+          <label class="sr-only" for="global-search">Buscar en Administración</label>
+          <span id="search-icon" aria-hidden="true"></span>
+          <input id="global-search" type="search" placeholder="Buscar en Administración…" autocomplete="off" maxlength="160" aria-describedby="search-status">
+          <button type="submit" aria-label="Buscar">Buscar</button>
+          <p id="search-status" role="status" hidden></p>
+        </form>
+        <div class="user-area"><span class="avatar" aria-hidden="true">AD</span><span><strong>Administrador</strong><small>Perfil de demostración</small></span></div>
+      </header>
+      <main id="main" tabindex="-1"></main>
+      <footer class="workspace-footer"><span>MundiPOS Administración · Prototipo visual</span><span>Datos de demostración · Sin conexión al POS</span></footer>
+    </div>
+  </div>
+  <noscript>Activa JavaScript para navegar por este prototipo visual.</noscript>
+</body>
+</html>
