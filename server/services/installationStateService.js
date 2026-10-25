@@ -134,6 +134,88 @@ class InstallationStateService {
             return this.loadInstallationState(db);
         }, { mode: 'IMMEDIATE' });
     }
+
+    async readBootstrapStatus(db) {
+        const metadata = await this.loadInstallationState(db);
+        if (!metadata || metadata.state === 'PREPARING') {
+            throw metadataError('la preparación no está completa.');
+        }
+        const admins = await db.get(
+            'SELECT COUNT(*) AS count FROM usuarios WHERE tipo = ? AND activo = 1',
+            ['administrador']
+        );
+        const adminCount = Number(admins.count);
+        if (metadata.state === 'AWAITING_INITIAL_ADMIN' && adminCount > 0) {
+            throw metadataError('hay Admin activo en una instalación pendiente de bootstrap.');
+        }
+        return {
+            hasAdmin: adminCount > 0,
+            adminCount,
+            requiresSetup: metadata.origin === 'created_empty'
+                && metadata.state === 'AWAITING_INITIAL_ADMIN'
+                && metadata.installation_id === null && adminCount === 0,
+            administrativeRecoveryRequired: metadata.state === 'IDENTIFIED' && adminCount === 0
+        };
+    }
+
+    async getBootstrapStatus() {
+        // Metadata y conteo se leen en el mismo snapshot, incluso durante un bootstrap.
+        return this.db.withTransaction(db => this.readBootstrapStatus(db), { mode: 'DEFERRED' });
+    }
+
+    async completeInitialBootstrap({ nombre, passwordHash }) {
+        return this.db.withTransaction(async db => {
+            const status = await this.readBootstrapStatus(db);
+            if (!status.requiresSetup) {
+                const error = new Error(status.administrativeRecoveryRequired
+                    ? 'El bootstrap inicial está cerrado. Se requiere recuperación administrativa local.'
+                    : 'El sistema ya fue inicializado. Inicie sesión con un administrador existente.');
+                error.code = 'INITIAL_BOOTSTRAP_CLOSED';
+                throw error;
+            }
+            if (await db.get('SELECT id FROM usuarios WHERE nombre = ?', [nombre])) {
+                const error = new Error('Ya existe un usuario con ese nombre');
+                error.code = 'BOOTSTRAP_USERNAME_EXISTS';
+                throw error;
+            }
+
+            const now = this.clock();
+            const result = await db.run(
+                'INSERT INTO usuarios (nombre, password, tipo, activo, fecha_creacion) VALUES (?, ?, ?, ?, ?)',
+                [nombre, passwordHash, 'administrador', 1, now]
+            );
+            const userId = result.lastID || result.id;
+            const current = await this.loadInstallationState(db);
+            const next = validateMetadata([{
+                ...current,
+                state: 'IDENTIFIED',
+                installation_id: crypto.randomUUID(),
+                updated_at: now,
+                confirmed_at: now
+            }]);
+            const updated = await db.run(`UPDATE ${INSTALLATION_TABLE}
+                SET state = 'IDENTIFIED', installation_id = ?, updated_at = ?, confirmed_at = ?
+                WHERE singleton_id = 1 AND origin = 'created_empty'
+                    AND state = 'AWAITING_INITIAL_ADMIN' AND installation_id IS NULL`,
+            [next.installation_id, now, now]);
+            if (updated.changes !== 1) throw metadataError('no se pudo confirmar el bootstrap inicial.');
+
+            await db.run(
+                'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+                ['bootstrap_admin', userId, JSON.stringify({
+                    version: 1,
+                    event: 'bootstrap_admin',
+                    userId,
+                    userName: nombre,
+                    installationId: next.installation_id,
+                    origin: next.origin,
+                    previousState: current.state,
+                    state: next.state
+                }), now]
+            );
+            return { id: userId, nombre, tipo: 'administrador', createdAt: now };
+        }, { mode: 'IMMEDIATE' });
+    }
 }
 
 module.exports = { InstallationStateService };

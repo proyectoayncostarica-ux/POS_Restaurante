@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const database = require('../db/database');
+const { InstallationStateService } = require('../services/installationStateService');
 const userSessionService = require('../services/userSessionService');
 const sessionTakeoverService = require('../services/sessionTakeoverService');
 const { UserSessionService } = require('../services/userSessionService');
@@ -14,6 +15,7 @@ const {
 const { buildPolicyFromOperationalSession } = require('../services/operationalAccessService');
 
 const router = express.Router();
+const installationStateService = new InstallationStateService({ db: database });
 const adminVerificationAttempts = new Map();
 
 function requireSession(req, res, next) {
@@ -93,10 +95,13 @@ async function persistAuthenticatedSession(req, res, input = {}) {
                 revokeOtherDevices: Boolean(input.revokeOtherDevices),
                 revokeReason: input.revokeReason
             });
-            await tx.run(
-                'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
-                [input.historyAction, input.userId, input.historyDescription, startedAt]
-            );
+            // Bootstrap ya se auditó junto con Admin e identidad en el commit principal.
+            if (input.historyAction !== 'bootstrap_admin') {
+                await tx.run(
+                    'INSERT INTO historial_transacciones (tipo_accion, usuario_id, descripcion, fecha) VALUES (?, ?, ?, ?)',
+                    [input.historyAction, input.userId, input.historyDescription, startedAt]
+                );
+            }
         });
     } catch (error) {
         try {
@@ -113,15 +118,6 @@ async function persistAuthenticatedSession(req, res, input = {}) {
 
 function sanitizeUserName(nombre = '') {
     return String(nombre).trim();
-}
-
-async function getActiveAdminCount() {
-    const result = await database.get(
-        "SELECT COUNT(*) as count FROM usuarios WHERE tipo = ? AND activo = 1",
-        ['administrador']
-    );
-
-    return Number(result?.count || 0);
 }
 
 function normalizeBooleanNumber(value) {
@@ -808,62 +804,67 @@ function validateBootstrapAdminPayload({ nombre, password, confirmPassword }) {
 }
 
 // Registro inicial del primer administrador.
-// Solo se permite cuando no existe ningún administrador activo.
+// Solo la instalación nueva pendiente puede confirmarlo una vez.
 router.post('/bootstrap-admin', async (req, res) => {
     try {
-        const activeAdmins = await getActiveAdminCount();
-        if (activeAdmins > 0) {
-            return res.status(409).json({
-                error: 'El sistema ya fue inicializado. Inicie sesión con un administrador existente.'
-            });
-        }
-
         const payload = validateBootstrapAdminPayload(req.body || {});
         if (payload.error) {
             return res.status(400).json({ error: payload.error });
         }
 
-        const existingUser = await database.get(
-            'SELECT id FROM usuarios WHERE nombre = ?',
-            [payload.nombre]
-        );
-
-        if (existingUser) {
-            return res.status(409).json({ error: 'Ya existe un usuario con ese nombre' });
-        }
-
         const hashedPassword = await bcrypt.hash(payload.password, 10);
-        const createdAt = new Date().toISOString();
-        const result = await database.run(
-            'INSERT INTO usuarios (nombre, password, tipo, activo, fecha_creacion) VALUES (?, ?, ?, ?, ?)',
-            [payload.nombre, hashedPassword, 'administrador', 1, createdAt]
-        );
-
-        req.session.userId = result.lastID || result.id;
-        req.session.userName = payload.nombre;
-        req.session.userNombre = payload.nombre;
-        req.session.userType = 'administrador';
-        clearSessionActiveWorkRoles(req);
-
-        await persistAuthenticatedSession(req, res, {
-            userId: req.session.userId,
-            historyAction: 'bootstrap_admin',
-            historyDescription: `Administrador inicial ${payload.nombre} creado`,
-            startedAt: createdAt
+        const created = await installationStateService.completeInitialBootstrap({
+            nombre: payload.nombre,
+            passwordHash: hashedPassword
         });
 
-        const user = { id: req.session.userId, nombre: payload.nombre, tipo: 'administrador' };
-        const rolesTrabajo = [];
-        const sesionOperativa = buildOperationalSession(req, user, rolesTrabajo);
+        // El commit principal ya terminó. Un fallo de autologin no revierte el bootstrap.
+        try {
+            req.session.userId = created.id;
+            req.session.userName = created.nombre;
+            req.session.userNombre = created.nombre;
+            req.session.userType = created.tipo;
+            clearSessionActiveWorkRoles(req);
 
-        res.status(201).json({
-            success: true,
-            message: 'Administrador inicial creado correctamente',
-            user: buildUserPayload(req, user, rolesTrabajo, sesionOperativa)
-        });
+            await persistAuthenticatedSession(req, res, {
+                userId: created.id,
+                historyAction: 'bootstrap_admin',
+                startedAt: created.createdAt
+            });
+
+            const user = { id: created.id, nombre: created.nombre, tipo: created.tipo };
+            const rolesTrabajo = [];
+            const sesionOperativa = buildOperationalSession(req, user, rolesTrabajo);
+
+            return res.status(201).json({
+                success: true,
+                message: 'Administrador inicial creado correctamente',
+                user: buildUserPayload(req, user, rolesTrabajo, sesionOperativa)
+            });
+        } catch (error) {
+            console.error('Bootstrap confirmado; falló el autologin:', error);
+            return res.status(503).json({
+                success: false,
+                code: 'BOOTSTRAP_COMMITTED_LOGIN_REQUIRED',
+                bootstrapCompleted: true,
+                requiresSetup: false,
+                loginRequired: true,
+                error: 'El administrador y la instalación ya fueron confirmados. No repita la creación inicial. Recargue la página e inicie sesión con la cuenta creada.'
+            });
+        }
     } catch (error) {
         console.error('Error creando administrador inicial:', error);
-        res.status(500).json({ error: 'Error interno del servidor' });
+        if (['INITIAL_BOOTSTRAP_CLOSED', 'BOOTSTRAP_USERNAME_EXISTS'].includes(error.code)) {
+            return res.status(409).json({ success: false, code: error.code, error: error.message });
+        }
+        if (error.code?.startsWith('INSTALLATION_')) {
+            return res.status(503).json({
+                success: false,
+                code: 'BOOTSTRAP_STATUS_UNAVAILABLE',
+                error: 'No se pudo verificar el estado de instalación. No se permite la configuración inicial.'
+            });
+        }
+        return res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 

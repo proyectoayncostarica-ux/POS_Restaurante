@@ -9,6 +9,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const session = require('express-session');
 const database = require('./db/database');
+const { InstallationStateService } = require('./services/installationStateService');
 const { SQLiteSessionStore } = require('./services/sqliteSessionStore');
 const userSessionService = require('./services/userSessionService');
 const { APP_NAME, APP_VERSION, STABILITY_TRACK } = require('./config/appInfo');
@@ -29,6 +30,7 @@ const kitchenRoutes = require('./routes/kitchen');
 const printingRoutes = require('./routes/printing');
 
 const app = express();
+const installationStateService = new InstallationStateService({ db: database });
 const PORT = process.env.PORT || 3000;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'change-this-secret-in-env';
 const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -207,23 +209,18 @@ app.get('/api/public/bootstrap-status', async (req, res) => {
     try {
         res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
 
-        const activeAdmins = await database.get(
-            "SELECT COUNT(*) as count FROM usuarios WHERE tipo = ? AND activo = 1",
-            ['administrador']
-        );
-
-        const adminCount = Number(activeAdmins?.count || 0);
+        const status = await installationStateService.getBootstrapStatus();
         res.json({
             success: true,
-            data: {
-                hasAdmin: adminCount > 0,
-                requiresSetup: adminCount === 0,
-                adminCount
-            }
+            data: status
         });
     } catch (error) {
         console.error('Error obteniendo estado de bootstrap:', error);
-        res.status(500).json({ error: 'Error interno del servidor' });
+        res.status(503).json({
+            success: false,
+            code: 'BOOTSTRAP_STATUS_UNAVAILABLE',
+            error: 'No se pudo verificar el estado de instalación. No se permite la configuración inicial.'
+        });
     }
 });
 
