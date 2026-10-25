@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { AsyncLocalStorage } = require('async_hooks');
 const { APP_VERSION } = require('../config/appInfo');
+const { InstallationStateService } = require('../services/installationStateService');
 const {
     CAPABILITIES,
     CAPABILITY_DEFINITIONS,
@@ -54,6 +55,8 @@ class Database {
 
     async initializeDatabase() {
         await this.connect();
+        const installationState = new InstallationStateService({ db: this });
+        await installationState.prepareInstallationState();
 
         // Durante migraciones se apagan FKs para reconstruir tablas antiguas que venían
         // referenciando mesas_old/pedidos_backup/cuentas. Se reactivan al finalizar.
@@ -66,6 +69,7 @@ class Database {
         await this.insertInitialData();
         await this.ensureDynamicModelConsistency();
         await this.run('PRAGMA foreign_keys = ON');
+        await installationState.completeInstallationPreparation();
     }
 
     async createTables() {
