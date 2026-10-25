@@ -556,64 +556,94 @@ Esta ampliación concreta flujos antes pendientes en 5.2.9, sin cerrar sus detal
 
 Estos riesgos son distintos de las deudas de sesiones de 5.2.10, que se conservan. No se afirma que las mitigaciones, el backup validable, la identidad verificable ni la autoinvalidación existan hoy. Esta actualización solo documenta el contrato; no implementa tablas, criptografía, backup/restore ni pruebas.
 
-### 5.4.12 Recuperación administrativa legacy y condición de entrega de v4.4.1
+### 5.4.12 Recuperación administrativa local y condición de entrega de v4.4.1
 
-**Decisión adicional aprobada el 22 de octubre de 2026; implementación y validación pendientes.** Una instalación pre-v4.4 con datos existentes y sin Admin activo sigue siendo legacy: no se convierte en nueva, no vuelve al bootstrap inicial ni a AWAITING_INITIAL_ADMIN. Debe conservar conceptualmente:
+**Decisión inicial aprobada el 22 de octubre de 2026; contrato consolidado tras v4.4.1B Paso 1.** La recuperación administrativa local corresponde a una instalación previamente identificada, sin Admin activo, para ambos orígenes conocidos:
 
 ```text
-origin = adopted_legacy
+origin = adopted_legacy | created_empty
 state = IDENTIFIED
-installationId = la identidad ya adoptada
+installationId = la identidad ya confirmada
+Admin activos = 0
 requiresSetup = false
 administrativeRecoveryRequired = true
 ```
 
-La ausencia de Admin no autoriza una segunda inicialización. La recuperación administrativa soportada es una condición obligatoria para desplegar la transición, no una capacidad que pueda dejarse indefinidamente para una fase posterior.
+Una instalación inicialmente nueva puede completar su bootstrap y perder después todos sus administradores. `created_empty + IDENTIFIED + 0 Admin` también exige recuperación administrativa local, nunca bootstrap inicial. La instalación legacy conserva igualmente su procedencia; la ausencia de Admin no convierte ninguna instalación identificada en una instalación nueva.
 
-**Autoridad y alcance:** se aprueba una herramienta administrativa local, ejecutada en el host/backend y fuera del acceso HTTP normal. Su autoridad es el acceso autorizado al sistema operativo y a los archivos de la instalación. No bastan LAN, localhost, IP, clientId, cero administradores, datos públicos del negocio, un endpoint HTTP abierto ni una sesión con tipo Admin cacheado. La herramienta todavía no existe; esta decisión no implementa scripts, servicios ni recuperación.
+**Identidad y bootstrap:** recovery no modifica `origin`, `installationId` ni `state`, y no reabre bootstrap. Una instalación `IDENTIFIED` nunca vuelve a `AWAITING_INITIAL_ADMIN` por quedarse sin Admin. Después de recuperar un Admin, `administrativeRecoveryRequired` pasa a false y `requiresSetup` permanece false. Se utiliza login normal; recovery no crea automáticamente una sesión autenticada.
 
-| Caso | Acción contractual de recuperación |
+**Autoridad y alcance:** la herramienta administrativa local se ejecuta en el host/backend, fuera del acceso HTTP normal. Su autoridad es el acceso autorizado al sistema operativo **y** a los archivos de la instalación. Terminal, serverIdentity, LAN, localhost, IP, clientId, cero administradores, datos públicos del negocio o un tipo Admin cacheado no conceden esa autoridad. No se habilita recovery por HTTP. La reactivación valida además la contraseña conocida; reset y creación son mantenimiento local deliberado.
+
+| Acción | Contrato de recuperación |
 |---|---|
-| Admin desactivado y contraseña conocida | Seleccionar ese Admin, validar su contraseña y reactivarlo. |
-| Admin desactivado y contraseña desconocida | Operación local explícita de restablecimiento y reactivación de la cuenta seleccionada. |
-| Sin Admin recuperable, con DB legacy válida | Creación explícita de un Admin humano de recuperación. |
+| Reactivate | Seleccionar un Admin humano desactivado, comprobar su contraseña conocida y reactivarlo. |
+| Reset password | Cambiar la contraseña y reactivar el Admin humano desactivado seleccionado. |
+| Create recovery Admin | Crear explícitamente un Admin humano nuevo únicamente cuando no exista un Admin humano desactivado recuperable. |
 | DB inconsistente/corrupta | Detener y exigir diagnóstico/reparación; no crear Admin para ocultar corrupción ni reclasificar como instalación nueva. |
 
-La contraseña nueva se introduce de forma segura e interactiva. La acción administrativa no altera los roles ni las responsabilidades operativas ajenas a esa acción.
+No se convierten Básicos ni Cocina en Admin. Olvidar la contraseña de un Admin recuperable exige reset, no crear otra cuenta administrativa.
 
-**Precondiciones:** la futura herramienta debe usar la ruta efectiva de DB, operar con backend detenido, validar adopted_legacy, IDENTIFIED e installationId y confirmar ausencia de Admin activo. Debe exigir acción/cuenta explícita, volver a comprobar condiciones dentro de transacción, resolver adecuadamente las sesiones técnicas afectadas y registrar auditoría. No cambia installationId ni reabre bootstrap. Los detalles técnicos y la coordinación con el store de sesiones quedan para implementación; un fallo al resolver sesiones no permite declarar recuperación completada ni liberar responsabilidades de negocio.
+**Precondiciones operativas:** backend detenido y reinicio automático deshabilitado. Deben usarse las rutas efectivas de ambas bases, validar origen conocido, `IDENTIFIED` e `installationId`, confirmar ausencia de Admin activo y exigir acción/cuenta explícita. Las condiciones se vuelven a comprobar dentro de transacción. Un intento nuevo con Admin activo se rechaza; consultar/repetir una operación ya completada no vuelve a ejecutarla.
 
-**Auditoría:** conservar identificador de operación, installationId, fecha, motivo, cuenta afectada, tipo de acción (reactivación, restablecimiento o creación), resultado y contexto de mantenimiento local. Nunca registrar contraseña, hash ni secretos. El operador local no debe figurar falsamente como un Admin autenticado de MundiPOS.
+La infraestructura actual no permite demostrar perfectamente que ningún proceso esté usando la DB. Locks, WAL, PID y puerto son indicios, no autoridad ni prueba concluyente de exclusión de otros procesos. La precondición de detener backend y reinicio automático no debe presentarse como una garantía técnica de detección perfecta.
 
-**Cierre e idempotencia:** después de recuperar un Admin, administrativeRecoveryRequired pasa a false y requiresSetup permanece false. El Admin accede después mediante login normal; la recuperación no crea automáticamente una sesión autenticada. Repetir la herramienta cuando ya existe un Admin activo debe rechazarse/no producir efectos adicionales. La recuperación y sus reintentos conservan identidad, procedencia y estado de instalación.
+**Coordinación persistente e idempotencia:** `admin_recovery_operations` representa la operación, identificada mediante `operationId`, con estados `PREPARED` y `COMPLETED`. Como máximo puede existir una `PREPARED` simultánea. Una pendiente se reanuda con el mismo `operationId`; una `COMPLETED` no vuelve a modificar contraseña, Admin o sesiones, ni duplica auditoría.
 
-**División de entrega; ambas partes pendientes de implementación y validación:**
+No existe `CANCELLED` en este contrato: después de alcanzar `PREPARED`, `sessions.db` puede haber sufrido una invalidación irreversible. La operación pendiente debe completarse, reanudarse o diagnosticarse; no puede presentarse como cancelada sin consecuencias. El alcance de usuarios y UUID de lifecycle afectados se conserva antes de borrar sesiones técnicas, para mantener la correlación histórica al reanudar.
+
+**Dos bases y orden de confirmación:** `restaurant.db` (MAIN) y `sessions.db` (SESSION) no forman una transacción distribuida. El contrato prioriza invalidar accesos anteriores antes de habilitar al Admin:
+
+1. `PREPARED` debe quedar durable mediante COMMIT real en MAIN.
+2. MAIN adquiere la fase crítica.
+3. SESSION invalida las sesiones administrativas y confirma.
+4. MAIN finaliza la activación/reset/creación del Admin, revoca lifecycle histórico, audita y marca `COMPLETED`.
+5. MAIN confirma.
+
+El orden de adquisición es **MAIN → SESSION**, nunca al revés. Si SESSION confirma pero MAIN falla antes del COMMIT final, las sesiones técnicas pueden haber quedado eliminadas, el Admin todavía no queda recuperado y la operación permanece `PREPARED`. Debe reanudarse con el mismo `operationId`. Este estado es seguro porque nunca se habilita primero al Admin dejando vivos los accesos técnicos anteriores.
+
+**Sesiones y trabajo persistente:** recovery invalida el acceso técnico administrativo anterior. `sesiones_usuario` conserva historia/lifecycle y las sesiones activas afectadas se marcan con `estado = revocada` y `motivo_finalizacion = recuperacion_administrativa_local`; no representa logout voluntario. UserSession no se convierte en autoridad de autenticación. Recovery no libera ni modifica mesas, responsabilidades, pedidos, cuentas, roles ni trabajo persistente. Un fallo al resolver sesiones no permite declarar recuperación completada ni liberar responsabilidades de negocio.
+
+**Auditoría:** la operación completada produce una sola auditoría final `admin_recovery`, con identificador de operación, installationId, fecha, motivo, cuenta afectada, acción, resultado y contexto de mantenimiento local. El actor es mantenimiento local; el operador no debe figurar falsamente como un Admin autenticado de MundiPOS. Ni la coordinación persistente ni la auditoría deben guardar contraseñas, hashes, SIDs, cookies o secretos.
+
+**División de entrega:**
 
 | Unidad interna | Alcance y condición |
 |---|---|
-| v4.4.1A | Reconocimiento, identidad, procedencia, estados y bootstrap protegido. Puede implementarse y probarse primero; por sí sola no constituye una transición desplegable completa. |
-| v4.4.1B | Recuperación administrativa local de legacy sin Admin: herramienta local, servicio de recuperación, auditoría, sesiones afectadas, señal administrativeRecoveryRequired y comportamiento frontend informativo. |
+| v4.4.1A | Reconocimiento, identidad, procedencia, estados y bootstrap protegido; por sí sola no constituye una transición desplegable completa. |
+| v4.4.1B | Recuperación administrativa local de instalaciones identificadas sin Admin activo, de origen adopted_legacy o created_empty: servicio, interfaz local segura, auditoría, sesiones afectadas, señal administrativeRecoveryRequired y comportamiento frontend informativo. |
 
-**v4.4.1 solo puede considerarse terminada/desplegable cuando A y B hayan sido implementadas y validadas.** A/B no tienen que ser versiones públicas independientes. Esta división no modifica el bloque histórico v4.4–v4.6 ni declara completada una fase.
+#### v4.4.1B Paso 1 — implementado y validado técnicamente
 
-**Frontend:** en legacy identificada sin Admin no se muestra el formulario de primer Admin; se informa que hace falta recuperación administrativa local y no se ofrece un botón remoto para crear/restablecer Admin. Los usuarios normales válidos pueden seguir usando login/operación cuando el estado de la instalación permita operación normal. No se fija UI detallada.
+Servicio de recovery, operaciones persistentes, coordinación MAIN/SESSION, invalidación administrativa, UserSession revocada, auditoría, idempotencia y tests. El servicio existe, pero todavía carece de la interfaz local segura final; no se declara un proceso utilizable por el operador final.
 
-**Pruebas contractuales adicionales, futuras y no ejecutadas por esta actualización:**
+#### v4.4.1B Paso 2 — pendiente
 
-- Legacy con Admin activo: actualización normal y rechazo de recuperación innecesaria.
+Apertura segura existing-only, CLI local, entrada de contraseña sin echo, selección/reanudación, comando npm y pruebas operativas. La contraseña debe introducirse de forma segura e interactiva; no se declara disponible todavía ese flujo local.
+
+#### v4.4.1B Paso 3 — pendiente
+
+Mensaje frontend, regresión final y documentación operativa final. En una instalación `IDENTIFIED` sin Admin activo, de cualquiera de los dos orígenes, el contrato frontend exige informar que hace falta recuperación administrativa local, sin formulario de primer Admin ni botón remoto para crear/restablecer Admin. Los usuarios normales válidos pueden seguir usando login/operación cuando el estado de la instalación permita operación normal. No se fija UI detallada.
+
+**v4.4.1 solo puede considerarse terminada/desplegable cuando A y B hayan sido implementadas y validadas.** A/B no tienen que ser versiones públicas independientes. La CLI y los pasos B 2–3 siguen pendientes; no se declara v4.4.1 completa ni v4.4 desplegable.
+
+**Pruebas contractuales a preservar y completar:** el Paso 1 tiene validación técnica del servicio; las pruebas operativas del Paso 2 y la regresión final del Paso 3 siguen pendientes.
+
+- Instalación de cualquiera de los dos orígenes con Admin activo: rechazo de recuperación innecesaria.
 - Admin desactivado con contraseña válida: reactivación de la cuenta seleccionada.
 - Contraseña incorrecta: ningún acceso ni modificación administrativa.
 - Restablecimiento local explícito de contraseña y reactivación.
-- Sin Admin recuperable: creación explícita de Admin humano de recuperación.
+- Sin Admin humano desactivado recuperable: creación explícita de Admin humano de recuperación.
 - Intento HTTP/remoto de recovery rechazado, sin elevación de privilegios.
-- Recuperación repetida/concurrente: sin efectos duplicados.
-- Reinicio/fallo antes y después del commit: rollback o reconocimiento del resultado confirmado.
+- Recuperación repetida/concurrente: sin efectos duplicados y una sola PREPARED.
+- Reinicio/fallo antes y después del commit: rollback, reanudación o reconocimiento del resultado confirmado.
+- SESSION confirmada y fallo MAIN: PREPARED persistente, sin Admin parcial; resume con el mismo operationId y sin duplicar auditoría.
 - Fallo al invalidar/resolver sesiones afectadas: recuperación no declarada completada.
-- UUID/installationId inmutable durante recuperación y reintentos.
-- Bootstrap inicial sigue bloqueado; no se vuelve a created_empty ni AWAITING_INITIAL_ADMIN.
+- installationId, origin y state inmutables durante recuperación y reintentos.
+- Bootstrap inicial sigue bloqueado, también para created_empty ya IDENTIFIED; no se vuelve a AWAITING_INITIAL_ADMIN.
 - DB inconsistente: no se reclasifica ni se genera Admin para ocultar el problema.
 
-Se preservan los contratos de Terminal, serverIdentity, migración, SUPERSEDED, Caja/Cocina/Admin y Session Takeover. La recuperación administrativa de acceso legacy es distinta de recuperar una sesión operativa Cocina/Cajero o de reemplazar servidor. Este registro documental no inicia v4.4.1A ni implementa ninguna función.
+Se preservan los contratos de Terminal, serverIdentity, migración, SUPERSEDED, Caja/Cocina/Admin y Session Takeover. La recuperación administrativa local de acceso es distinta de recuperar una sesión operativa Cocina/Cajero o de reemplazar servidor. Este checkpoint documental no implementa Terminal, serverIdentity, migración ni nuevas funciones y no modifica fases históricas cerradas.
 
 ---
 
