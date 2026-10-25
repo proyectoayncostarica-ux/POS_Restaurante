@@ -1,7 +1,7 @@
 'use strict';
 
 // DEMO / PROTOTIPO VISUAL: todos los datos ficticios se concentran aquí.
-// No hay APIs, autenticación, persistencia ni acciones de negocio.
+// No hay APIs, autenticación ni persistencia. Productos usa estado temporal propio.
 const DEMO = Object.freeze({
   overview: 'Una mirada al negocio, con lo importante primero.',
   alerts: [
@@ -100,7 +100,9 @@ function render() {
   const [requested = 'inicio', query = ''] = location.hash.slice(1).split('?');
   const id = Object.hasOwn(DEPARTMENTS, requested) ? requested : 'inicio';
   renderNavigation(id);
-  if (id === 'inicio') renderHome(); else renderPlaceholder(id, new URLSearchParams(query));
+  if (id === 'inicio') renderHome();
+  else if (id === 'productos') Products.render(new URLSearchParams(query));
+  else renderPlaceholder(id, new URLSearchParams(query));
   document.title = `${DEPARTMENTS[id].title} · MundiPOS Administración`;
   document.getElementById('search-status').hidden = true;
 }
@@ -115,5 +117,6 @@ document.getElementById('search-form').addEventListener('submit', event => {
 document.getElementById('global-search').addEventListener('input', () => {
   document.getElementById('search-status').hidden = true;
 });
+Products.bind(main);
 window.addEventListener('hashchange', () => { render(); main.focus(); window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); });
 render();
