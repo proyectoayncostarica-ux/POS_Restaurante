@@ -238,6 +238,52 @@ button:disabled { cursor: default; opacity: .5; }
 .product-placeholder { padding: 23px; }
 .product-placeholder h2, .product-placeholder h3 { margin: 12px 0 8px; }
 .product-placeholder p { color: var(--muted); font-size: 12px; margin-bottom: 18px; }
+/* Inventario temporal: mismas tablas, formularios y densidad del catálogo. */
+.inventory-indicators { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0 0 18px; }
+.inventory-indicators > div { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 15px; border: 1px solid var(--border); border-radius: 11px; background: white; }
+.inventory-indicators dt { color: var(--muted); font-size: 11px; }
+.inventory-indicators dd { margin: 0; color: var(--navy); font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.inventory-toolbar { flex-wrap: wrap; gap: 12px; }
+.inventory-toolbar .product-search { flex: 1; min-width: 220px; max-width: 400px; }
+.inventory-filter { display: flex; align-items: center; gap: 8px; }
+.inventory-filter label { color: var(--muted); font-size: 11px; }
+.inventory-filter select { padding: 7px 9px; border: 1px solid #cdd7e2; border-radius: 7px; background: white; font-size: 12px; }
+.inventory-table { min-width: 1040px; }
+.inventory-table .inventory-row-actions { white-space: nowrap; }
+.inventory-action { font-size: 11px; padding: 6px 9px; }
+.inventory-state { white-space: nowrap; background: #eef0f3; color: #617082; }
+.inventory-state-0 { background: #a93032; color: white; }
+.inventory-state-1 { background: #fbe9e8; color: #a13030; }
+.inventory-state-2 { background: #fff2da; color: #845400; }
+.inventory-state-3 { background: #eef4fb; color: #365f87; }
+.inventory-state-4 { background: #edf6ef; color: #307046; }
+.inventory-state-5 { background: #f5edfc; color: #775090; }
+.inventory-detail-heading { flex-wrap: wrap; margin: 5px 0 12px; }
+.inventory-detail-heading h3 { font-size: 15px; }
+.inventory-detail-heading p { color: var(--muted); font-size: 11px; margin-top: 5px; }
+.inventory-detail-actions { display: flex; gap: 9px; }
+.inventory-facts .inventory-balance { font-size: 27px; font-variant-numeric: tabular-nums; }
+.inventory-history-heading { margin-top: 23px; }
+.inventory-history-heading h3 { font-size: 14px; }
+.inventory-initial { padding: 11px 13px; background: #f4f7fa; border-radius: 8px; font-size: 11px; color: var(--muted); margin-bottom: 14px; }
+.inventory-history { min-width: 650px; }
+.inventory-history td { vertical-align: top; }
+.inventory-history td:first-child { white-space: nowrap; }
+.inventory-note-cell { max-width: 260px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.inventory-form-title { font-size: 17px; margin-bottom: 18px; }
+.inventory-form { padding: 0; }
+.inventory-form .product-form-fields { padding-bottom: 18px; }
+.inventory-form .product-fields-grid { row-gap: 16px; }
+.inventory-field-wide { grid-column: 1 / -1; }
+.inventory-form textarea { width: 100%; min-width: 0; resize: vertical; padding: 8px 9px; border: 1px solid #cdd7e2; border-radius: 7px; background: white; color: var(--text); font: 12px/1.5 'Segoe UI', sans-serif; }
+.inventory-form textarea[aria-invalid="true"] { border-color: #b7443c; }
+.inventory-form input[readonly] { background: #f4f7fa; color: #52657a; }
+.inventory-preview dd { font-size: 23px; }
+.inventory-preview dd small { margin-top: 1px; }
+.inventory-preview .inventory-state { margin-top: 3px; }
+.inventory-warning { padding: 12px 15px; margin: 15px 0; background: #fff0ed; border: 1px solid #e0aaa4; border-left: 4px solid #b53232; border-radius: 8px; color: #902e29; font-size: 12px; }
+.inventory-warning p { margin-top: 4px; }
+.inventory-warning[hidden] { display: none; }
 @media (max-width: 1180px) {
   .product-form-layout { grid-template-columns: minmax(0, 1fr) 205px; gap: 18px; }
   .product-form { padding: 18px; }

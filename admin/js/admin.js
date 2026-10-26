@@ -5,7 +5,6 @@
 const DEMO = Object.freeze({
   overview: 'Una mirada al negocio, con lo importante primero.',
   alerts: [
-    { tone: 'critical', state: 'Crítico', icon: 'box', title: 'Inventario bajo', entity: 'Carne molida', detail: '3,8 kg disponibles', note: 'Mínimo: 8 kg', department: 'productos', destination: 'Inventario', action: 'Revisar inventario' },
     { tone: 'warning', state: 'Advertencia', icon: 'wallet', title: 'Cierre de caja incompleto', entity: 'Caja principal', detail: 'Cierre de ayer pendiente', note: 'Diferencia: -₡1.500', department: 'finanzas', destination: 'Caja y cierres', action: 'Revisar cierre' },
     { tone: 'info', state: 'Informativo', icon: 'people', title: 'Planilla pendiente', entity: 'Periodo 1–15', detail: '3 incidencias pendientes', note: 'Revisión antes de procesar', department: 'personal', destination: 'Planilla', action: 'Revisar planilla' }
   ],
@@ -74,12 +73,13 @@ function renderNavigation(current) {
 }
 
 function renderHome() {
+  const alerts = [...Inventory.alerts(), ...DEMO.alerts];
   main.innerHTML = `
     <div class="page-heading"><div><span class="eyebrow">PANORAMA DEL NEGOCIO</span><h1>Inicio</h1><p>${DEMO.overview}</p></div><span class="version-label">Vista de demostración <span>v0.1</span></span></div>
     <div class="demo-notice">${icon('info')}<span><strong>Estás explorando un prototipo visual.</strong> Todos los datos son de demostración. Ninguna acción modifica el negocio.</span></div>
     <section class="attention-section" aria-labelledby="attention-title">
-      <div class="section-heading"><h2 id="attention-title">Requiere atención <span class="count">${DEMO.alerts.length}</span></h2><span class="section-hint">Selecciona una alerta para revisar su destino ${demoLabel}</span></div>
-      <div class="attention-grid">${DEMO.alerts.map(item => `<a class="attention-card ${item.tone}" href="${route(item.department, item.destination, item.entity)}"><div class="alert-top"><span class="card-icon">${icon(item.icon)}</span><span class="badge">${icon(item.tone === 'info' ? 'info' : 'alert')}${item.state}</span></div><h3>${item.title}</h3><strong class="entity">${item.entity}</strong><p>${item.detail}</p><small>${item.note}</small><div class="card-action">${item.action}${icon('arrow')}</div></a>`).join('')}</div>
+      <div class="section-heading"><h2 id="attention-title">Requiere atención <span class="count">${alerts.length}</span></h2><span class="section-hint">Selecciona una alerta para revisar su destino ${demoLabel}</span></div>
+      <div class="attention-grid">${alerts.map(item => `<a class="attention-card ${item.tone}" href="${item.href || route(item.department, item.destination, item.entity)}"><div class="alert-top"><span class="card-icon">${icon(item.icon)}</span><span class="badge">${icon(item.tone === 'info' ? 'info' : 'alert')}${escapeHTML(item.state)}</span></div><h3>${escapeHTML(item.title)}</h3><strong class="entity">${escapeHTML(item.entity)}</strong><p>${escapeHTML(item.detail)}</p><small>${escapeHTML(item.note)}</small><div class="card-action">${escapeHTML(item.action)}${icon('arrow')}</div></a>`).join('')}</div>
     </section>
     <section class="today-section" aria-labelledby="today-title"><div class="section-heading"><h2 id="today-title">Hoy</h2><span class="section-hint">Indicadores de ejemplo ${demoLabel}</span></div><div class="kpi-grid">${DEMO.indicators.map(item => `<article class="kpi-card"><span class="kpi-icon">${icon(item.icon)}</span><div><h3>${item.label}</h3><strong>${item.value}</strong><small>${item.note}</small></div></article>`).join('')}</div></section>
     <div class="overview-grid">
@@ -118,5 +118,6 @@ document.getElementById('global-search').addEventListener('input', () => {
   document.getElementById('search-status').hidden = true;
 });
 Products.bind(main);
+Inventory.bind(main);
 window.addEventListener('hashchange', () => { render(); main.focus(); window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); });
 render();

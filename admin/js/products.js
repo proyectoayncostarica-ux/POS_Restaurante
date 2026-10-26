@@ -74,10 +74,11 @@ const Products = (() => {
       <div class="demo-notice product-demo">${icon('info')}<span><strong>Datos temporales de demostración.</strong> Se reinician al recargar. Sin stock real ni conexión al POS.</span></div>
       <div id="product-content"></div>`;
     const content = document.getElementById('product-content');
-    if (section !== 'Productos') {
+    if (section === 'Inventario') Inventory.renderList(content);
+    else if (section !== 'Productos') {
       content.innerHTML = `<section class="surface product-placeholder"><span class="badge">Pendiente de implementación</span><h2>${section}</h2><p>Esta sección todavía no está disponible. Puedes explorar el catálogo de productos.</p><a class="secondary-button" href="${link()}">Ver productos ${icon('arrow')}</a></section>`;
     } else if (entity) {
-      if (product) renderDetail(content, product, params.get('pestana'));
+      if (product) renderDetail(content, product, params.get('pestana'), params);
       else content.innerHTML = `<section class="surface product-placeholder"><h2>Producto no disponible</h2><p>Los productos creados en el prototipo se pierden al recargar la página.</p><a class="secondary-button" href="${link()}">Volver a productos</a></section>`;
     } else if (params.get('vista') === 'nuevo') renderForm(content);
     else renderList(content);
@@ -160,16 +161,21 @@ const Products = (() => {
     if (submitted) showErrors(form, validate(product));
   }
 
-  function renderDetail(content, product, requestedTab) {
+  function renderDetail(content, product, requestedTab, params) {
     const tab = TABS.includes(requestedTab) ? requestedTab : 'Resumen';
     const values = calculate(product);
     const item = (label, value) => `<div><dt>${label}</dt><dd>${value}</dd></div>`;
     const costs = `${item('Costo de presentación', money(product.cost))}${item('Costo unitario', money(values.unitCost))}${item('Margen objetivo', percent(product.target))}${item('Precio sugerido', money(values.suggested))}${item('Precio de venta', money(product.price))}${item('Margen actual', percent(values.margin))}`;
     content.innerHTML = `<a class="back-link" href="${link()}">← Volver a productos</a><div class="product-entity-heading"><div><span class="eyebrow">FICHA DE PRODUCTO · DEMO</span><h2>${escapeHTML(product.name)}</h2><p>${escapeHTML(product.type)}</p></div>${badge(product.state)}</div>
       <section class="surface product-detail"><nav class="entity-nav" aria-label="Secciones de la ficha">${TABS.map(item => `<a href="${link('Productos', { entidad: product.id, pestana: item })}"${tab === item ? ' aria-current="page"' : ''}>${item}</a>`).join('')}</nav>
-      ${tab === 'Resumen' ? `<h3>Resumen del producto</h3><dl class="product-facts">${item('Nombre', escapeHTML(product.name))}${item('Estado', badge(product.state))}${item('Tipo', escapeHTML(product.type))}${item('Unidad base', escapeHTML(product.unit))}${item('Presentación habitual', presentationText(product))}${costs}</dl>${recipeNote(product)}` : tab === 'Costos y precio' ? `<h3>Costos y precio</h3><p class="field-section-hint">${presentationText(product)} · Importes en colones costarricenses</p><dl class="product-facts cost-facts">${costs}</dl><p class="product-note">El precio sugerido es una referencia independiente del precio de venta.<br>Margen bruto sobre venta = (precio − costo unitario) / precio. Si el precio es 0, el margen no se puede calcular.<br>Sin historial real de costos.</p>${recipeNote(product)}` : `<div class="product-placeholder"><span class="badge">Pendiente de implementación</span><h3>${tab}</h3><p>${tab === 'Inventario' ? 'El inventario pertenecerá a esta misma ficha. Todavía no hay stock ni movimientos reales.' : 'Esta sección todavía no está disponible. No se han realizado operaciones.'}</p></div>`}</section>`;
+      ${tab === 'Inventario' ? '<div id="product-inventory"></div>' : tab === 'Resumen' ? `<h3>Resumen del producto</h3><dl class="product-facts">${item('Nombre', escapeHTML(product.name))}${item('Estado', badge(product.state))}${item('Tipo', escapeHTML(product.type))}${item('Unidad base', escapeHTML(product.unit))}${item('Presentación habitual', presentationText(product))}${costs}</dl>${recipeNote(product)}` : tab === 'Costos y precio' ? `<h3>Costos y precio</h3><p class="field-section-hint">${presentationText(product)} · Importes en colones costarricenses</p><dl class="product-facts cost-facts">${costs}</dl><p class="product-note">El precio sugerido es una referencia independiente del precio de venta.<br>Margen bruto sobre venta = (precio − costo unitario) / precio. Si el precio es 0, el margen no se puede calcular.<br>Sin historial real de costos.</p>${recipeNote(product)}` : `<div class="product-placeholder"><span class="badge">Pendiente de implementación</span><h3>${tab}</h3><p>Esta sección todavía no está disponible. No se han realizado operaciones.</p></div>`}</section>`;
+    if (tab === 'Inventario') renderInventoryDetail(content, product, params);
   }
 
+  function renderInventoryDetail(content, product, params) {
+    const panel = content.querySelector('#product-inventory');
+    Inventory.renderProduct(panel, product, params);
+  }
   function bind(container) {
     container.addEventListener('input', event => {
       if (event.target.id === 'product-search') { search = event.target.value; renderRows(); }
@@ -206,5 +212,7 @@ const Products = (() => {
     });
   }
 
-  return Object.freeze({ render, bind, calculate, validate });
+  // Inventario consume las mismas entidades; recibe copias de lectura.
+  const getAll = () => products.map(product => ({ ...product }));
+  return Object.freeze({ render, bind, calculate, validate, getAll });
 })();
