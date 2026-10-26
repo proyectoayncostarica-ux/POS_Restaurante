@@ -17,6 +17,7 @@ const DEFAULT_DB_PATH = path.join(__dirname, '../../data/restaurant.db');
 class Database {
     constructor(options = {}) {
         this.db = null;
+        this.mustExist = options.mustExist === true;
         this.dbPath = options.dbPath
             ? path.resolve(options.dbPath)
             : (process.env.DB_PATH
@@ -30,21 +31,22 @@ class Database {
     connect() {
         return new Promise((resolve, reject) => {
             const dataDir = path.dirname(this.dbPath);
-            if (!fs.existsSync(dataDir)) {
+            if (!this.mustExist && !fs.existsSync(dataDir)) {
                 fs.mkdirSync(dataDir, { recursive: true });
             }
 
-            this.db = new sqlite3.Database(this.dbPath, async (err) => {
+            this.db = this.createSQLiteConnection(async (err) => {
                 if (err) {
-                    console.error('Error al conectar con la base de datos:', err);
+                    this.db = null;
+                    if (!this.mustExist) console.error('Error al conectar con la base de datos:', err);
                     reject(err);
                     return;
                 }
 
                 try {
-                    await this.run('PRAGMA journal_mode = WAL');
+                    if (!this.mustExist) await this.run('PRAGMA journal_mode = WAL');
                     await this.run('PRAGMA busy_timeout = 5000');
-                    console.log(`Conectado a la base de datos SQLite: ${this.dbPath}`);
+                    if (!this.mustExist) console.log(`Conectado a la base de datos SQLite: ${this.dbPath}`);
                     resolve();
                 } catch (pragmaError) {
                     reject(pragmaError);
@@ -3143,9 +3145,15 @@ class Database {
         });
     }
 
+    createSQLiteConnection(callback) {
+        return this.mustExist
+            ? new sqlite3.Database(this.dbPath, sqlite3.OPEN_READWRITE, callback)
+            : new sqlite3.Database(this.dbPath, callback);
+    }
+
     openConnection() {
         return new Promise((resolve, reject) => {
-            const connection = new sqlite3.Database(this.dbPath, async (err) => {
+            const connection = this.createSQLiteConnection(async (err) => {
                 if (err) {
                     reject(err);
                     return;
