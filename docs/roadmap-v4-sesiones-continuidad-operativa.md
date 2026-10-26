@@ -395,7 +395,7 @@ Se preservan numeración, avances y cierres de v4.1–v4.3. Se reorganiza solo l
 
 | Fase futura | Alcance revisado | Dependencia y estado |
 |---|---|---|
-| v4.4 | Identidad persistente de instalación, servidor acreditable reemplazable, primera instalación, Terminal/consola única, asociación con sesiones, backup/migración, recuperación, reacreditación y detección de servidor reemplazado. | Contrato conceptual ampliado en 5.4; implementación y validación pendientes. La primera entrega v4.4.1 requiere A y B implementadas y validadas según 5.4.12; mecanismos y procedimientos técnicos pendientes. |
+| v4.4 | Identidad persistente de instalación, servidor acreditable reemplazable, primera instalación, Terminal/consola única, asociación con sesiones, backup/migración, recuperación, reacreditación y detección de servidor reemplazado. | v4.4.1 A+B completadas y validadas dentro del alcance de 5.4.12; B Paso 3 pendiente de revisión/publicación Git. El resto de v4.4 sigue pendiente: Terminal, identidad acreditable de servidor, acreditación y migración/restauración. |
 | v4.5 | Políticas por tipo/contexto, integración con selección automática/cambio de contexto y ocupación de estación Caja. | Requiere Terminal; implementación y validación pendientes. |
 | v4.6 | Frontera de revocación efectiva, correlación de negociación y Session Takeover manual/timeout. | Requiere identidad/políticas; la frontera debe validarse antes de habilitar transferencias; integración actual incompleta. |
 | v4.7 | Administración de Terminales/sesiones, presencia, realtime validado, recuperación Cocina/Cajero y transición de sesiones heredadas; visibilidad administrativa de la conciliación definida en v4.4. | Requiere el núcleo de migración/reacreditación de v4.4 y resolver los pendientes aplicables; sin cierre. |
@@ -621,9 +621,9 @@ Servicio de recovery, operaciones persistentes, coordinación MAIN/SESSION, inva
 
 Apertura segura existing-only, CLI local, entrada de contraseña sin echo, selección/reanudación, comando npm y pruebas, incluida interrupción real de proceso y reanudación. Publicado mediante `41cac9ee598415ca10d4415ecadc144f12262402`. El aviso frontend y la documentación operativa final corresponden al Paso 3.
 
-#### v4.4.1B Paso 3 — diseño aprobado, implementación pendiente
+#### v4.4.1B Paso 3 — implementado y validado; revisión y publicación Git pendientes
 
-Aviso frontend, regresión final y documentación operativa final. El contrato UX siguiente está aprobado como diseño; este checkpoint no implementa UI ni declara B3 terminado.
+Aviso frontend, regresión final y documentación operativa implementados. `tests/adminRecoveryUi.test.js` valida **14/14** casos mediante métodos reales de `main.js` en VM/DOM simulado. La regresión de cierre ejecutó los **22 archivos** requeridos: **250/250** pruebas aprobadas, **0 fallos, 0 omitidas, 0 canceladas y 0 pendientes**. `node --check` pasó para ambos JS modificados/creados; los diff checks pasaron, incluido el test nuevo untracked. B3 queda completado técnicamente en el working tree, sin commit ni push todavía y sin declarar validación manual PC/móvil. Se conserva el contrato UX aprobado:
 
 **Señal informativa y bootstrap:** `administrativeRecoveryRequired` es exclusivamente informativa para frontend. No crea un modo de autenticación, estado de sesión, permiso, recovery web ni bloqueo global y no sustituye login. Bootstrap depende del contrato persistente de instalación; nunca se deduce de `hasAdmin = false`, `adminCount = 0` ni de la ausencia de Admin.
 
@@ -635,32 +635,32 @@ Aviso frontend, regresión final y documentación operativa final. El contrato U
 
 **Login y sesiones autenticadas:** los usuarios activos que puedan autenticarse conservan formulario, credenciales, selección de roles y navegación posterior. La falta de Admin no invalida por sí sola las cuentas Básicas. Si un usuario válido ya está autenticado, la señal no cierra sesión, no limpia `currentUser`, no vuelve al login ni modifica roles, navegación o permisos. El aviso pertenece exclusivamente al login no autenticado.
 
-**Aviso aprobado:** persistente mientras el backend confirme la señal, integrado en login normal, sin modal, sin cierre manual y sin spinner. Usará `role="status"`, `aria-live="polite"`, texto mediante `textContent`, el estilo existente `.session-recovery-status` y un renderer idempotente. Se creará desde `main.js` sin modificar HTML/CSS si esa reutilización basta.
+**Aviso implementado:** persistente mientras el backend confirme la señal, integrado en login normal, sin modal, sin cierre manual y sin spinner. Usa `role="status"`, `aria-live="polite"`, texto mediante `textContent`, el estilo existente `.session-recovery-status` y un renderer idempotente. Se crea desde `main.js` sin modificar HTML/CSS.
 
 Texto conceptual aprobado, con ajustes mínimos de gramática/estilo permitidos durante implementación:
 
 > No hay administradores activos. La recuperación administrativa debe realizarse localmente en el equipo del servidor. Los usuarios habilitados pueden continuar iniciando sesión normalmente.
 
-La UI no mostrará `npm run recover-admin`, installationId, operationId, rutas DB, PREPARED ni detalles técnicos. B3 no añadirá botón Recuperar Admin, formulario de contraseña para recovery, endpoint, enlace que ejecute CLI ni acción administrativa web: frontend únicamente informa.
+La UI no muestra `npm run recover-admin`, installationId, operationId, rutas DB, PREPARED ni detalles técnicos. B3 no añade botón Recuperar Admin, formulario de contraseña para recovery, endpoint, enlace que ejecute CLI ni acción administrativa web: frontend únicamente informa.
 
 **Visibilidad y vigencia:** el aviso solo se muestra tras obtener satisfactoriamente un bootstrap-status válido con `administrativeRecoveryRequired = true`, con usuario no autenticado y modo login normal. Se oculta durante bootstrap, verificación, recuperación/reconexión de sesión y aplicación autenticada. No se persiste la señal en localStorage, sessionStorage ni cookies. Si una consulta posterior falla, una bandera antigua no puede seguir mostrándose como estado recién confirmado; se requiere una respuesta válida actual.
 
 Después de recovery local exitoso, `hasAdmin = true`, `requiresSetup = false` y `administrativeRecoveryRequired = false`. El aviso desaparece automáticamente en la siguiente comprobación satisfactoria, sin añadir polling especial.
 
-**Errores y red:** `BOOTSTRAP_STATUS_UNAVAILABLE`, HTTP 5xx y fallos de red no significan recovery administrativo ni bootstrap. Se mantiene el circuito actual de recuperación/verificación. No se cambiará el clasificador global de errores durante B3 salvo necesidad detectada y justificada en la implementación.
+**Errores y red:** `BOOTSTRAP_STATUS_UNAVAILABLE`, HTTP 5xx y fallos de red no significan recovery administrativo ni bootstrap. Se mantiene el circuito actual de recuperación/verificación, sin modificar el clasificador global. `checkBootstrapStatus()` descarta ambas señales anteriores antes de consultar; solo acepta una respuesta satisfactoria con señales booleanas coherentes. La metadata inválida o true/true produce un error local compatible con HTTP 503 / BOOTSTRAP_STATUS_UNAVAILABLE para entrar en el reintento existente.
 
-**Archivos previstos para implementar B3:**
+**Archivos de B3:**
 
-| Archivo | Alcance futuro |
+| Archivo | Alcance implementado |
 |---|---|
 | `public/js/main.js` | Consumo informativo de la señal y renderer del aviso. |
 | `tests/adminRecoveryUi.test.js` | Cobertura focalizada del contrato UX. |
-| `README.md` | Procedimiento operativo y estado vigente, después de implementar y validar B3. |
-| `docs/roadmap-v4-sesiones-continuidad-operativa.md` | Evidencia y estado del cierre, solo cuando corresponda. |
+| `README.md` | Procedimiento operativo local seguro y estado vigente. |
+| `docs/roadmap-v4-sesiones-continuidad-operativa.md` | Evidencia y estado del cierre acotado de v4.4.1. |
 
-No se prevén cambios backend, HTML o CSS. README no se modifica en este checkpoint documental.
+Sin cambios backend, HTML, CSS ni tests históricos. El README documenta backend/watchdog detenidos, verificación de MAIN/SESSION, confirmaciones DETENIDO/RECUPERAR, las tres acciones, secretos interactivos sin echo y reanudación con el mismo operationId. PREPARED es reanudable, no cancelable, y puede coexistir con sesiones técnicas ya invalidadas; no existe CANCELLED. La ausencia de otros procesos y la elección del par MAIN/SESSION siguen siendo precondiciones operativas, sin prueba perfecta de exclusividad ni binding criptográfico entre bases.
 
-**Cobertura UX futura:**
+**Cobertura UX validada:** las familias A–H y la visibilidad por modo suman 14 pruebas; E desglosa red, 503 y cuatro variantes de metadata inválida.
 
 | Caso | Garantía a probar |
 |---|---|
@@ -673,9 +673,11 @@ No se prevén cambios backend, HTML o CSS. README no se modifica en este checkpo
 | G. Respuesta incoherente | Fail-closed; nunca abre bootstrap ni presenta recovery como estado válido. |
 | H. Superficie informativa | No existe control frontend para ejecutar recovery. |
 
-**v4.4.1 solo puede considerarse terminada/desplegable cuando A y B hayan sido implementadas y validadas.** A/B no tienen que ser versiones públicas independientes. B Paso 3 mantiene implementación, regresión final y documentación operativa pendientes; no se declara v4.4.1 completada. Terminal, serverIdentity, acreditación y migración/restore siguen pendientes; v4.4 completa también sigue pendiente.
+**v4.4.1 — A+B completadas y validadas para primera instalación protegida y recuperación administrativa local, con aviso informativo y procedimiento operativo. Esta entrega es operativamente coherente dentro de ese alcance.** B Paso 3 sigue pendiente de revisión y publicación Git; A/B no tienen que ser versiones públicas independientes.
 
-**Pruebas contractuales a preservar y completar:** los Pasos 1 y 2 están implementados, validados y publicados; la cobertura UX y la regresión final del Paso 3 siguen pendientes.
+**No completa v4.4: Terminal, identidad acreditable de servidor (`serverIdentity`), acreditación y migración/restauración permanecen pendientes.** Tampoco se declara implementada la concurrencia final de v4.5/v4.6.
+
+**Pruebas contractuales preservadas y validadas en el cierre:** los Pasos 1 y 2 están implementados, validados y publicados; la cobertura UX y la regresión final del Paso 3 pasan en el working tree.
 
 - Instalación de cualquiera de los dos orígenes con Admin activo: rechazo de recuperación innecesaria.
 - Admin desactivado con contraseña válida: reactivación de la cuenta seleccionada.
@@ -691,7 +693,7 @@ No se prevén cambios backend, HTML o CSS. README no se modifica en este checkpo
 - Bootstrap inicial sigue bloqueado, también para created_empty ya IDENTIFIED; no se vuelve a AWAITING_INITIAL_ADMIN.
 - DB inconsistente: no se reclasifica ni se genera Admin para ocultar el problema.
 
-Se preservan los contratos de Terminal, serverIdentity, migración, SUPERSEDED, Caja/Cocina/Admin y Session Takeover. La recuperación administrativa local de acceso es distinta de recuperar una sesión operativa Cocina/Cajero o de reemplazar servidor. Este checkpoint documental no implementa Terminal, serverIdentity, migración ni nuevas funciones y no modifica fases históricas cerradas.
+Se preservan los contratos de Terminal, serverIdentity, migración, SUPERSEDED, Caja/Cocina/Admin y Session Takeover. La recuperación administrativa local de acceso es distinta de recuperar una sesión operativa Cocina/Cajero o de reemplazar servidor. B Paso 3 implementa únicamente el aviso frontend y su cobertura, además del procedimiento documental; no implementa Terminal, serverIdentity, migración ni altera fases históricas cerradas.
 
 ---
 

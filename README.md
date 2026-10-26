@@ -8,6 +8,7 @@ MundiPOS es un sistema POS web local para restaurante/bar. El backend corre con 
 - **Versión visible/funcional de la app:** 3.7
 - **Estado de producto:** MundiPOS 3.0 cerrado, validado y publicado; MundiPOS v4 en curso
 - **Línea de trabajo actual:** v4.1–v4.3 conservan su cierre histórico; contrato de Terminal y concurrencia revisado documentalmente el 22 de octubre de 2026. Las fases futuras no están implementadas/validadas completamente; Session Takeover está en integración incompleta.
+- **v4.4.1 A+B:** completadas y validadas técnicamente para primera instalación protegida y recuperación administrativa local, con aviso informativo y procedimiento operativo. B Paso 3 está pendiente de revisión y publicación Git; no completa v4.4.
 - **Fix técnico en curso:** v4.3.2-fix1 · rechazo de login sobre sesión autenticada — IMPLEMENTADO Y VALIDADO TÉCNICAMENTE; validación manual y publicación pendientes.
 
 La versión visible para usuarios, configuración pública y metadata base de la app es **3.7**. La modernización MundiPOS 3.0 reorganizó internamente Cuentas, Pagos, Comandas e Impresiones, preservando los contratos operativos y financieros canónicos. La etapa 3 queda cerrada técnicamente en **v3.7.0-fix1**. En MundiPOS v4, v4.1 quedó completada y publicada mediante v4.1.1 (`a8525e0f8110935b2cad20326313c9c73745b677`) y v4.1.2 (`1830711fea951b3c5a43eb041e927c5073de1b14`). v4.2 quedó completada y publicada mediante v4.2.1 (`16822fb0be1fa2938737fb59f8d73982bc9f3e4a`) y v4.2.2 (`832be2673d540cd34b2701a0d00cf699c4120936`). v4.3 quedó completada y publicada: v4.3.1 está publicada mediante el commit funcional `599893301c91fa7644c8e5fc7f73d8753b9a20b9`; v4.3.2 está publicada mediante el commit funcional `a8c54d6fe54b88ce05362a36584254abd2f7d4ae`; v4.3.3 está publicada mediante el commit funcional `930291c34981803bc56e2cb3360677e30357be36`. Este último SHA completa el cierre funcional de v4.3. La revisión documental posterior no declara cerradas v4.4–v4.6 ni valida su integración actual.
@@ -21,6 +22,63 @@ La versión visible para usuarios, configuración pública y metadata base de la
 - **Transferencia:** aceptación y timeout autorizan revocar A; B solo obtiene capacidad operativa después de revocación efectiva confirmada. El plazo definitivo sigue pendiente; 10 segundos no es contractual. Se sustituye expresamente la autorización Admin adicional offline del plan anterior para takeover del mismo usuario.
 - **Estado real:** políticas definidas documentalmente, Terminal no implementada y Session Takeover en integración incompleta. La deuda global Cocina + Admin, las carreras de revocación y los demás pendientes/deudas están registrados en el roadmap. No hay cierre ni validación completa de las fases futuras.
 - **Trazabilidad:** la entrada histórica v4.3.2-fix1 mantiene pendientes documentales; Git contiene 2928828, sin que esta revisión certifique validación manual o publicación remota.
+
+## Recuperación administrativa local
+
+Se utiliza únicamente cuando una instalación `IDENTIFIED` queda sin Admin activo, tanto si procede de una base heredada (`adopted_legacy`) como de una primera instalación (`created_empty`). No sustituye la creación del primer Admin en una instalación nueva ni convierte usuarios Básicos o cuentas Cocina en administradores.
+
+El login muestra un aviso informativo y permite seguir entrando a los usuarios habilitados. Los usuarios ya autenticados conservan su sesión y su contexto operativo. La recuperación de acceso administrativo se realiza localmente; no existe endpoint HTTP ni botón web para ejecutarla.
+
+### Preparación
+
+1. Trabajar localmente en el equipo del servidor/backend autorizado, desde la raíz del proyecto.
+2. Detener MundiPOS y cualquier otra instancia que pueda utilizar sus bases.
+3. Deshabilitar temporalmente el reinicio automático/watchdog para mantenerlo detenido durante todo el procedimiento.
+4. No editar SQLite manualmente ni borrar archivos WAL/SHM.
+
+Mantener los procesos detenidos es una precondición operativa: actualmente no existe una prueba perfecta de que ningún otro proceso esté usando las bases.
+
+### Ejecución
+
+En una terminal local interactiva, ejecutar:
+
+```text
+npm run recover-admin
+```
+
+1. Verificar las rutas MAIN y SESSION mostradas; deben corresponder a las bases de esta instalación. Si no corresponden, salir antes de confirmar.
+2. Confirmar que el backend está detenido escribiendo `DETENIDO`.
+3. Escoger la acción disponible y seleccionar explícitamente el ID del usuario cuando corresponda.
+4. Introducir la contraseña en el prompt interactivo sin echo; para una contraseña nueva, repetirla cuando se solicite.
+5. Introducir el motivo obligatorio, sin incluir contraseñas.
+6. Verificar el resumen de rutas, acción, cuenta y motivo; confirmar la invalidación administrativa escribiendo `RECUPERAR`.
+7. Esperar el resultado `COMPLETED`; después reiniciar MundiPOS, restablecer el watchdog si corresponde e iniciar sesión normalmente con la cuenta recuperada.
+
+Acciones disponibles:
+
+| Acción | Cuándo utilizarla |
+|---|---|
+| Reactivar | Existe un Admin humano desactivado y se conoce su contraseña; se conserva esa contraseña. |
+| Reset | Existe un Admin humano desactivado y se necesita establecer una contraseña nueva y reactivarlo. |
+| Crear Admin de recuperación | Únicamente cuando no existe Admin humano desactivado recuperable. No convierte Básicos/Cocina. |
+
+La herramienta exige stdin/stdout TTY y solicita los secretos interactivamente sin echo. **No pasar contraseñas por argumentos, variables de entorno, archivos ni pipes.** Para consultar opciones de rutas existentes, usar `npm run recover-admin -- --help`; verificar siempre MAIN/SESSION antes de confirmar.
+
+### Operación interrumpida o PREPARED
+
+Si existe una operación pendiente/interrumpida, **no iniciar otra**. Mantener el backend y watchdog detenidos y reanudar con el mismo identificador mostrado por la herramienta:
+
+```text
+npm run recover-admin -- --resume <operationId>
+```
+
+Volver a verificar rutas y confirmaciones, y proporcionar la contraseña solicitada para la acción original. `PREPARED` puede significar que las sesiones técnicas afectadas ya fueron invalidadas aunque el Admin todavía no haya quedado recuperado. La operación se reanuda; no existe estado `CANCELLED`. Salir o pulsar Ctrl+C no cancela ni elimina una `PREPARED` existente. No intentar resolverla editando la base ni creando otra operación.
+
+### Límites del procedimiento
+
+MAIN y SESSION se verifican, pero todavía no existe un binding criptográfico entre ambas: el operador debe comprobar que son el par correcto. La identidad acreditable de servidor (`serverIdentity`), Terminal, acreditación y migración/restauración pertenecen a fases futuras.
+
+El aviso desaparece en la siguiente comprobación satisfactoria del estado tras recuperar un Admin; no se añade polling especial. Si el estado no puede verificarse por red, error del servidor o señales incoherentes, se conserva el flujo de verificación/reintento, sin habilitar bootstrap ni confirmar recuperación administrativa.
 
 ## Control de versionado del proyecto
 
@@ -97,6 +155,16 @@ No se continúa con la siguiente subfase hasta que la subfase actual esté compr
 ```
 
 ## Registro de cambios canónico
+
+### v4.4.1 · Primera instalación protegida y recuperación administrativa local
+
+- **Estado:** A+B completadas y validadas para este alcance; B Paso 3 pendiente de revisión y publicación Git.
+- **A:** identidad persistente y procedencia de instalación, reconocimiento de legado y bootstrap protegido; la pérdida de Admin en una instalación identificada no reabre la primera configuración.
+- **B Pasos 1–2:** servicio y CLI local segura publicados; B2 en `41cac9ee598415ca10d4415ecadc144f12262402`.
+- **B Paso 3:** aviso accesible e informativo en login, sin bloquear usuarios válidos ni expulsar sesiones autenticadas. Metadata inválida o señales incoherentes mantienen verificación/reintento; se descartan señales anteriores sin confirmar. Sin persistencia local ni polling nuevo.
+- **Validación:** `tests/adminRecoveryUi.test.js` **14/14** mediante métodos reales en VM/DOM simulado; regresión de cierre de **22 archivos, 250/250**, con 0 fallos, omitidas, canceladas o pendientes; sintaxis y whitespace correctos. No se declara validación manual PC/móvil.
+- **Procedimiento:** [Recuperación administrativa local](#recuperación-administrativa-local), incluidas precondiciones, secretos interactivos y reanudación de PREPARED.
+- **Límite:** esta entrega es operativamente coherente dentro de ese alcance. No completa v4.4: Terminal, identidad acreditable de servidor, acreditación y migración/restauración permanecen pendientes. Tampoco cierra la concurrencia final de v4.5/v4.6.
 
 ### v4.3.2-fix1 · Reautenticación sobre sesión ya autenticada
 

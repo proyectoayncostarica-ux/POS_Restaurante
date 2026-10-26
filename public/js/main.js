@@ -511,6 +511,8 @@ const Utils = {
 // Autenticación
 const Auth = {
     requiresBootstrapSetup: false,
+    administrativeRecoveryRequired: false,
+    loginMode: 'verifying',
     pendingRoleChangeIds: [],
     logoutInFlight: false,
     logoutBlockedModalOpen: false,
@@ -595,6 +597,7 @@ const Auth = {
     setSessionState(state) {
         this.sessionState = state;
         document.body.dataset.sessionState = state;
+        this.renderAdministrativeRecoveryNotice();
     },
 
     scheduleSessionRecovery() {
@@ -723,14 +726,52 @@ const Auth = {
         Realtime.scheduleRecovery('session-recovered');
     },
     async checkBootstrapStatus() {
+        this.requiresBootstrapSetup = false;
+        this.administrativeRecoveryRequired = false;
+        this.renderAdministrativeRecoveryNotice();
+
         const response = await Utils.request('/public/bootstrap-status', {
             method: 'GET',
             cache: 'no-store'
         });
+        const data = response?.data;
+        if (response?.success !== true
+            || typeof data?.requiresSetup !== 'boolean'
+            || typeof data?.administrativeRecoveryRequired !== 'boolean'
+            || (data.requiresSetup && data.administrativeRecoveryRequired)) {
+            // Metadata no verificable: usar el circuito existente de reintento.
+            const error = new Error('No se pudo verificar el estado de instalación.');
+            error.status = 503;
+            error.code = 'BOOTSTRAP_STATUS_UNAVAILABLE';
+            throw error;
+        }
 
-        const data = response.data || {};
-        this.requiresBootstrapSetup = Boolean(data.requiresSetup);
+        this.requiresBootstrapSetup = data.requiresSetup;
+        this.administrativeRecoveryRequired = data.administrativeRecoveryRequired;
+        this.renderAdministrativeRecoveryNotice();
         return data;
+    },
+
+    renderAdministrativeRecoveryNotice() {
+        let notice = document.getElementById('administrative-recovery-notice');
+        const visible = this.administrativeRecoveryRequired === true
+            && this.requiresBootstrapSetup === false
+            && !currentUser
+            && this.sessionState === SESSION_STATES.UNAUTHENTICATED
+            && this.loginMode === 'login';
+
+        if (!notice && visible) {
+            const loginForm = document.getElementById('login-form');
+            if (!loginForm?.parentNode) return;
+            notice = document.createElement('div');
+            notice.id = 'administrative-recovery-notice';
+            notice.className = 'session-recovery-status';
+            notice.setAttribute('role', 'status');
+            notice.setAttribute('aria-live', 'polite');
+            notice.textContent = 'No hay administradores activos. La recuperación administrativa debe realizarse localmente en el equipo del servidor. Los usuarios habilitados pueden continuar iniciando sesión normalmente.';
+            loginForm.parentNode.insertBefore(notice, loginForm);
+        }
+        if (notice) notice.hidden = !visible;
     },
 
     // Crear el primer administrador cuando la instalación todavía no tiene ninguno.
@@ -1985,6 +2026,7 @@ function resetSubmitButton(button, iconHtml, label) {
 }
 
 function setLoginMode(mode = 'login', options = {}) {
+    Auth.loginMode = mode;
     const loginCard = document.getElementById('login-card');
     const loginForm = document.getElementById('login-form');
     const bootstrapForm = document.getElementById('bootstrap-admin-form');
@@ -2041,6 +2083,7 @@ function setLoginMode(mode = 'login', options = {}) {
             ? 'Primero crea el usuario administrador principal'
             : (restaurantName.dataset.businessName || restaurantName.textContent || 'Cargando negocio...');
     }
+    Auth.renderAdministrativeRecoveryNotice();
 }
 // Navegación
 const Navigation = {
