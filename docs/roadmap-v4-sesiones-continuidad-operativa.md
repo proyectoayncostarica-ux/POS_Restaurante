@@ -558,7 +558,7 @@ Estos riesgos son distintos de las deudas de sesiones de 5.2.10, que se conserva
 
 ### 5.4.12 Recuperación administrativa local y condición de entrega de v4.4.1
 
-**Decisión inicial aprobada el 22 de octubre de 2026; contrato consolidado tras v4.4.1B Paso 1.** La recuperación administrativa local corresponde a una instalación previamente identificada, sin Admin activo, para ambos orígenes conocidos:
+**Decisión inicial aprobada el 22 de octubre de 2026; contrato de recuperación local y diseño UX consolidados antes de B Paso 3.** La recuperación administrativa local corresponde a una instalación previamente identificada, sin Admin activo, para ambos orígenes conocidos:
 
 ```text
 origin = adopted_legacy | created_empty
@@ -613,21 +613,69 @@ El orden de adquisición es **MAIN → SESSION**, nunca al revés. Si SESSION co
 | v4.4.1A | Reconocimiento, identidad, procedencia, estados y bootstrap protegido; por sí sola no constituye una transición desplegable completa. |
 | v4.4.1B | Recuperación administrativa local de instalaciones identificadas sin Admin activo, de origen adopted_legacy o created_empty: servicio, interfaz local segura, auditoría, sesiones afectadas, señal administrativeRecoveryRequired y comportamiento frontend informativo. |
 
-#### v4.4.1B Paso 1 — implementado y validado técnicamente
+#### v4.4.1B Paso 1 — implementado, validado y publicado
 
-Servicio de recovery, operaciones persistentes, coordinación MAIN/SESSION, invalidación administrativa, UserSession revocada, auditoría, idempotencia y tests. El servicio existe, pero todavía carece de la interfaz local segura final; no se declara un proceso utilizable por el operador final.
+Servicio de recovery, operaciones persistentes, coordinación MAIN/SESSION, invalidación administrativa, UserSession revocada, auditoría, idempotencia y tests. Publicado mediante `5d16963719aeb6a7567e43f3f5250806edd4e7dc`; la interfaz local corresponde al Paso 2.
 
-#### v4.4.1B Paso 2 — pendiente
+#### v4.4.1B Paso 2 — implementado, validado y publicado
 
-Apertura segura existing-only, CLI local, entrada de contraseña sin echo, selección/reanudación, comando npm y pruebas operativas. La contraseña debe introducirse de forma segura e interactiva; no se declara disponible todavía ese flujo local.
+Apertura segura existing-only, CLI local, entrada de contraseña sin echo, selección/reanudación, comando npm y pruebas, incluida interrupción real de proceso y reanudación. Publicado mediante `41cac9ee598415ca10d4415ecadc144f12262402`. El aviso frontend y la documentación operativa final corresponden al Paso 3.
 
-#### v4.4.1B Paso 3 — pendiente
+#### v4.4.1B Paso 3 — diseño aprobado, implementación pendiente
 
-Mensaje frontend, regresión final y documentación operativa final. En una instalación `IDENTIFIED` sin Admin activo, de cualquiera de los dos orígenes, el contrato frontend exige informar que hace falta recuperación administrativa local, sin formulario de primer Admin ni botón remoto para crear/restablecer Admin. Los usuarios normales válidos pueden seguir usando login/operación cuando el estado de la instalación permita operación normal. No se fija UI detallada.
+Aviso frontend, regresión final y documentación operativa final. El contrato UX siguiente está aprobado como diseño; este checkpoint no implementa UI ni declara B3 terminado.
 
-**v4.4.1 solo puede considerarse terminada/desplegable cuando A y B hayan sido implementadas y validadas.** A/B no tienen que ser versiones públicas independientes. La CLI y los pasos B 2–3 siguen pendientes; no se declara v4.4.1 completa ni v4.4 desplegable.
+**Señal informativa y bootstrap:** `administrativeRecoveryRequired` es exclusivamente informativa para frontend. No crea un modo de autenticación, estado de sesión, permiso, recovery web ni bloqueo global y no sustituye login. Bootstrap depende del contrato persistente de instalación; nunca se deduce de `hasAdmin = false`, `adminCount = 0` ni de la ausencia de Admin.
 
-**Pruebas contractuales a preservar y completar:** el Paso 1 tiene validación técnica del servicio; las pruebas operativas del Paso 2 y la regresión final del Paso 3 siguen pendientes.
+| requiresSetup | administrativeRecoveryRequired | Comportamiento contractual |
+|---|---|---|
+| true | false | Bootstrap inicial. |
+| false | true | Instalación IDENTIFIED sin Admin activo: login normal disponible y aviso de recuperación administrativa local. |
+| true | true | Respuesta inconsistente: fail-closed mediante el circuito existente de verificación/error/reintento. No abrir bootstrap ni inventar un estado válido de recovery. |
+
+**Login y sesiones autenticadas:** los usuarios activos que puedan autenticarse conservan formulario, credenciales, selección de roles y navegación posterior. La falta de Admin no invalida por sí sola las cuentas Básicas. Si un usuario válido ya está autenticado, la señal no cierra sesión, no limpia `currentUser`, no vuelve al login ni modifica roles, navegación o permisos. El aviso pertenece exclusivamente al login no autenticado.
+
+**Aviso aprobado:** persistente mientras el backend confirme la señal, integrado en login normal, sin modal, sin cierre manual y sin spinner. Usará `role="status"`, `aria-live="polite"`, texto mediante `textContent`, el estilo existente `.session-recovery-status` y un renderer idempotente. Se creará desde `main.js` sin modificar HTML/CSS si esa reutilización basta.
+
+Texto conceptual aprobado, con ajustes mínimos de gramática/estilo permitidos durante implementación:
+
+> No hay administradores activos. La recuperación administrativa debe realizarse localmente en el equipo del servidor. Los usuarios habilitados pueden continuar iniciando sesión normalmente.
+
+La UI no mostrará `npm run recover-admin`, installationId, operationId, rutas DB, PREPARED ni detalles técnicos. B3 no añadirá botón Recuperar Admin, formulario de contraseña para recovery, endpoint, enlace que ejecute CLI ni acción administrativa web: frontend únicamente informa.
+
+**Visibilidad y vigencia:** el aviso solo se muestra tras obtener satisfactoriamente un bootstrap-status válido con `administrativeRecoveryRequired = true`, con usuario no autenticado y modo login normal. Se oculta durante bootstrap, verificación, recuperación/reconexión de sesión y aplicación autenticada. No se persiste la señal en localStorage, sessionStorage ni cookies. Si una consulta posterior falla, una bandera antigua no puede seguir mostrándose como estado recién confirmado; se requiere una respuesta válida actual.
+
+Después de recovery local exitoso, `hasAdmin = true`, `requiresSetup = false` y `administrativeRecoveryRequired = false`. El aviso desaparece automáticamente en la siguiente comprobación satisfactoria, sin añadir polling especial.
+
+**Errores y red:** `BOOTSTRAP_STATUS_UNAVAILABLE`, HTTP 5xx y fallos de red no significan recovery administrativo ni bootstrap. Se mantiene el circuito actual de recuperación/verificación. No se cambiará el clasificador global de errores durante B3 salvo necesidad detectada y justificada en la implementación.
+
+**Archivos previstos para implementar B3:**
+
+| Archivo | Alcance futuro |
+|---|---|
+| `public/js/main.js` | Consumo informativo de la señal y renderer del aviso. |
+| `tests/adminRecoveryUi.test.js` | Cobertura focalizada del contrato UX. |
+| `README.md` | Procedimiento operativo y estado vigente, después de implementar y validar B3. |
+| `docs/roadmap-v4-sesiones-continuidad-operativa.md` | Evidencia y estado del cierre, solo cuando corresponda. |
+
+No se prevén cambios backend, HTML o CSS. README no se modifica en este checkpoint documental.
+
+**Cobertura UX futura:**
+
+| Caso | Garantía a probar |
+|---|---|
+| A. requiresSetup | Continúa abriendo bootstrap cuando recovery administrativo es false. |
+| B. Recovery requerido | No abre bootstrap, muestra aviso y conserva login habilitado. |
+| C. Recovery false | Aviso ausente. |
+| D. Básico autenticado | No expulsado ni alterado por la señal. |
+| E. Red/503 | No inventa bootstrap ni recovery administrativo. |
+| F. true → false | Aviso desaparece, nodo no se duplica y no se persiste estado local. |
+| G. Respuesta incoherente | Fail-closed; nunca abre bootstrap ni presenta recovery como estado válido. |
+| H. Superficie informativa | No existe control frontend para ejecutar recovery. |
+
+**v4.4.1 solo puede considerarse terminada/desplegable cuando A y B hayan sido implementadas y validadas.** A/B no tienen que ser versiones públicas independientes. B Paso 3 mantiene implementación, regresión final y documentación operativa pendientes; no se declara v4.4.1 completada. Terminal, serverIdentity, acreditación y migración/restore siguen pendientes; v4.4 completa también sigue pendiente.
+
+**Pruebas contractuales a preservar y completar:** los Pasos 1 y 2 están implementados, validados y publicados; la cobertura UX y la regresión final del Paso 3 siguen pendientes.
 
 - Instalación de cualquiera de los dos orígenes con Admin activo: rechazo de recuperación innecesaria.
 - Admin desactivado con contraseña válida: reactivación de la cuenta seleccionada.
